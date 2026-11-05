@@ -1,0 +1,1339 @@
+-- The detail view: zooming the world map past its limit continues into the
+-- minimap's own terrain, drawn wherever you have explored, with every recorded
+-- location on top.
+--
+-- In continuous mode this is an input-transparent terrain layer following the
+-- native canvas. The standalone detail view supplies its own controls instead.
+--
+-- Everything is positioned on the "plane" (yards; x east, y south). A single scaled
+-- frame holds the terrain and map art, so panning or zooming is one SetPoint call.
+local _, ns = ...
+
+local DetailView = ns:NewModule("DetailView")
+
+local floor, ceil, min, max, abs = math.floor, math.ceil, math.min, math.max, math.abs
+local TILE, CELLS, CELL = ns.TILE, ns.CELLS, ns.CELL
+local HasBit -- set in OnInitialize (Exploration loads first)
+
+local ZOOM_STEP = 1.3
+local MIN_SPAN = 140      -- yards across the view at the closest zoom
+local MAX_SPAN = 6000     -- never show more than this many yards across
+local PLANE_LIMIT = 32 * TILE
+local PIN_SIZE = 20
+local UNDERLAY_SHADE = 0.85
+
+local view, plane, pinLayer, arrowFrame, hud
+local active, following = false, false
+local pinsOnly = false -- underground city art replaces terrain, never its markers
+local cont
+local cx, cy, scale = 0, 0, 1       -- current centre (plane yards) and UI units per yard
+local verticalRatio = 1            -- continuous map art can stretch the two axes differently
+local tcx, tcy, tscale = 0, 0, 1    -- animation targets
+local exitScale, maxScale = 1, 10
+local originMapID, underlayMapID
+local transformDirty, pinsDirty = true, true
+local dragging, dragMoved, dragX, dragY = false, false, 0, 0
+
+---------------------------------------------------------------------------
+-- Small pools
+---------------------------------------------------------------------------
+local freeTextures = {}
+
+local function AcquireTexture(layer, subLevel)
+	local tex = table.remove(freeTextures)
+	if not tex then
+		tex = plane:CreateTexture(nil, layer, nil, subLevel)
+	else
+		tex:SetDrawLayer(layer, subLevel)
+	end
+	tex:ClearAllPoints()
+	tex:SetVertexColor(1, 1, 1)
+	tex:SetDesaturation(0)
+	tex:SetAlpha(1)
+	tex:Show()
+	return tex
+end
+
+local function ReleaseTextures(list)
+	for i = #list, 1, -1 do
+		local tex = list[i]
+		tex:Hide()
+		tex:SetTexture(nil)
+		freeTextures[#freeTextures + 1] = tex
+		list[i] = nil
+	end
+end
+
+---------------------------------------------------------------------------
+-- Coordinates
+---------------------------------------------------------------------------
+local function ViewSize()
+	local w, h = view:GetSize()
+	return max(w, 1), max(h, 1)
+end
+
+-- Visible plane rectangle: left, right, top, bottom.
+local function VisibleRect(margin)
+	local w, h = ViewSize()
+	local hw, hh = w / (2 * scale), h / (2 * scale * verticalRatio)
+	margin = margin or 0
+	return cx - hw * (1 + margin), cx + hw * (1 + margin), cy - hh * (1 + margin), cy + hh * (1 + margin)
+end
+
+function DetailView:GetPinBounds()
+	if not active then return end
+	local l, r, t, b = VisibleRect(0.25)
+	return { cont = cont, minX = -b, maxX = -t, minY = -r, maxY = -l }
+end
+
+local function CursorInView()
+	local x, y = GetCursorPosition()
+	local s = view:GetEffectiveScale()
+	return x / s - view:GetLeft(), view:GetTop() - y / s
+end
+
+local function ViewToPlane(vx, vy, centerX, centerY, atScale)
+	local w, h = ViewSize()
+	return centerX + (vx - w / 2) / atScale, centerY + (vy - h / 2) / (atScale * verticalRatio)
+end
+
+local function PlaneToView(px, py)
+	local w, h = ViewSize()
+	return (px - cx) * scale + w / 2, (py - cy) * scale * verticalRatio + h / 2
+end
+
+---------------------------------------------------------------------------
+-- Terrain
+---------------------------------------------------------------------------
+local activeTiles = {} -- tileKey -> list of textures
+local tileRange       -- last visible tile range, to skip redundant updates
+DetailView.activeTiles = activeTiles -- exposed for tests
+
+local FULL = {}
+for r = 1, CELLS do FULL[r] = 2 ^ CELLS - 1 end
+
+-- Splits a tile's explored cells into as few rectangles as possible.
+local function Rectangles(rows)
+	local rects, open = {}, {}
+	for r = 0, CELLS - 1 do
+		local mask = rows[r + 1] or 0
+		local nextOpen = {}
+		local i = 0
+		while i < CELLS do
+			if HasBit(mask, i) then
+				local j = i + 1
+				while j < CELLS and HasBit(mask, j) do
+					j = j + 1
+				end
+				local key = i * 64 + j
+				local rect = open[key]
+				if rect then
+					rect[4] = r + 1
+				else
+					rect = { i, j, r, r + 1 } -- x0, x1, y0, y1 in cells
+					rects[#rects + 1] = rect
+				end
+				nextOpen[key] = rect
+				i = j
+			else
+				i = i + 1
+			end
+		end
+		open = nextOpen
+	end
+	return rects
+end
+ns.ExploredRectangles = Rectangles -- exposed for tests
+
+---------------------------------------------------------------------------
+-- Fog over unexplored terrain (Darkened mode)
+--
+-- Marching squares: the fog is laid on a grid offset by half a cell, so each piece's
+-- four corners sit on four exploration cells. Which corners are explored picks one of
+-- 16 soft-edged pieces (Media/Fog/Fog<case>.tga, see tools/make_fog.py); every point
+-- is covered by exactly one piece, so the fog never doubles up, and edges come out as
+-- smooth, rounded fades instead of the cell grid's right angles.
+---------------------------------------------------------------------------
+local FOG_PATH = "Interface\\AddOns\\Wayfinder\\Media\\Fog\\Fog"
+local FOG_R, FOG_G, FOG_B = 0.10, 0.11, 0.14
+DetailView.FUZZY_MIN_CELL_PIXELS = 6 -- below this, soft edges are too small to see
+local fuzzyBuilt -- whether the tiles on screen were built with soft fog edges
+
+--[[ Fog pieces for one tile, in cell units from the tile's top-left corner.
+explored(i, j) answers for cells -1..16 (neighbouring tiles included); missing.east,
+.west, .north, .south say which neighbours have no terrain, so no fog is drawn past
+the coast. Returns a list of { case, x0, x1, y0, y1, u0, u1, v0, v1 }; case 0 is
+solid fog (merged into rectangles where possible). ]]
+local function FogPieces(explored, missing)
+	local pieces = {}
+	local function E(i, j)
+		return explored(i, j) and 1 or 0
+	end
+	local function Add(i, j, case)
+		-- dual cell (i, j) spans from the centre of cell (i, j) to the centre of (i+1, j+1)
+		local x0, x1, y0, y1 = i + 0.5, i + 1.5, j + 0.5, j + 1.5
+		local cx0 = (i == -1) and 0 or x0
+		local cx1 = (i == CELLS - 1 and missing.east) and CELLS or x1
+		local cy0 = (j == -1) and 0 or y0
+		local cy1 = (j == CELLS - 1 and missing.south) and CELLS or y1
+		pieces[#pieces + 1] = { case, cx0, cx1, cy0, cy1, cx0 - x0, cx1 - x0, cy0 - y0, cy1 - y0 }
+	end
+
+	-- The tile's own 16x16 dual cells; solid ones are merged into rectangles.
+	local solid = {}
+	for j = 0, CELLS - 1 do
+		local mask = 0
+		for i = 0, CELLS - 1 do
+			local case = E(i, j) + 2 * E(i + 1, j) + 4 * E(i, j + 1) + 8 * E(i + 1, j + 1)
+			if case == 0 then
+				mask = mask + 2 ^ i
+			elseif case ~= 15 then
+				Add(i, j, case)
+			end
+		end
+		solid[j + 1] = mask
+	end
+	for _, rect in ipairs(Rectangles(solid)) do
+		local x0, x1, y0, y1 = rect[1] + 0.5, rect[2] + 0.5, rect[3] + 0.5, rect[4] + 0.5
+		if rect[2] == CELLS and missing.east then x1 = CELLS end
+		if rect[4] == CELLS and missing.south then y1 = CELLS end
+		pieces[#pieces + 1] = { 0, x0, x1, y0, y1, 0, 1, 0, 1 }
+	end
+
+	-- Along a coast the neighbour builds nothing, so this tile covers the half cell
+	-- between its edge and its first cell centres.
+	local function Edge(i, j)
+		local case = E(i, j) + 2 * E(i + 1, j) + 4 * E(i, j + 1) + 8 * E(i + 1, j + 1)
+		if case ~= 15 then
+			Add(i, j, case)
+		end
+	end
+	if missing.west then
+		for j = (missing.north and -1 or 0), CELLS - 1 do
+			Edge(-1, j)
+		end
+	end
+	if missing.north then
+		for i = 0, CELLS - 1 do
+			Edge(i, -1)
+		end
+	end
+	return pieces
+end
+ns.FogPieces = FogPieces -- exposed for tests
+
+local function TileRows(col, row)
+	if ns:GetSetting("unexploredTerrain") == ns.UNEXPLORED_SHOWN then
+		return FULL
+	end
+	return ns.Exploration:GetTileRows(cont, col * 100 + row)
+end
+
+local function HasTile(col, row)
+	return ns.TileData[cont] and ns.TileData[cont][col * 100 + row] ~= nil
+end
+
+-- explored(i, j) for cells of tile (col, row) and the cells just beyond its edges.
+local function ExploredLookup(col, row)
+	local rowsOf = {}
+	local function Rows(dc, dr)
+		local key = (dc + 1) * 3 + (dr + 1)
+		local rows = rowsOf[key]
+		if rows == nil then
+			rows = TileRows(col + dc, row + dr) or false
+			rowsOf[key] = rows
+		end
+		return rows
+	end
+	return function(i, j)
+		local dc, dr = 0, 0
+		if i < 0 then dc, i = -1, i + CELLS elseif i >= CELLS then dc, i = 1, i - CELLS end
+		if j < 0 then dr, j = -1, j + CELLS elseif j >= CELLS then dr, j = 1, j - CELLS end
+		local rows = Rows(dc, dr)
+		return rows and HasBit(rows[j + 1] or 0, i) or false
+	end
+end
+
+local function AddFogTexture(list, ox, oy, piece, alpha)
+	local case, x0, x1, y0, y1 = piece[1], piece[2], piece[3], piece[4], piece[5]
+	local tex = AcquireTexture("ARTWORK", 2)
+	if case == 0 then
+		tex:SetColorTexture(FOG_R, FOG_G, FOG_B, 1)
+	else
+		tex:SetTexture(FOG_PATH .. case, "CLAMP", "CLAMP", "LINEAR")
+		tex:SetTexCoord(piece[6], piece[7], piece[8], piece[9])
+		tex:SetVertexColor(FOG_R, FOG_G, FOG_B)
+	end
+	tex:SetAlpha(alpha)
+	tex:SetSize((x1 - x0) * CELL, (y1 - y0) * CELL * verticalRatio)
+	tex:SetPoint("TOPLEFT", plane, "TOPLEFT", ox + x0 * CELL, -(oy + y0 * CELL) * verticalRatio)
+	list[#list + 1] = tex
+end
+
+local function BuildTile(col, row)
+	local key = col * 100 + row
+	local list = activeTiles[key] or {}
+	activeTiles[key] = list
+	ReleaseTextures(list)
+	local fileID = ns.TileData[cont] and ns.TileData[cont][key]
+	if not fileID then
+		return
+	end
+	local mode = ns:GetSetting("unexploredTerrain")
+	local rows = TileRows(col, row)
+	local ox, oy = ns.TileOrigin(col, row)
+
+	if mode ~= ns.UNEXPLORED_HIDDEN then
+		-- Shown and Darkened: the whole tile at full brightness ...
+		local tex = AcquireTexture("ARTWORK", 0)
+		tex:SetTexture(fileID, "CLAMP", "CLAMP", "LINEAR")
+		tex:SetTexCoord(0, 1, 0, 1)
+		tex:SetSize(TILE, TILE * verticalRatio)
+		tex:SetPoint("TOPLEFT", plane, "TOPLEFT", ox, -oy * verticalRatio)
+		list[#list + 1] = tex
+		if mode ~= ns.UNEXPLORED_DARKENED then
+			return
+		end
+		-- The stitched map's single fog layer also covers its painted artwork.
+		if following and ns.ContinuousMap.started then return end
+		-- ... with fog over what you have not explored.
+		local alpha = 1 - (ns:GetSetting("unexploredBrightness") or 0.4)
+		if fuzzyBuilt then
+			local missing = {
+				west = not HasTile(col - 1, row), east = not HasTile(col + 1, row),
+				north = not HasTile(col, row - 1), south = not HasTile(col, row + 1),
+			}
+			for _, piece in ipairs(FogPieces(ExploredLookup(col, row), missing)) do
+				AddFogTexture(list, ox, oy, piece, alpha)
+			end
+		else
+			-- Zoomed far out: plain fog over each unexplored cell.
+			local unexplored = {}
+			for r = 1, CELLS do
+				unexplored[r] = 2 ^ CELLS - 1 - (rows and rows[r] or 0)
+			end
+			for _, rect in ipairs(Rectangles(unexplored)) do
+				AddFogTexture(list, ox, oy, { 0, rect[1], rect[2], rect[3], rect[4] }, alpha)
+			end
+		end
+		return
+	end
+
+	-- Hidden: only the explored cells, over the zone's map art.
+	if not rows then
+		return
+	end
+	for _, rect in ipairs(Rectangles(rows)) do
+		local x0, x1, y0, y1 = rect[1], rect[2], rect[3], rect[4]
+		local tex = AcquireTexture("ARTWORK", 1)
+		tex:SetTexture(fileID, "CLAMP", "CLAMP", "LINEAR")
+		tex:SetTexCoord(x0 / CELLS, x1 / CELLS, y0 / CELLS, y1 / CELLS)
+		tex:SetSize((x1 - x0) * CELL, (y1 - y0) * CELL * verticalRatio)
+		tex:SetPoint("TOPLEFT", plane, "TOPLEFT", ox + x0 * CELL, -(oy + y0 * CELL) * verticalRatio)
+		list[#list + 1] = tex
+	end
+end
+
+local function ReleaseAllTiles()
+	for key, list in pairs(activeTiles) do
+		ReleaseTextures(list)
+		activeTiles[key] = nil
+	end
+	tileRange = nil
+end
+
+local function UpdateTiles(force)
+	if pinsOnly then return end
+	local l, r, t, b = VisibleRect(0.15)
+	local c0, c1 = floor(l / TILE + 32), floor(r / TILE + 32)
+	local r0, r1 = floor(t / TILE + 32), floor(b / TILE + 32)
+	local range = c0 .. ":" .. c1 .. ":" .. r0 .. ":" .. r1
+	if not force and range == tileRange then
+		return
+	end
+	tileRange = range
+	for key, list in pairs(activeTiles) do
+		local col, row = ns.SplitTileKey(key)
+		if col < c0 or col > c1 or row < r0 or row > r1 then
+			ReleaseTextures(list)
+			activeTiles[key] = nil
+		end
+	end
+	for col = c0, c1 do
+		for row = r0, r1 do
+			if force or not activeTiles[col * 100 + row] then
+				BuildTile(col, row)
+			end
+		end
+	end
+end
+
+---------------------------------------------------------------------------
+-- Map art under the terrain (the zone's world map, as Blizzard draws it)
+---------------------------------------------------------------------------
+local underlay = {}
+
+local function SetUnderlay(mapID)
+	if mapID == underlayMapID then
+		return
+	end
+	ReleaseTextures(underlay)
+	underlayMapID = mapID
+	local rect = mapID and ns.GetMapRect(mapID)
+	if not rect or rect.cont ~= cont then
+		return
+	end
+	local layers = C_Map.GetMapArtLayers(mapID)
+	local layer = layers and layers[1]
+	local textures = C_Map.GetMapArtLayerTextures(mapID, 1)
+	if not layer or not textures then
+		return
+	end
+	local tw, th = layer.tileWidth, layer.tileHeight
+	local kx, ky = rect.width / layer.layerWidth, rect.height / layer.layerHeight
+	local left, top = -rect.left, -rect.top
+
+	local cols = ceil(layer.layerWidth / tw)
+	local rows = ceil(layer.layerHeight / th)
+	for row = 1, rows do
+		for col = 1, cols do
+			local fileID = textures[(row - 1) * cols + col]
+			if fileID then
+				local pw = min(tw, layer.layerWidth - (col - 1) * tw)
+				local ph = min(th, layer.layerHeight - (row - 1) * th)
+				local tex = AcquireTexture("BACKGROUND", 0)
+				tex:SetTexture(fileID, nil, nil, "TRILINEAR")
+				tex:SetTexCoord(0, pw / tw, 0, ph / th)
+				tex:SetSize(pw * kx, ph * ky)
+				tex:SetPoint("TOPLEFT", plane, "TOPLEFT", left + (col - 1) * tw * kx, -(top + (row - 1) * th * ky))
+				tex:SetVertexColor(UNDERLAY_SHADE, UNDERLAY_SHADE, UNDERLAY_SHADE)
+				underlay[#underlay + 1] = tex
+			end
+		end
+	end
+
+	local overlays = C_MapExplorationInfo and C_MapExplorationInfo.GetExploredMapTextures(mapID)
+	for _, info in ipairs(overlays or {}) do
+		ns.LayoutExplorationOverlay(info, tw, th, function(fileID, x, y, width, height, u, v, level)
+			local tex = AcquireTexture("BACKGROUND", level)
+			tex:SetTexture(fileID, nil, nil, "TRILINEAR")
+			tex:SetTexCoord(0, u, 0, v)
+			tex:SetSize(width * kx, height * ky)
+			tex:SetPoint("TOPLEFT", plane, "TOPLEFT", left + x * kx, -(top + y * ky))
+			tex:SetVertexColor(UNDERLAY_SHADE, UNDERLAY_SHADE, UNDERLAY_SHADE)
+			underlay[#underlay + 1] = tex
+		end)
+	end
+	pinsDirty = true -- live quest markers belong to the underlay's zone
+end
+
+-- The zone-level map at a plane position, or nil over open sea.
+local function ZoneAt(px, py)
+	local wx, wy = ns.PlaneToWorld(px, py)
+	local ok, mapID = pcall(C_Map.GetMapPosFromWorldPos, cont, CreateVector2D(wx, wy))
+	if not ok or not mapID then
+		return nil
+	end
+	local info = C_Map.GetMapInfo(mapID)
+	local guard = 0
+	while info and info.mapType > Enum.UIMapType.Zone and info.parentMapID and info.parentMapID ~= 0 and guard < 8 do
+		mapID = info.parentMapID
+		info = C_Map.GetMapInfo(mapID)
+		guard = guard + 1
+	end
+	if info and info.mapType == Enum.UIMapType.Zone then
+		return mapID
+	end
+end
+
+---------------------------------------------------------------------------
+-- Icons
+---------------------------------------------------------------------------
+local freePins, activePins = {}, {}
+
+local function PinOnEnter(pin)
+	if pin.external then
+		if ns.AddonPins:ShowTooltip(pin, pin.external) then return end
+		GameTooltip:SetOwner(pin, "ANCHOR_RIGHT")
+		GameTooltip:SetText(pin.external.n, 1, 0.82, 0)
+		GameTooltip:AddLine("Middle-click to set a waypoint here", 0.5, 0.5, 0.5)
+		GameTooltip:Show()
+	elseif pin.quest then
+		GameTooltip:SetOwner(pin, "ANCHOR_RIGHT")
+		GameTooltip:SetText(pin.quest.questName or QUESTS_LABEL or "Quest", 1, 0.82, 0)
+		GameTooltip:AddLine(pin.quest.turnIn and "Ready to turn in" or "Available quest", 0.8, 0.8, 0.8)
+		GameTooltip:Show()
+	else
+		ns.Tooltip:Show(pin, pin.rec, pin.catID)
+	end
+end
+
+local function PinOnLeave(pin)
+	ns.AddonPins:HideTooltip(pin)
+	GameTooltip:Hide()
+end
+
+local function PinOnMouseDown(_, button)
+	if button == "LeftButton" and not following then
+		DetailView:BeginDrag()
+	end
+end
+
+local function PinOnMouseUp(pin, button)
+	if following and button == "LeftButton" then return end
+	if button == "LeftButton" then
+		local moved = DetailView:EndDrag()
+		if not moved and pin.rec and pin:IsMouseOver() then
+			if IsShiftKeyDown() then
+				if pin.rec.waypoint then
+					ns.Navigation:ClearWaypoint()
+				else
+					ns:RemoveLocation(pin.rec)
+				end
+			elseif pin.rec.waypoint then
+				ns.Navigation:CopyWaypoint(pin.rec)
+			end
+		end
+	elseif button == "MiddleButton" and pin:IsMouseOver() then
+		if pin.external then
+			ns.AddonPins:NavigateTo(pin.external)
+		elseif pin.rec then
+			ns.Navigation:ToggleWaypointAt(pin.rec, pin.catID)
+		elseif pin.quest then
+			local wx, wy = ns.PlaneToWorld(pin.px, pin.py)
+			ns.Navigation:SetWaypoint(cont, wx, wy, pin.quest.questName, pin.mapID or underlayMapID)
+		end
+	end
+end
+
+local function AcquirePin()
+	local pin = table.remove(freePins)
+	if not pin then
+		pin = CreateFrame("Frame", nil, pinLayer)
+		pin:EnableMouse(true)
+		pin:SetPassThroughButtons("RightButton")
+		pin.icon = pin:CreateTexture(nil, "ARTWORK")
+		pin.icon:SetAllPoints()
+		pin.highlight = pin:CreateTexture(nil, "HIGHLIGHT")
+		pin.highlight:SetAllPoints()
+		pin.highlight:SetBlendMode("ADD")
+		pin.highlight:SetAlpha(0.45)
+		pin:SetScript("OnEnter", PinOnEnter)
+		pin:SetScript("OnLeave", PinOnLeave)
+		pin:SetScript("OnMouseDown", PinOnMouseDown)
+		pin:SetScript("OnMouseUp", PinOnMouseUp)
+	end
+	pin.rec, pin.catID, pin.quest, pin.external, pin.marker = nil, nil, nil, nil, nil
+	pin.mapID = underlayMapID
+	if following then pin:SetPassThroughButtons("LeftButton", "RightButton")
+	else pin:SetPassThroughButtons("RightButton") end
+	pin.icon:Show()
+	pin.highlight:Show()
+	pin:SetFrameLevel(pinLayer:GetFrameLevel() + 1)
+	pin:Show()
+	activePins[#activePins + 1] = pin
+	return pin
+end
+
+local function ReleasePins(keepTooltip)
+	if not keepTooltip then ns.AddonPins:HideTooltip() end
+	for i = #activePins, 1, -1 do
+		local pin = activePins[i]
+		pin:Hide()
+		pin:ClearAllPoints()
+		pin.rec, pin.quest, pin.external = nil, nil, nil
+		for _, texture in ipairs(pin.externalTextures or {}) do texture:Hide() end
+		freePins[#freePins + 1] = pin
+		activePins[i] = nil
+	end
+end
+
+local function PositionPins()
+	local pc,wx,wy=ns.GetPlayerWorld()
+	local playerX,playerY
+	if pc==cont then playerX,playerY=PlaneToView(ns.WorldToPlane(wx,wy)) end
+	for i = 1, #activePins do
+		local pin = activePins[i]
+		local vx, vy = PlaneToView(pin.px, pin.py)
+		local cat=pin.catID or pin.external and pin.external.service
+		if playerX and cat and ns.Distance(-pin.py,-pin.px,wx,wy)<=15 then
+			local dx,dy=ns.ServiceLocations:PlayerOffset(vx,vy,playerX,playerY,14+pin:GetWidth()/2+3,cat)
+			vx,vy=vx+dx,vy+dy
+		end
+		pin:SetPoint("CENTER", view, "TOPLEFT", vx, -vy)
+	end
+end
+
+local function DescribePin(pin, index)
+	local rec, entry, quest = pin.rec, pin.external, pin.quest
+	local turnIn = (entry and entry.turnIn) or (quest and quest.turnIn)
+	local isQuest = turnIn or quest or pin.catID == "quest" or (entry and entry.questID)
+	local giver = quest or pin.catID == "quest" or (entry and entry.giver)
+	local service = (rec and not rec.waypoint and pin.catID ~= "quest") or (entry and entry.service)
+	return { npcID = rec and rec.id or entry and entry.npcID,
+		name = rec and rec.n or entry and (entry.kind or service) and entry.n,
+		id = rec and rec.id or entry and entry.npcID,
+		c = rec and rec.c or entry and entry.c,
+		kind = rec and rec.kind, seed = rec and rec.seed, cats = rec and rec.cats,
+		n = rec and rec.n or entry and (entry.kind or service) and entry.n,
+		x = -pin.py, y = -pin.px, cat = pin.catID or entry and entry.service,
+		questID = quest and quest.questID or entry and entry.questID,
+		giver = giver, service = service, isQuest = isQuest,
+		rank = rec and rec.waypoint and 4 or turnIn and 3 or isQuest and 2 or 1,
+		quality = isQuest and (entry and 3 or quest and 2 or 1) or (rec and not rec.ephemeral) and 3 or entry and 2 or 1,
+		index = index }
+end
+
+-- Match identities near their actual locations, never whole screen clusters.
+-- Different nearby NPCs and separate objective spawns must remain distinct.
+local function SameMarker(a, b)
+	local x, y = a.marker, b.marker
+	if x.service and y.service then
+		local ax, ay = PlaneToView(a.px,a.py)
+		local bx, by = PlaneToView(b.px,b.py)
+		return ns.ServiceLocations:Same(x,y) or ns.ServiceLocations:Overlaps(x,y,ns.Distance(ax,ay,bx,by))
+	end
+	local distance = ns.Distance(a.px, a.py, b.px, b.py)
+	if distance > 25 then return false end
+	if x.npcID and y.npcID then return x.npcID == y.npcID end
+	local named = x.name and y.name and x.name ~= "Map icon" and y.name ~= "Map icon"
+	if named and x.name ~= y.name then return false end
+	if x.questID and x.questID == y.questID then
+		return (x.giver and y.giver) or distance < 0.5
+	end
+	if not ((x.giver or x.service) and (y.giver or y.service)) then return false end
+	if x.npcID and x.npcID == y.npcID then return true end
+	if named then
+		return x.name == y.name and (x.npcID or y.npcID or x.giver or y.giver or distance < 2)
+	end
+	return distance < 2
+end
+
+local function ResolvePins()
+	local ordered = {}
+	for index, pin in ipairs(activePins) do
+		if pin:IsShown() then
+			pin.marker = DescribePin(pin, index)
+			ordered[#ordered + 1] = pin
+		end
+	end
+	table.sort(ordered, function(a, b)
+		local x, y = a.marker, b.marker
+		if x.rank ~= y.rank then return x.rank > y.rank end
+		if x.quality ~= y.quality then return x.quality > y.quality end
+		if x.service and not y.service then return true end
+		if y.service and not x.service then return false end
+		if x.service and y.service then
+			if ns.ServiceLocations:Less(x,y) then return true end
+			if ns.ServiceLocations:Less(y,x) then return false end
+		end
+		return x.index < y.index
+	end)
+	local kept = {}
+	for _, pin in ipairs(ordered) do
+		local duplicate
+		for _, prior in ipairs(kept) do
+			if pin.marker.rank ~= 4 and prior.marker.rank ~= 4 and SameMarker(pin, prior) then
+				duplicate = true
+				break
+			end
+		end
+		if duplicate then pin:Hide()
+		else
+			pin:SetFrameLevel(pinLayer:GetFrameLevel() + pin.marker.rank)
+			kept[#kept + 1] = pin
+		end
+	end
+end
+
+local function AddQuestPins(l, r, t, b, size)
+	if not ns:GetSetting("showLiveQuests") or not ns:IsCategoryEnabled("quest") then
+		return
+	end
+	if not underlayMapID or not C_QuestLine or not C_QuestLine.GetAvailableQuestLines then
+		return
+	end
+	local ok, lines = pcall(C_QuestLine.GetAvailableQuestLines, underlayMapID)
+	if not ok or type(lines) ~= "table" then
+		return
+	end
+	for _, info in ipairs(lines) do
+		if ns.QuestAvailability:IsLiveQuestAvailable(info)
+			and ns.Readable(info.x) and ns.Readable(info.y)
+			and type(info.x) == "number" and type(info.y) == "number" then
+			local _, wx, wy = ns.MapToWorld(underlayMapID, info.x, info.y)
+			if wx then
+				local px, py = ns.WorldToPlane(wx, wy)
+				local hidden = ns.QuestAvailability:ShouldHideLiveQuestAt(cont, wx, wy, info.questID)
+				if not hidden and px >= l and px <= r and py >= t and py <= b then
+					local pin = AcquirePin()
+					pin.quest = info
+					pin.px, pin.py = px, py
+					pin:SetSize(size, size)
+					ns.Categories:ApplyIcon(pin.icon, "quest")
+					ns.Categories:ApplyIcon(pin.highlight, "quest")
+					pin.icon:SetAlpha(1)
+				end
+			end
+		end
+	end
+end
+
+local function RefreshPins()
+	pinsDirty = false
+	ReleasePins(true)
+	local l, r, t, b = VisibleRect(0.2)
+	-- plane -> world box (wx = -py, wy = -px)
+	local minX, maxX, minY, maxY = -b, -t, -r, -l
+	local size = PIN_SIZE * (ns:GetSetting("detailIconScale") or 1)
+	local function Add(rec)
+		local catID = ns.Categories:GetVisibleCategory(rec)
+		if catID then
+			local pin = AcquirePin()
+			pin.rec, pin.catID = rec, catID
+			pin.px, pin.py = ns.WorldToPlane(rec.x, rec.y)
+			pin:SetSize(size, size)
+			ns.Categories:ApplyIcon(pin.icon, catID, rec)
+			ns.Categories:ApplyIcon(pin.highlight, catID, rec)
+			pin.icon:SetAlpha((not rec.seed and (rec.a or 0) > 20) and 0.7 or 1)
+		end
+	end
+	ns.Database:Query(cont, minX, maxX, minY, maxY, Add)
+	ns.Seeds:Query(cont, minX, maxX, minY, maxY, Add)
+	-- The service index survives canvas zoom fading and contains both world
+	-- and minimap sources, so crossing the terrain threshold loses no services.
+	ns.MinimapTurnIns:QueryServices(cont, minX, maxX, minY, maxY, Add)
+	local questMaps, savedMap = {}, underlayMapID
+	if following then
+		for _, id in ipairs(ns.ContinuousEngine.MapStitch.VisibleMaps()) do
+			local rect = ns.GetMapRect(id)
+			if rect and rect.cont == cont then questMaps[#questMaps + 1] = id end
+		end
+	elseif underlayMapID then questMaps[1] = underlayMapID end
+	for _, id in ipairs(questMaps) do
+		underlayMapID = id
+		AddQuestPins(l, r, t, b, size)
+	end
+	underlayMapID = savedMap
+	local mirroredTurnIns, sources = {}, {}
+	ns.AddonPins:Query(cont, minX, maxX, minY, maxY, function(entry)
+		if entry.service and not ns.Categories:GetVisibleCategory({cats={[entry.service]=true},a=0}) then
+			if following then sources[entry.source] = true end
+			return
+		end
+		local pin = AcquirePin()
+		pin.external = entry
+		pin.px, pin.py = ns.WorldToPlane(entry.x, entry.y)
+		pin.icon:Hide()
+		pin.highlight:Hide()
+		local ok, shown = pcall(ns.AddonPins.ApplyAppearance, ns.AddonPins, pin, entry)
+		if not ok or not shown then pin:Hide() end
+		if ok and shown and following then sources[entry.source] = true end
+		if ok and shown and entry.turnIn then
+			pin:SetFrameLevel(pinLayer:GetFrameLevel() + 2)
+			mirroredTurnIns[entry.questID] = true
+		end
+	end)
+
+	-- The available-quest API excludes accepted quests. The quest log supplies
+	-- their map POIs even when their original buttons cannot be mirrored.
+	if ns:GetSetting("showLiveQuests") and ns:IsCategoryEnabled("quest") then
+		for _, mapID in ipairs(questMaps) do
+			underlayMapID = mapID
+			for _, info in ipairs(ns.QuestTurnIns:GetForMap(mapID)) do
+				if not mirroredTurnIns[info.questID] then
+					local _, wx, wy = ns.MapToWorld(underlayMapID, info.x, info.y)
+					if wx then
+						local px, py = ns.WorldToPlane(wx, wy)
+						if px >= l and px <= r and py >= t and py <= b then
+							local pin = AcquirePin()
+							mirroredTurnIns[info.questID] = true
+							pin.quest, pin.px, pin.py = info, px, py
+							pin:SetSize(size, size)
+							pin:SetFrameLevel(pinLayer:GetFrameLevel() + 2)
+							ns.Categories:ApplyTurnInIcon(pin.icon)
+							ns.Categories:ApplyTurnInIcon(pin.highlight)
+							pin.icon:SetAlpha(1)
+						end
+					end
+				end
+			end
+		end
+	end
+	underlayMapID = savedMap
+
+	local waypoint = ns.Navigation:GetWaypoint()
+	if waypoint and waypoint.c == cont then
+		local px, py = ns.WorldToPlane(waypoint.x, waypoint.y)
+		if px >= l and px <= r and py >= t and py <= b then
+			local pin = AcquirePin()
+			pin.rec, pin.catID = waypoint, "waypoint"
+			pin.px, pin.py = px, py
+			pin:SetSize(size * 1.3, size * 1.3)
+			pin:SetFrameLevel(pinLayer:GetFrameLevel() + 3) -- above the other icons
+			ns.Categories:ApplyIcon(pin.icon, "waypoint")
+			ns.Categories:ApplyIcon(pin.highlight, "waypoint")
+			pin.icon:SetAlpha(1)
+		end
+	end
+	ResolvePins()
+	ns.AddonPins:SyncSources(sources)
+	PositionPins()
+	ns.AddonPins:RestoreTooltip(activePins)
+	DetailView.pinRect = { l, r, t, b }
+end
+
+local pinRefreshPending
+local function MarkPins()
+	pinsDirty = true
+	if following and not pinRefreshPending then
+		pinRefreshPending = true
+		C_Timer.After(0, function()
+			pinRefreshPending = nil
+			if active and following and pinsDirty then RefreshPins() end
+		end)
+	end
+end
+
+---------------------------------------------------------------------------
+-- Player arrow and cursor coordinates
+---------------------------------------------------------------------------
+local function UpdateArrow()
+	local pcont, wx, wy = ns.GetPlayerWorld()
+	if pcont ~= cont then
+		arrowFrame:Hide()
+		return
+	end
+	local px, py = ns.WorldToPlane(wx, wy)
+	local vx, vy = PlaneToView(px, py)
+	arrowFrame:ClearAllPoints()
+	arrowFrame:SetPoint("CENTER", view, "TOPLEFT", vx, -vy)
+	local facing = GetPlayerFacing()
+	if facing then
+		arrowFrame.texture:SetRotation(facing)
+	end
+	arrowFrame:Show()
+end
+
+local function UpdateCoordinates()
+	local px, py
+	if view:IsMouseOver() then
+		local vx, vy = CursorInView()
+		px, py = ViewToPlane(vx, vy, cx, cy, scale)
+	else
+		local pcont, wx, wy = ns.GetPlayerWorld()
+		if pcont == cont then
+			px, py = ns.WorldToPlane(wx, wy)
+		end
+	end
+	if not px then
+		hud.coords:SetText("")
+		return
+	end
+	local wx, wy = ns.PlaneToWorld(px, py)
+	-- Coordinates on the zone under the view, like the world map would show them.
+	local mapID = ZoneAt(px, py) or underlayMapID
+	local rect = mapID and ns.GetMapRect(mapID)
+	if rect and rect.cont == cont then
+		local x, y = ns.WorldToMapRect(rect, wx, wy)
+		if x >= 0 and x <= 1 and y >= 0 and y <= 1 then
+			local info = C_Map.GetMapInfo(mapID)
+			hud.coords:SetFormattedText("%s   %.1f, %.1f", info and info.name or "", x * 100, y * 100)
+			return
+		end
+	end
+	hud.coords:SetText("")
+end
+
+---------------------------------------------------------------------------
+-- Transform and animation
+---------------------------------------------------------------------------
+local function ClampCenter()
+	tcx = min(max(tcx, -PLANE_LIMIT), PLANE_LIMIT)
+	tcy = min(max(tcy, -PLANE_LIMIT), PLANE_LIMIT)
+end
+
+local function ApplyTransform()
+	transformDirty = false
+	local w, h = ViewSize()
+	plane:SetScale(scale)
+	plane:ClearAllPoints()
+	plane:SetPoint("TOPLEFT", view, "TOPLEFT", (w / 2 - cx * scale) / scale, -(h / 2 - cy * scale * verticalRatio) / scale)
+	-- Soft fog edges only where a cell is big enough on screen for them to show.
+	local fuzzy = scale * CELL >= DetailView.FUZZY_MIN_CELL_PIXELS
+	if fuzzy ~= fuzzyBuilt then
+		fuzzyBuilt = fuzzy
+		UpdateTiles(true)
+	else
+		UpdateTiles(false)
+	end
+	local rect = DetailView.pinRect
+	local l, r, t, b = VisibleRect(0)
+	if pinsDirty or not rect or l < rect[1] or r > rect[2] or t < rect[3] or b > rect[4] then
+		-- Discover newly exposed addon pins before rebuilding the visible set.
+		-- Scanning is coalesced; smooth transforms inside the margin only move pins.
+		ns.AddonPins:RequestRefresh()
+		RefreshPins()
+	else
+		PositionPins()
+	end
+	if not following then UpdateArrow() end
+end
+
+local function OnUpdate(_, elapsed)
+	if following then return end -- follows the native canvas, without a second animation
+	if dragging and not IsMouseButtonDown("LeftButton") then
+		-- released outside the view, so OnMouseUp never arrived
+		dragging = false
+	end
+	if dragging then
+		local vx, vy = CursorInView()
+		local dx, dy = vx - dragX, vy - dragY
+		if dx ~= 0 or dy ~= 0 then
+			if abs(dx) + abs(dy) > 2 then
+				dragMoved = true
+			end
+			dragX, dragY = vx, vy
+			tcx = tcx - dx / scale
+			tcy = tcy - dy / scale
+			ClampCenter()
+			cx, cy = tcx, tcy
+			transformDirty = true
+		end
+	end
+
+	if scale ~= tscale or cx ~= tcx or cy ~= tcy then
+		local k = min(1, elapsed * 14)
+		scale = scale + (tscale - scale) * k
+		cx = cx + (tcx - cx) * k
+		cy = cy + (tcy - cy) * k
+		if abs(scale - tscale) < tscale * 0.002 and abs(cx - tcx) * scale < 0.5 and abs(cy - tcy) * scale < 0.5 then
+			scale, cx, cy = tscale, tcx, tcy
+		end
+		transformDirty = true
+	end
+
+	if transformDirty then
+		ApplyTransform()
+	else
+		UpdateArrow()
+	end
+
+	DetailView.slowTimer = (DetailView.slowTimer or 0) + elapsed
+	if DetailView.slowTimer > 0.1 then
+		DetailView.slowTimer = 0
+		UpdateCoordinates()
+		if scale == tscale and not dragging then
+			local zone = ZoneAt(cx, cy)
+			if zone and zone ~= underlayMapID then
+				SetUnderlay(zone)
+			end
+			if pinsDirty then
+				RefreshPins()
+			end
+		end
+	end
+end
+
+function DetailView:ZoomAt(factor, vx, vy)
+	local w, h = ViewSize()
+	vx, vy = vx or w / 2, vy or h / 2
+	local newScale = min(max(tscale * factor, exitScale), maxScale)
+	-- keep the point under the cursor fixed
+	local px, py = ViewToPlane(vx, vy, tcx, tcy, tscale)
+	tcx = px - (vx - w / 2) / newScale
+	tcy = py - (vy - h / 2) / newScale
+	tscale = newScale
+	ClampCenter()
+end
+
+-- Where the view is heading: continent and plane coordinates of its centre.
+function DetailView:GetCenter()
+	return cont, tcx, tcy
+end
+
+-- Slides the view over to the player; false when they are on another continent.
+function DetailView:CenterOnPlayer()
+	local pcont, wx, wy = ns.GetPlayerWorld()
+	if not active or pcont ~= cont then
+		return false
+	end
+	tcx, tcy = ns.WorldToPlane(wx, wy)
+	ClampCenter()
+	return true
+end
+
+function DetailView:BeginDrag()
+	dragging, dragMoved = true, false
+	dragX, dragY = CursorInView()
+	tcx, tcy, tscale = cx, cy, scale -- stop any glide
+end
+
+function DetailView:EndDrag()
+	local moved = dragMoved
+	dragging, dragMoved = false, false
+	return moved
+end
+
+---------------------------------------------------------------------------
+-- Frames
+---------------------------------------------------------------------------
+local function UpdateFrameLevel()
+	local container = WorldMapFrame:GetCanvasContainer()
+	local manager = WorldMapFrame.GetPinFrameLevelsManager and WorldMapFrame:GetPinFrameLevelsManager()
+	local topPinLevel = manager and manager.maxLevel or 3000
+	if ns.OpenMapCompat:IsActive() then
+		topPinLevel = max(topPinLevel, container:GetFrameLevel() + 8600)
+	end
+	view:SetFrameLevel(min(topPinLevel + 20, 9000))
+end
+
+local function CreateFrames()
+	local container = WorldMapFrame:GetCanvasContainer()
+	view = CreateFrame("Frame", "WayfinderDetailView", container)
+	view:SetAllPoints(container)
+	UpdateFrameLevel()
+	view:SetClipsChildren(true)
+	view:EnableMouse(true)
+	view:EnableMouseWheel(true)
+	view:Hide()
+
+	local background = view:CreateTexture(nil, "BACKGROUND", nil, -8)
+	view.background = background
+	background:SetAllPoints()
+	background:SetColorTexture(0.05, 0.07, 0.09, 1)
+
+	plane = CreateFrame("Frame", nil, view)
+	plane:SetSize(1, 1)
+	plane:SetFrameLevel(view:GetFrameLevel() + 1)
+
+	pinLayer = CreateFrame("Frame", nil, view)
+	pinLayer:SetAllPoints()
+	pinLayer:SetIgnoreParentAlpha(true) -- only terrain fades; markers remain legible
+	pinLayer:SetFrameLevel(view:GetFrameLevel() + 5)
+
+	arrowFrame = CreateFrame("Frame", nil, view)
+	arrowFrame:SetSize(28, 28)
+	arrowFrame:SetFrameLevel(view:GetFrameLevel() + 8)
+	arrowFrame.texture = arrowFrame:CreateTexture(nil, "OVERLAY")
+	arrowFrame.texture:SetAllPoints()
+	local arrowAtlas = ns.Categories.playerArrowAtlas
+	if arrowAtlas then
+		arrowFrame.texture:SetAtlas(arrowAtlas)
+	else
+		arrowFrame.texture:SetTexture(ns.Categories:GetMediaPath("PlayerArrow"))
+	end
+
+	hud = CreateFrame("Frame", nil, view)
+	hud:SetAllPoints()
+	hud:SetFrameLevel(view:GetFrameLevel() + 10)
+
+	hud.coords = hud:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+	hud.coords:SetPoint("BOTTOM", 0, 10)
+	hud.coords:SetShadowOffset(1, -1)
+
+	hud.hint = hud:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	hud.hint:SetPoint("TOP", 0, -12)
+	hud.hint:SetText("Detail view: scroll to zoom, drag to pan, right-click or zoom out to return")
+	hud.hint:SetShadowOffset(1, -1)
+
+	local back = CreateFrame("Button", nil, hud, "UIPanelButtonTemplate")
+	back:SetText("Back to map")
+	back:SetSize(110, 22)
+	back:SetPoint("BOTTOMRIGHT", -10, 8)
+	back:SetScript("OnClick", function()
+		DetailView:Exit()
+	end)
+
+	view:SetScript("OnMouseWheel", function(_, delta)
+		if delta < 0 and tscale <= exitScale * 1.001 then
+			DetailView:Exit()
+			return
+		end
+		DetailView:ZoomAt(ZOOM_STEP ^ delta, CursorInView())
+	end)
+	view:SetScript("OnMouseDown", function(_, button)
+		if button == "LeftButton" then
+			DetailView:BeginDrag()
+		end
+	end)
+	view:SetScript("OnMouseUp", function(_, button)
+		if button == "LeftButton" then
+			DetailView:EndDrag()
+		elseif button == "RightButton" then
+			DetailView:Exit()
+		elseif button == "MiddleButton" then
+			local vx, vy = CursorInView()
+			local wx, wy = ns.PlaneToWorld(ViewToPlane(vx, vy, cx, cy, scale))
+			ns.Navigation:SetWaypoint(cont, wx, wy, nil, underlayMapID)
+		end
+	end)
+	view:SetScript("OnSizeChanged", function()
+		if active then
+			transformDirty = true
+			pinsDirty = true
+		end
+	end)
+	view:SetScript("OnUpdate", OnUpdate)
+end
+
+---------------------------------------------------------------------------
+-- Entering and leaving
+---------------------------------------------------------------------------
+function DetailView:IsActive()
+	return active and not following
+end
+
+function DetailView:IsFollowingMap() return active and following end
+function DetailView:IsTerrainVisible() return active and not pinsOnly end
+
+-- Terrain and markers use the native map's exact centre/scale. Underground
+-- cities keep only the markers; their city artwork replaces surface tiles.
+function DetailView:FollowMap(continent, wx, wy, pixelsPerYard, alpha, level, questLevel, pixelsPerYardY, withoutTerrain)
+	if not view then CreateFrames() end
+	local ratio = (pixelsPerYardY or pixelsPerYard) / pixelsPerYard
+	local reset = not following or cont ~= continent or abs(verticalRatio - ratio) > 0.00001
+	if reset then
+		if active then self:Exit(true) end
+		ReleaseAllTiles()
+		ReleaseTextures(underlay)
+		ReleasePins()
+		underlayMapID = nil
+		pinsDirty = true
+	end
+	if pinsOnly ~= (withoutTerrain == true) then
+		pinsOnly = withoutTerrain == true
+		ReleaseAllTiles()
+		ReleaseTextures(underlay)
+		pinsDirty = true
+	end
+	active, following, cont = true, true, continent
+	verticalRatio = ratio
+	cx, cy = ns.WorldToPlane(wx, wy)
+	tcx, tcy, scale, tscale = cx, cy, pixelsPerYard, pixelsPerYard
+	view:SetFrameLevel(level)
+	plane:SetFrameLevel(level + 1)
+	plane:SetShown(not pinsOnly)
+	pinLayer:SetFrameLevel(questLevel)
+	view:EnableMouse(false)
+	view:EnableMouseWheel(false)
+	view.background:Hide()
+	hud:Hide()
+	arrowFrame:Hide()
+	view:SetAlpha(alpha)
+	view:Show()
+	if reset then
+		ns.MapPins:RefreshNow()
+		ns.AddonPins:Refresh()
+	end
+	ApplyTransform()
+end
+
+-- Opens the view over Blizzard's map showing exactly what the map shows now,
+-- then keeps zooming toward the cursor.
+-- Returns false plus a reason ("city" or "no terrain") when it can't open.
+function DetailView:EnterFromMap()
+	if ns.ContinuousMap:ZoomToDetail() then return true end
+	local mapID = WorldMapFrame:GetMapID()
+	local stitchedRect
+	if ns.OpenMapCompat:IsActive() then
+		mapID, stitchedRect = ns.OpenMapCompat:GetDetailMap()
+		if not mapID then return false, "no terrain" end
+	end
+	-- City maps are drawn for the city itself; the minimap terrain under them
+	-- shows the ground outside (or above) the city, so there's no zooming in.
+	if ns.IsCityMap(mapID) then
+		return false, "city"
+	end
+	local rect = ns.GetMapRect(mapID)
+	if not rect or not ns.TileData[rect.cont] then
+		return false, "no terrain"
+	end
+	local info = C_Map.GetMapInfo(mapID)
+	if not info or info.mapType < Enum.UIMapType.Continent then
+		return false, "no terrain"
+	end
+	if not view then
+		CreateFrames()
+	end
+	UpdateFrameLevel()
+	view:Show()
+
+	local viewRect = stitchedRect or WorldMapFrame.ScrollContainer:GetViewRect()
+	local left = -rect.left + viewRect.left * rect.width
+	local right = -rect.left + viewRect.right * rect.width
+	local top = -rect.top + viewRect.top * rect.height
+	local bottom = -rect.top + viewRect.bottom * rect.height
+
+	cont = rect.cont
+	originMapID = WorldMapFrame:GetMapID()
+	local w = WorldMapFrame.ScrollContainer:GetWidth()
+	scale = w / max(right - left, 1)
+	cx, cy = (left + right) / 2, (top + bottom) / 2
+
+	local minScale = w / MAX_SPAN
+	if scale < minScale then
+		-- A continent at full size: start from a zone-sized window under the cursor.
+		local vx, vy = CursorInView()
+		cx, cy = ViewToPlane(vx, vy, cx, cy, scale)
+		scale = minScale
+	end
+	exitScale = scale
+	maxScale = max(w / MIN_SPAN, scale * 4)
+	tcx, tcy, tscale = cx, cy, scale
+	self.entryX, self.entryY = cx, cy
+
+	active = true
+	pinsOnly = false
+	plane:Show()
+	underlayMapID = nil
+	ReleaseAllTiles()
+	SetUnderlay(info.mapType == Enum.UIMapType.Continent and ZoneAt(cx, cy) or mapID)
+	ns.AddonPins:Refresh()
+	pinsDirty, transformDirty = true, true
+	ApplyTransform()
+
+	if C_QuestLine and C_QuestLine.RequestQuestLinesForMap and underlayMapID then
+		C_QuestLine.RequestQuestLinesForMap(underlayMapID)
+	end
+
+	self.visit = (self.visit or 0) + 1
+	local visit = self.visit
+	hud.hint:Show()
+	C_Timer.After(5, function()
+		if self.visit == visit then
+			hud.hint:Hide()
+		end
+	end)
+
+	self:ZoomAt(ZOOM_STEP, CursorInView())
+	return true
+end
+
+function DetailView:Exit(skipPan)
+	if not active then
+		return
+	end
+	local wasFollowing = following
+	active, following = false, false
+	pinsOnly = false
+	ns.AddonPins:SyncSources({})
+	if wasFollowing then ns.MapPins:RefreshNow() end
+	verticalRatio = 1
+	dragging = false
+	view:Hide()
+	view:SetAlpha(1)
+	view:EnableMouse(true)
+	view:EnableMouseWheel(true)
+	view.background:Show()
+	hud:Show()
+	ReleasePins()
+	ReleaseAllTiles()
+	ReleaseTextures(underlay)
+	underlayMapID = nil
+	GameTooltip:Hide()
+
+	-- Put Blizzard's map where the detail view was looking, if it is still the same map.
+	if not wasFollowing and not skipPan and not ns.OpenMapCompat:IsActive()
+		and WorldMapFrame:IsShown() and WorldMapFrame:GetMapID() == originMapID then
+		local moved = abs(cx - (self.entryX or cx)) + abs(cy - (self.entryY or cy))
+		local rect = ns.GetMapRect(originMapID)
+		if rect and moved > 1 then
+			local wx, wy = ns.PlaneToWorld(cx, cy)
+			local nx, ny = ns.WorldToMapRect(rect, wx, wy)
+			local container = WorldMapFrame.ScrollContainer
+			local minX, maxX, minY, maxY = container:CalculateScrollExtentsAtScale(container:GetCanvasScale())
+			WorldMapFrame:PanTo(min(max(nx, minX), maxX), min(max(ny, minY), maxY))
+		end
+	end
+end
+
+---------------------------------------------------------------------------
+-- Wiring
+---------------------------------------------------------------------------
+function DetailView:OnInitialize()
+	HasBit = ns.HasBit
+end
+
+function DetailView:HookWorldMap()
+	local container = WorldMapFrame.ScrollContainer
+	local lastScaleChange = 0
+	hooksecurefunc(WorldMapFrame, "OnCanvasScaleChanged", function()
+		lastScaleChange = GetTime()
+	end)
+	container:HookScript("OnMouseWheel", function(_, delta)
+		-- Blizzard zoomed during this same event: not at the limit yet.
+		if delta <= 0 or active or ns.OpenMapCompat:IsActive() or GetTime() == lastScaleChange then
+			return
+		end
+		if ns:GetSetting("detailEnabled") and container:IsAtMaxZoom() then
+			DetailView:EnterFromMap()
+		end
+	end)
+	WorldMapFrame:HookScript("OnHide", function()
+		DetailView:Exit(true)
+	end)
+	hooksecurefunc(WorldMapFrame, "OnMapChanged", function()
+		if active and not following and WorldMapFrame:GetMapID() ~= originMapID then
+			DetailView:Exit(true)
+		end
+	end)
+end
+
+function DetailView:OnLogin()
+	EventUtil.ContinueOnAddOnLoaded("Blizzard_WorldMap", function()
+		self:HookWorldMap()
+	end)
+
+	ns:On("EXPLORED", function(changedCont, keys)
+		if not active then
+			return
+		end
+		if changedCont == nil then
+			UpdateTiles(true)
+		elseif changedCont == cont then
+			-- A tile's fog edges also read the cells just past its east and south
+			-- edges, so its west, north and north-west neighbours change too.
+			local rebuild = {}
+			for _, key in ipairs(keys) do
+				local col, row = ns.SplitTileKey(key)
+				rebuild[key] = true
+				rebuild[(col - 1) * 100 + row] = true
+				rebuild[col * 100 + row - 1] = true
+				rebuild[(col - 1) * 100 + row - 1] = true
+			end
+			for key in pairs(rebuild) do
+				if activeTiles[key] then
+					BuildTile(ns.SplitTileKey(key))
+				end
+			end
+		end
+		MarkPins()
+	end)
+	ns:On("POI_UPDATED", MarkPins)
+	ns:On("POI_REMOVED", MarkPins)
+	ns:On("WAYPOINT_CHANGED", MarkPins)
+	ns:On("ADDON_PINS_CHANGED", MarkPins)
+	ns:On("SERVICE_SOURCES_CHANGED", MarkPins)
+	ns:On("QUEST_AVAILABILITY_CHANGED", MarkPins)
+	ns:On("QUEST_TURN_INS_CHANGED", MarkPins)
+	ns:On("MAP_LAYER_CHANGED", MarkPins)
+	ns:On("DATA_CHANGED", function()
+		if active then
+			UpdateTiles(true)
+		end
+		MarkPins()
+	end)
+	ns:On("SETTING_CHANGED", function(key)
+		if not active then
+			return
+		end
+		if key == "unexploredTerrain" or key == "unexploredBrightness" or key == "shareExploration" then
+			UpdateTiles(true)
+		elseif key == "detailEnabled" and not ns:GetSetting("detailEnabled") then
+			self:Exit()
+		end
+		MarkPins()
+	end)
+	ns:RegisterEvent("QUESTLINE_UPDATE", MarkPins)
+end

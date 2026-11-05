@@ -1,0 +1,17 @@
+## Interface: 16001
+## Title: Gearwise
+## Notes: Quiet, spec-aware gear comparisons and upgrade arrows for WoW Forever.
+## Author: saad780
+## Version: 1.1.5
+## Category: Bags & Inventory
+## SavedVariablesPerCharacter: GearwiseDB
+## IconTexture: Interface\Icons\INV_Chest_Chain_04
+## X-License: MIT
+
+Core.lua
+Profiles.lua
+Items.lua
+Compare.lua
+Display.lua
+Upgrades.lua
+Options.lua

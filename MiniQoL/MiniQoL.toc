@@ -1,0 +1,70 @@
+## Interface: 16001
+## Title: Mini QoL
+## Author: saad780 and credited module authors
+## Version: 1.0.0
+## Notes: Standalone consolidation for WoW Forever.
+## LoadSavedVariablesFirst: 1
+## IconTexture: Interface\Icons\INV_Misc_Gear_01
+## OptionalDeps: Baganator, OpenMap, Questie
+## SavedVariables: IconPlacement, MiniQoLDB, ModifierKey, SellLimit, SilenceSaleSummary, Silent, WayfinderDB, XPCounterDB
+## SavedVariablesPerCharacter: AutoSellBlueItems, AutoSellGreenItems, AutoSellGreyItems, AutoSellPurpleItems, AutoSellUnwantedItems, AutoSellWhiteItems, GearwiseDB, ItemsToSell, SoulboundOnly, UnmarkedItems
+
+Core.lua
+Runtime.lua
+LegacyProfiles.lua
+CharacterStates.lua
+Manifest.lua
+Modules\Gearwise\Core.lua
+Modules\Gearwise\Profiles.lua
+Modules\Gearwise\Items.lua
+Modules\Gearwise\Compare.lua
+Modules\Gearwise\Display.lua
+Modules\Gearwise\Upgrades.lua
+Modules\Gearwise\Options.lua
+Modules\Gearwise\_MiniQoLComplete.lua
+Modules\Peddler\vo\WantedItems.lua
+Modules\Peddler\Peddler.lua
+Modules\Peddler\Options.lua
+Modules\Peddler\_MiniQoLComplete.lua
+Modules\Wayfinder\Core.lua
+Modules\Wayfinder\Background.lua
+Modules\Wayfinder\Geometry.lua
+Modules\Wayfinder\Categories.lua
+Modules\Wayfinder\ServiceLocations.lua
+Modules\Wayfinder\OverlayLayout.lua
+Modules\Wayfinder\Data\Tiles.lua
+Modules\Wayfinder\Data\MapOverlays.lua
+Modules\Wayfinder\Data\Seed.lua
+Modules\Wayfinder\Data\Transports.lua
+Modules\Wayfinder\Data\Independent.lua
+Modules\Wayfinder\Database.lua
+Modules\Wayfinder\Observations.lua
+Modules\Wayfinder\QuestAvailability.lua
+Modules\Wayfinder\QuestTurnIns.lua
+Modules\Wayfinder\FlightQuests.lua
+Modules\Wayfinder\MinimapTurnIns.lua
+Modules\Wayfinder\Exploration.lua
+Modules\Wayfinder\Seeds.lua
+Modules\Wayfinder\Recorder.lua
+Modules\Wayfinder\MapArt.lua
+Modules\Wayfinder\ContinuousMap.lua
+Modules\Wayfinder\ContinuousArt.lua
+Modules\Wayfinder\Vendor\OpenMap\WorldMap.lua
+Modules\Wayfinder\OpenMapCompat.lua
+Modules\Wayfinder\MapPins.lua
+Modules\Wayfinder\Pins.xml
+Modules\Wayfinder\AddonPins.lua
+Modules\Wayfinder\MapLoading.lua
+Modules\Wayfinder\DetailView.lua
+Modules\Wayfinder\WorldFog.lua
+Modules\Wayfinder\Navigation.lua
+Modules\Wayfinder\MinimapServices.lua
+Modules\Wayfinder\Options.lua
+Modules\Wayfinder\_MiniQoLComplete.lua
+Modules\XPCounter\XPCounter.lua
+Modules\XPCounter\Popup.lua
+Modules\XPCounter\_MiniQoLComplete.lua
+Dialogue.lua
+Integrations.lua
+Panel.lua
+Minimap.lua

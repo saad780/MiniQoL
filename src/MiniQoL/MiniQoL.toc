@@ -1,0 +1,14 @@
+## Interface: 16001
+## Title: Mini QoL
+## Notes: Compact controls for your WoW Forever addon setup.
+## Author: saad780
+## Version: 1.0.0
+## SavedVariables: MiniQoLDB
+## IconTexture: Interface\Icons\INV_Misc_Gear_01
+## OptionalDeps: Baganator, Questie, OpenMap
+
+Core.lua
+Dialogue.lua
+Integrations.lua
+Panel.lua
+Minimap.lua
