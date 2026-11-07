@@ -10,7 +10,7 @@ settings and minimap icons.
 
 ## Download and install
 
-Download **MiniQoL-1.0.1.zip** from the [latest release](https://github.com/saad780/MiniQoL/releases/latest).
+Download **MiniQoL-1.0.2.zip** from the [latest release](https://github.com/saad780/MiniQoL/releases/latest).
 
 1. Exit WoW and back up your addon settings.
 2. Extract the `MiniQoL` folder into your game's `Interface/AddOns` directory.
@@ -86,5 +86,5 @@ optional `--account` import creates a private local profile snapshot; keep those
 builds, account backups and `WTF` data out of source control and releases.
 
 Offline checks cover scope, Lua compilation, source references, settings, panel
-navigation and NPC shortcuts. In-game validation of the combined addon remains
-pending.
+navigation, NPC shortcuts and native map API mixin lookups during player
+sampling. In-game validation of the combined addon remains pending.

@@ -2,7 +2,7 @@
 ## Title: Mini QoL
 ## Notes: Compact controls for your WoW Forever addon setup.
 ## Author: saad780
-## Version: 1.0.1
+## Version: 1.0.2
 ## X-License: GPL-3.0-only
 ## SavedVariables: MiniQoLDB
 ## IconTexture: Interface\Icons\INV_Misc_Gear_01

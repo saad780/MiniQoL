@@ -148,7 +148,19 @@ end
 
 function R:Environment(name)
     if self.environments[name] then return self.environments[name] end
-    local env = { C_AddOns = self.api }
+    -- Native APIs look up return-value mixins directly in the caller's environment;
+    -- neither __index nor our Lua rawget wrapper is used by that client lookup.
+    local env = {
+        C_AddOns = self.api,
+        Vector2DMixin = real.Vector2DMixin,
+        Vector3DMixin = real.Vector3DMixin,
+        ColorMixin = real.ColorMixin,
+        ItemLocationMixin = real.ItemLocationMixin,
+        ItemTransmogInfoMixin = real.ItemTransmogInfoMixin,
+        TransmogPendingInfoMixin = real.TransmogPendingInfoMixin,
+        TransmogLocationMixin = real.TransmogLocationMixin,
+        PlayerLocationMixin = real.PlayerLocationMixin,
+    }
     env._G = env
     env.CreateFrame = function(...) return R:TrackFrame(originalCreateFrame(...), name) end
     env.getfenv = function(level)

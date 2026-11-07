@@ -1,26 +1,24 @@
-# Mini QoL v1.0.1
+# Mini QoL v1.0.2
 
-Publication and licensing update for the four-component WoW Forever addon.
+Fix the repeated `unable to find mixin or metatable (Vector2DMixin)` error from
+Wayfinder's player-position lookup during exploration sampling.
 
-- License the combined software distribution under GPL-3.0-only and include the
-  full GPL, copyright, attribution and component notices in the download.
-- Credit Cartas/Peddler, Carbonite, OpenMap, and the Leatrix Plus/Dialogue UI
-  design inspirations, alongside saad780's original code.
-- Replace Booty Bay/Ratchet dock coordinates with Carbonite's GPL data and omit
-  two Feathermoon dock entries whose redistribution permission was unverified.
-- Require an explicit account directory for the optional installer and use the
-  current Windows profile for backups.
-- Ship defaults only. Personal account paths, saved settings, credentials and
-  backups are excluded from public source and release artifacts.
+- Expose native API return-value mixins directly in each embedded module's Lua
+  environment, as required by the client's native lookup. This also covers the
+  related vector, color, item and player-location mixins.
+- Add a regression test that reproduces the original error, checks repeated
+  player-position sampling and verifies unavailable positions and optional
+  client mixins.
 
-Exit WoW, back up your settings, and extract `MiniQoL` into `Interface/AddOns`.
-Move only the standalone `Peddler`, `Gearwise`, `Wayfinder` and `XPCounter`
-folders outside `AddOns`. Keep all other addons installed.
+Upgrade by replacing the `MiniQoL` addon folder with the folder from
+`MiniQoL-1.0.2.zip`, then reload the UI. Existing saved settings are preserved.
+For a first installation, move only the standalone `Peddler`, `Gearwise`,
+`Wayfinder` and `XPCounter` folders outside `AddOns`; keep all other addons.
 
-The release includes an installable ZIP and a complete source ZIP. Component
-license notices and game-asset provenance are retained; software licensing does
-not relicense Blizzard artwork.
+The release includes the installable ZIP, complete source ZIP and SHA-256
+checksums, with clean defaults and the existing license and attribution notices.
 
-Validation: exact four-component scope, 58 Lua files compiled, source references,
-settings, panel navigation and NPC hotkey behavior checked offline. In-game
-verification remains pending.
+Validation: the original failure was reproduced before the fix and the new
+regression passes afterward. Existing scope, settings, UI and NPC dialogue
+checks pass; 58 Lua files compile and all selected source references resolve.
+In-game verification remains pending.

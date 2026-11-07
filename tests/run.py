@@ -13,6 +13,10 @@ ui.execute((root / "tests/ui.lua").read_text(), str(shell).replace("\\", "/"))
 dialogue = LuaRuntime(unpack_returned_tuples=True)
 dialogue.execute((root / "tests/dialogue.lua").read_text(), str(shell).replace("\\", "/"))
 
+mixins = LuaRuntime(unpack_returned_tuples=True)
+package = Path(sys.argv[1]) if len(sys.argv) > 1 else root / "MiniQoL"
+mixins.execute((root / "tests/native_mixins.lua").read_text(), str(package).replace("\\", "/"))
+
 if len(sys.argv) > 1:
     package = Path(sys.argv[1])
     sys.path.insert(0, str(root / "tools"))
