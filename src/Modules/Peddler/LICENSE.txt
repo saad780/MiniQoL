@@ -1,0 +1,17 @@
+Upstream Peddler by Cartas @ Bloodfang-Classic and upstream contributors.
+
+The upstream project dedicates Peddler to the public domain:
+"This work is dedicated to the public domain."
+
+Source: https://www.curseforge.com/wow/addons/peddler
+Dedication: https://www.curseforge.com/wow/addons/peddler/license
+Verified: 2026-11-07.
+
+Forever compatibility adaptations and MiniQoL integration changes:
+Copyright (c) 2026 saad780, distributed under GPL-3.0-only.
+These changes update item/container APIs, bag-button hooks, item-link
+handling, packaging paths, runtime integration and settings integration.
+The upstream public-domain dedication is retained for the original work.
+
+See LICENSE at the root of the MiniQoL distribution for the full GNU GPL
+version 3, including its absence of warranty, and THIRD_PARTY.md for credits.

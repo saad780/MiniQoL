@@ -303,7 +303,7 @@ function ns:Render()
         local about = self:Row("about", 78)
         about:SetPoint("TOPLEFT", 0, -y)
         if not about.label then
-            about.label = text(about, "Panel and NPC shortcuts by saad780.\nPanel layout inspired by Leatrix Plus.\nNPC shortcuts inspired by Dialogue UI.\nBundled modules retain their original authors and licences.\nFull notices are included in CREDITS.md and each module folder.", 0, -3, "GameFontHighlightSmall")
+            about.label = text(about, "Mini QoL, Gearwise, Wayfinder and XP Counter by saad780.\nPeddler by Cartas; adaptations by saad780.\nCarbonite data and OpenMap adaptations are included.\nInspired by Leatrix Plus and Dialogue UI.\nGPLv3 distribution; no warranty. Redistribution permitted.\nSee LICENSE, CREDITS.md and module notices.", 0, -3, "GameFontHighlightSmall")
             about.label:SetWidth(494); about.label:SetWordWrap(true)
         end
         y = y + 83

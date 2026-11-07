@@ -1,6 +1,6 @@
 # Peddler for WoW Forever
 
-This private fork adapts Peddler to WoW Forever's modern UI while keeping the Classic equipment rules. It currently targets WoW Forever `1.60.1` / interface `16001` and is based on upstream Peddler `9.1`.
+This fork adapts Peddler to WoW Forever's modern UI while keeping the Classic equipment rules. It currently targets WoW Forever `1.60.1` / interface `16001` and is based on upstream Peddler `9.1`.
 
 Peddler flags unwanted items and automatically sells them the next time you interact with a vendor. Grey items are flagged automatically by default.
 

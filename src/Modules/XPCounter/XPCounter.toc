@@ -3,6 +3,7 @@
 ## Notes: Reports XP, reputation, and kill/time estimates in chat with optional floating text.
 ## Author: saad780
 ## Version: 1.3.1
+## X-License: GPL-3.0-only
 ## AllowLoadGameType: camelot
 ## SavedVariables: XPCounterDB
 

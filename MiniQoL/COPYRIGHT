@@ -1,0 +1,15 @@
+Mini QoL original work: Copyright (c) 2026 saad780.
+SPDX-License-Identifier: GPL-3.0-only
+
+The combined software distribution is provided under GNU GPL version 3.
+See LICENSE for its full terms, including the absence of warranty.
+
+This notice covers original MiniQoL, XP Counter, Wayfinder, build/install,
+test and integration work. It does not replace third-party copyright or
+license notices. Gearwise and the identified OpenMap code retain their MIT
+notices. Upstream Peddler retains Cartas's public-domain dedication.
+Carbonite-derived data retains its GPLv3 terms. Blizzard-derived artwork
+and shapes retain their separate rights and are not relicensed here.
+
+See THIRD_PARTY.md, CREDITS.md in the installable addon, and the component
+license/provenance files for authorship, modifications and source locations.

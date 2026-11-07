@@ -278,8 +278,10 @@ def build(addons, account, destination, refresh=False):
     (output / "Manifest.lua").write_text("MiniQoLRuntime:Install(" + lua(manifest) + ", MiniQoLCharacterStates)\nMiniQoLCharacterStates = nil\nMiniQoL:Initialize()\n", encoding="utf-8")
     entries = ["Core.lua", "Runtime.lua", "LegacyProfiles.lua", "CharacterStates.lua", "Manifest.lua"]
     bindings = []
-    credits = ["# Mini QoL source credits\n\nPersonal consolidation of locally installed addons. Original authorship is retained.\n",
-               "The Mini QoL shell and build tools are original work. Bundled modules retain their own licences.\n"]
+    credits = [(ROOT / "THIRD_PARTY.md").read_text(encoding="utf-8"),
+               "\n## Bundled component versions\n"]
+    for notice in ("LICENSE", "COPYRIGHT", "THIRD_PARTY.md"):
+        shutil.copy2(ROOT / notice, output / notice)
     lua_count = 0
     for name in order:
         folder, toc, source_entries = sources[name]
@@ -348,7 +350,7 @@ def build(addons, account, destination, refresh=False):
     dependency_line = "## OptionalDeps: " + ", ".join(external_dependencies) + "\n" if external_dependencies else ""
     shell_version = read_toc(SHELL / "MiniQoL.toc")[0]["Version"]
     toc_text = ("## Interface: 16001\n## Title: Mini QoL\n## Author: saad780 and credited module authors\n"
-                f"## Version: {shell_version}\n## Notes: Standalone consolidation for WoW Forever.\n"
+                f"## Version: {shell_version}\n## X-License: GPL-3.0-only\n## Notes: Standalone consolidation for WoW Forever.\n"
                 "## LoadSavedVariablesFirst: 1\n## IconTexture: Interface\\Icons\\INV_Misc_Gear_01\n"
                 + dependency_line
                 + "## SavedVariables: " + ", ".join(sorted(saved)) + "\n"
