@@ -42,6 +42,12 @@ a map that remembers where you left it for the session rather than forever.
 
 ## Fixes
 
+- Sharing a waypoint could silently do nothing. The chat helpers moved into
+  `ChatFrameUtil` on newer clients and their return value is not a dependable
+  report of success, so the link is now placed and then verified in the chat
+  box, falling back from the namespace to the old globals. When chat refuses it
+  outright — a client in chat messaging lockdown, for instance — the link is
+  offered in a copyable box with a message saying why, instead of vanishing.
 - Peddler's settings no longer show stale values after a change made elsewhere.
 - Removed three dead loop increments in Peddler that would break under a newer
   Lua, and guarded XP Counter's popup bridge against an unloaded database.

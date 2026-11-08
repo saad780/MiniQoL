@@ -184,18 +184,80 @@ function Navigation:ImportWaypointShare(text)
 	return self:SetWaypointOnMap(mapID, x / 10000, y / 10000, label ~= "" and label or nil)
 end
 
+-- Putting text in the chat box is awkward to do reliably: the helpers moved
+-- from globals into ChatFrameUtil, their return values are not a dependable
+-- report of success, and recent clients refuse chat messaging outright while
+-- locked down. So try every route and then check the edit box itself.
+local function ActiveChatText()
+	local getter = (ChatFrameUtil and ChatFrameUtil.GetActiveWindow) or ChatEdit_GetActiveWindow
+	if type(getter) ~= "function" then return nil end
+	local ok, box = pcall(getter)
+	if not ok or type(box) ~= "table" or not box.IsShown or not box:IsShown() then return nil end
+	local fine, text = pcall(box.GetText, box)
+	return fine and type(text) == "string" and text or nil
+end
+
+local function InsertIntoChat(text)
+	if C_ChatInfo and C_ChatInfo.InChatMessagingLockdown and C_ChatInfo.InChatMessagingLockdown() then
+		return false
+	end
+	local function landed()
+		local content = ActiveChatText()
+		return content ~= nil and content:find(text, 1, true) ~= nil
+	end
+	-- Into the draft the player already has open, keeping their channel.
+	local insert = (ChatFrameUtil and ChatFrameUtil.InsertLink) or ChatEdit_InsertLink
+	if type(insert) == "function" then pcall(insert, text) end
+	if landed() then return true end
+	-- Otherwise open chat with the link ready to send.
+	local open = (ChatFrameUtil and ChatFrameUtil.OpenChat) or ChatFrame_OpenChat
+	if type(open) == "function" then pcall(open, text) end
+	return landed()
+end
+
+-- Last resort, so a link is never simply swallowed: show it ready to copy.
+StaticPopupDialogs.WAYFINDER_SHARE = {
+	text = "Wayfinder: copy this waypoint, then paste it wherever you like.",
+	button1 = CLOSE or "Close",
+	hasEditBox = true,
+	editBoxWidth = 350,
+	OnShow = function(self, data)
+		local box = self.editBox or (self.GetEditBox and self:GetEditBox())
+		if not box then return end
+		box:SetText(data or "")
+		box:HighlightText()
+		box:SetFocus()
+	end,
+	-- The box exists to be copied from, not edited.
+	EditBoxOnTextChanged = function(self, data)
+		if data and self:GetText() ~= data then
+			self:SetText(data)
+			self:HighlightText()
+		end
+	end,
+	EditBoxOnEnterPressed = function(self) self:GetParent():Hide() end,
+	EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+	preferredIndex = 3,
+}
+
+function Navigation:ShareText(text)
+	if InsertIntoChat(text) then return true end
+	StaticPopup_Show("WAYFINDER_SHARE", nil, nil, text)
+	ns.Print("Chat would not accept the link; copy it from the box instead.")
+	return false
+end
+
 function Navigation:CopyWaypoint(rec)
 	local link = self:GetWaypointLink(rec)
 	if not link then
 		ns.Print(current and "This waypoint can't be shared on a map." or "Set a waypoint first.")
 		return false
 	end
-	-- Insert into the current draft (and its selected channel/whisper), or open
-	-- chat with the link ready to send. The player chooses when to send it.
-	if not ChatFrameUtil.InsertLink(link) then
-		ChatFrameUtil.OpenChat(link)
-	end
-	return true
+	-- The player still chooses when to send it.
+	return self:ShareText(link)
 end
 
 function Navigation:ReceiveWaypointLink(link, text, button)
@@ -488,9 +550,7 @@ function Navigation:OnLogin()
 		if context.button == "LeftButton" and IsModifiedClick("CHATLINK") then
 			-- Re-sharing uses the copyable token, never a custom link on the wire.
 			local token = "[Wayfinder:" .. link:sub(11) .. "]"
-			if ParseShare(token) then
-				if not ChatFrameUtil.InsertLink(token) then ChatFrameUtil.OpenChat(token) end
-			end
+			if ParseShare(token) then self:ShareText(token) end
 		else
 			self:ReceiveWaypointLink(link, text, context.button)
 		end
@@ -502,7 +562,11 @@ function Navigation:OnLogin()
 		"CHAT_MSG_PARTY", "CHAT_MSG_PARTY_LEADER", "CHAT_MSG_RAID", "CHAT_MSG_RAID_LEADER", "CHAT_MSG_RAID_WARNING",
 		"CHAT_MSG_GUILD", "CHAT_MSG_OFFICER", "CHAT_MSG_CHANNEL", "CHAT_MSG_INSTANCE_CHAT", "CHAT_MSG_INSTANCE_CHAT_LEADER",
 		"CHAT_MSG_BN_WHISPER", "CHAT_MSG_BN_WHISPER_INFORM", "CHAT_MSG_COMMUNITIES_CHANNEL" }) do
-		ChatFrameUtil.AddMessageEventFilter(event, ChatFilter)
+		-- Same namespace move as the insert helpers; a missing filter must not
+		-- abort the rest of this setup.
+		local addFilter = (ChatFrameUtil and ChatFrameUtil.AddMessageEventFilter)
+			or ChatFrame_AddMessageEventFilter
+		if type(addFilter) == "function" then pcall(addFilter, event, ChatFilter) end
 	end
 	-- Keep the game's handler intact for native map-pin links.
 	hooksecurefunc("SetItemRef", function(link, text, button)
