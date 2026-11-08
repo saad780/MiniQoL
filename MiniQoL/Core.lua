@@ -3,12 +3,28 @@ MiniQoL = ns
 ns.name = ADDON_NAME
 ns.version = C_AddOns.GetAddOnMetadata(ADDON_NAME, "Version") or "dev"
 ns.features, ns.providers = {}, {}
-ns.components = { Peddler = true, Gearwise = true, Wayfinder = true, XPCounter = true }
+-- One description of the panel's shape: sidebar grouping, page blurb, and which
+-- bundled module (if any) a page belongs to.
 ns.pages = {
-    { "home", "Overview" }, { "maps", "Maps & travel" },
-    { "bags", "Gear advice" }, { "selling", "Selling" }, { "quests", "XP & reputation" },
-    { "sound", "NPC dialogue" }, { "miniqol", "Mini QoL" },
+    { id = "home", label = "Overview",
+      description = "Pinned settings and the state of every module." },
+    { id = "maps", label = "Maps & travel", group = "Modules", module = "Wayfinder",
+      description = "Exploration, service icons, navigation and travel." },
+    { id = "bags", label = "Gear advice", group = "Modules", module = "Gearwise",
+      description = "Item comparisons, upgrade arrows and quest reward advice." },
+    { id = "selling", label = "Selling", group = "Modules", module = "Peddler",
+      description = "Item marking and automatic selling at vendors." },
+    { id = "quests", label = "XP & reputation", group = "Modules", module = "XPCounter",
+      description = "Chat reports, kill estimates and floating text." },
+    { id = "sound", label = "NPC dialogue", group = "Mini QoL",
+      description = "Keyboard shortcuts for Blizzard's gossip and quest windows." },
+    { id = "miniqol", label = "Mini QoL", group = "Mini QoL",
+      description = "Panel preferences, module switches and source credits." },
 }
+
+function ns:Page(id)
+    for _, page in ipairs(self.pages) do if page.id == id then return page end end
+end
 
 function ns:Print(message)
     print("|cffe9c46aMini QoL|r: " .. tostring(message))
@@ -72,6 +88,24 @@ function ns:Write(feature, value)
     return true
 end
 
+-- Action features do something rather than hold a value.
+function ns:Run(feature)
+    if not self:Available(feature) then return false end
+    if InCombatLockdown and InCombatLockdown() then
+        self:Print("Try that after combat.")
+        return false
+    end
+    local ok, reason = pcall(feature.run)
+    if not ok then
+        self.lastError = tostring(reason)
+        self:Print("Could not run " .. feature.label .. ". " .. self.lastError)
+        return false
+    end
+    if feature.reload then self.reloadPending = true end
+    self:Refresh()
+    return true
+end
+
 -- Call the addon's registered command directly. No macros or chat submission.
 function ns:Command(command, argument)
     local wanted = command:lower()
@@ -94,46 +128,29 @@ function ns:Provider(name)
     return self.providers[name]
 end
 
+-- The bundled modules, in load order. They are not separate addons to the
+-- client, so read them from the runtime manifest rather than scanning every
+-- installed addon on every repaint.
 function ns:Addons()
+    local runtime = MiniQoLRuntime
     local result = {}
-    local api = MiniQoLRuntime and MiniQoLRuntime.api or C_AddOns
-    for index = 1, api.GetNumAddOns() do
-        local name, title, notes, loadable, reason = api.GetAddOnInfo(index)
-        if name and self.components[name] then
-            local provider = self:Provider(name)
-            result[#result + 1] = {
-                name = name, title = title or name, notes = notes or "",
-                version = api.GetAddOnMetadata(name, "Version") or "",
-                loaded = self:Loaded(name), loadable = loadable, reason = reason,
-                enabled = api.GetAddOnEnableState(name, UnitName("player")) > 0,
-                provider = provider, page = provider and provider.page or "tools",
-            }
-        end
+    if not runtime then return result end
+    for _, name in ipairs(runtime.order) do
+        local module = runtime.modules[name]
+        local provider = self:Provider(name)
+        result[#result + 1] = {
+            name = name,
+            title = module.metadata.Title or name,
+            notes = module.metadata.Notes or "",
+            author = module.metadata.Author or "See source credits",
+            version = module.metadata.Version or "",
+            loaded = self:Loaded(name),
+            enabled = runtime:Enabled(name) and true or false,
+            provider = provider,
+            page = provider and provider.page or "miniqol",
+        }
     end
-    table.sort(result, function(a, b) return a.name:lower() < b.name:lower() end)
     return result
-end
-
-function ns:OpenProvider(provider)
-    if InCombatLockdown and InCombatLockdown() then
-        self:Print("Open addon settings after combat.")
-        return false
-    end
-    if not provider or not self:Loaded(provider.addon) then
-        self:Print("That addon's settings are unavailable. Enable it and reload first.")
-        return false
-    end
-    local ok, opened = pcall(function()
-        if provider.open then provider.open(); return true end
-        return provider.command and self:Command(provider.command, provider.argument)
-    end)
-    if not ok or not opened then
-        self:Print("Could not open settings for " .. provider.addon .. ".")
-        if not ok then self.lastError = tostring(opened) end
-        return false
-    end
-    if self.panel then self.panel:Hide() end
-    return true
 end
 
 function ns:Matches(query, ...)

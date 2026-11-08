@@ -540,7 +540,7 @@ local viewFrame = CreateFrame("Frame")
 viewFrame:Hide()
 viewFrame:SetScript("OnUpdate", Ours("view update", function(self)
 	self:Hide()
-	if not active or not S.SetView then return end
+	if not active or not map:IsShown() or not S.SetView then return end
 	local u, v, zoom = View()
 	live = live or {}                             -- (kept: the view updates every frame of a pan)
 	live[1], live[2], live[3], live[4], live[5] = u, v, zoom, sc:GetWidth(), sc:GetHeight()
@@ -930,6 +930,7 @@ local function Setup()
 	end
 	dp.OnHide = function()
 		live = nil
+		viewFrame:Hide() -- a queued repaint must not recreate live while closed
 		if mod.OnMapHidden then mod:OnMapHidden() end
 		ticker:Hide()
 		UpdatePlayer()

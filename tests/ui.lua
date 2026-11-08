@@ -40,10 +40,25 @@ function methods:GetFrameLevel() return 1 end
 function methods:GetEffectiveScale() return 1 end
 function methods:GetCenter() return 1800, 900 end
 function methods:RegisterEvent() end
-local noops = { "SetJustifyH", "SetWordWrap", "SetTextColor", "SetColorTexture", "SetAllPoints", "SetTexture", "SetTexCoord",
+function methods:GetStringHeight()
+    local lines = 1
+    for _ in tostring(self.value or ""):gmatch("\n") do lines = lines + 1 end
+    return lines * 12
+end
+function methods:IsMouseOver() return false end
+function methods:IsEnabled() return self.enabled ~= false end
+function methods:IsVisible() return self.shown end
+function methods:SetValue(value) self.sliderValue = value
+    if self.scripts.OnValueChanged then self.scripts.OnValueChanged(self, value, false) end end
+function methods:GetValue() return self.sliderValue or 0 end
+local noops = { "SetJustifyH", "SetJustifyV", "SetWordWrap", "SetTextColor", "SetColorTexture", "SetAllPoints", "SetTexture", "SetTexCoord",
     "SetBackdrop", "SetBackdropColor", "SetBackdropBorderColor", "SetClampedToScreen", "SetFrameStrata", "SetMovable",
     "EnableMouse", "RegisterForDrag", "SetHighlightTexture", "SetAutoFocus", "SetMaxLetters", "SetScrollChild",
-    "SetAlpha", "StartMoving", "StopMovingOrSizing", "ClearFocus", "SetFrameLevel", "RegisterForClicks" }
+    "SetAlpha", "StartMoving", "StopMovingOrSizing", "ClearFocus", "SetFrameLevel", "RegisterForClicks",
+    -- Widgets the themed panel adds: sliders, drawn carets and the plain edit box.
+    "SetFontObject", "SetTextInsets", "SetOrientation", "SetObeyStepOnDrag", "SetThumbTexture",
+    "SetMinMaxValues", "SetValueStep", "SetThickness", "SetStartPoint", "SetEndPoint",
+    "SetVertexColor", "SetRotation", "EnableMouseWheel", "SetClipsChildren", "SetPassThroughButtons" }
 for _, name in ipairs(noops) do methods[name] = function() end end
 local function object(kind, name, parent)
     local obj = setmetatable({ kind = kind, name = name, parent = parent, shown = true, scripts = {} }, { __index = methods })
@@ -54,6 +69,7 @@ end
 function CreateFrame(kind, name, parent) return object(kind, name, parent) end
 function methods:CreateFontString(name) return object("FontString", name, self) end
 function methods:CreateTexture(name) return object("Texture", name, self) end
+function methods:CreateLine(name) return object("Line", name, self) end
 UIParent, Minimap = object("Frame", "UIParent"), object("Frame", "Minimap")
 Minimap:SetSize(200, 200)
 UISpecialFrames, SlashCmdList = {}, {}
@@ -64,8 +80,13 @@ C_AddOns = { GetAddOnMetadata = function() return "test" end, IsAddOnLoaded = fu
 Settings = { RegisterCanvasLayoutCategory = function() return {} end, RegisterAddOnCategory = function() end }
 GameTooltip = { SetOwner = function() end, SetText = function() end, AddLine = function() end, Show = function() end, Hide = function() end }
 function ReloadUI() reloaded = true end
+-- The service icon rows are generated from Wayfinder's own category list. The
+-- module itself stays unloaded, so the rows render disabled, which is exactly
+-- the state the panel has to lay out correctly.
+Wayfinder = { CategoryList = { { id = "bank", label = "Bankers" }, { id = "inn", label = "Innkeepers" } } }
 local ns = {}
 assert(loadfile(root .. "/Core.lua"))("MiniQoL", ns)
+assert(loadfile(root .. "/Theme.lua"))("MiniQoL", ns)
 ns:Initialize()
 assert(loadfile(root .. "/Integrations.lua"))("MiniQoL", ns)
 assert(loadfile(root .. "/Panel.lua"))("MiniQoL", ns)
@@ -74,20 +95,23 @@ ns:CreateMinimapButton()
 assert(ns.minimapButton:IsShown(), "minimap button visible by default")
 ns:Toggle()
 assert(ns.panel:IsShown(), "panel opens")
-assert(ns.panel:GetWidth() == 704 and ns.panel:GetHeight() == 430, "compact panel dimensions")
-for _, page in ipairs(ns.pages) do ns:ShowPage(page[1]); assert(ns.db.page == page[1]) end
+assert(ns.panel:GetWidth() == 880 and ns.panel:GetHeight() == 520, "panel dimensions")
+for _, page in ipairs(ns.pages) do ns:ShowPage(page.id); assert(ns.db.page == page.id) end
 ns.search:SetText("bank")
-assert(ns.title:GetText() == "Search results", "global search view")
-assert(ns.rows["feature.wayfinder.bank"]:IsShown(), "search includes settings outside current page")
+assert(ns.rows["section.controls"].label:GetText() == "SEARCH RESULTS", "global search view")
+assert(ns.rows["feature.wayfinder.cat.bank"]:IsShown(), "search includes settings outside current page")
 ns.search:SetText("zzzz-no-match")
-assert(ns.rows.empty:IsShown(), "empty search state")
+assert(ns.rows["note.empty"]:IsShown(), "empty search state")
 ns:ShowPage("home")
 local row = ns.rows["feature.wayfinder.showMinimapServices"]
 row.favorite.scripts.OnClick()
 assert(ns.db.favorites["wayfinder.showMinimapServices"], "favorites persist")
 ns:ShowPage("miniqol")
+-- The themed tick box owns its own state, so a click toggles it and then
+-- writes: start from "shown" and one click must hide the button.
 local icon = ns.rows["feature.miniqol.icon"].check
-icon:SetChecked(false); icon.scripts.OnClick(icon)
+icon:SetChecked(true); icon.scripts.OnClick(icon)
+assert(icon:GetChecked() == false, "clicking toggles the box")
 assert(not ns.minimapButton:IsShown(), "minimap visibility setting")
 SlashCmdList.MINIQOL("icon")
 assert(ns.minimapButton:IsShown(), "slash command restores hidden icon")

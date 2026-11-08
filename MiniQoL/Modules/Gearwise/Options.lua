@@ -4,77 +4,17 @@ local _, ns = ...
 local Options = {}
 ns.Options = Options
 
+-- Gearwise registers no settings category of its own: everything it offers is
+-- declared to Mini QoL and drawn on the panel's Gear advice page.
 function Options:Refresh()
-	if self.status and ns.profile then
-		local p = ns.profile
-		self.status:SetText(p.label .. " " .. p.className .. "  /  " .. p.source .. "  /  "
-			.. (p.leveling and "Leveling" or "Standard") .. "  /  Level " .. p.level)
-	end
+	if MiniQoL and MiniQoL.Refresh then MiniQoL:Refresh() end
 end
 
 function Options:Open()
-	if self.category and Settings and Settings.OpenToCategory then
-		Settings.OpenToCategory(self.category:GetID())
-	elseif self.panel then self.panel:Show() end
+	if MiniQoL and MiniQoL.ShowPage then MiniQoL:ShowPage("bags") end
 end
 
 function Options:Init()
-	local panel = CreateFrame("Frame", "GearwiseOptions", UIParent)
-	self.panel = panel
-	local function Text(text, x, y, font)
-		local label = panel:CreateFontString(nil, "ARTWORK", font or "GameFontHighlight")
-		label:SetPoint("TOPLEFT", x, y)
-		label:SetText(text)
-		return label
-	end
-	Text("Gearwise", 20, -20, "GameFontNormalLarge")
-	Text("Small arrows. Useful stats. Gear advice for the character you're playing.", 20, -52)
-	self.status = Text("", 20, -82)
-	self.status:SetTextColor(0.55, 0.77, 0.91)
-	local function Dropdown(label, y, key, choices)
-		Text(label, 20, y, "GameFontNormal")
-		local dropdown = CreateFrame("DropdownButton", nil, panel, "WowStyle1DropdownTemplate")
-		dropdown:SetPoint("TOPLEFT", 20, y - 22)
-		dropdown:SetWidth(260)
-		dropdown:SetupMenu(function(_, root)
-			for _, option in ipairs(choices()) do
-				local value, name = option[1], option[2]
-				root:CreateRadio(name, function() return ns.db[key] == value end, function() ns:SetOption(key, value) end)
-			end
-		end)
-	end
-	Dropdown("Build", -124, "spec", function()
-		local _, class = UnitClass("player")
-		local options = { { "auto", "Automatic (talents)" } }
-		for _, profile in ipairs(ns.Profiles.classes[class] or {}) do options[#options + 1] = { profile.key, profile.label } end
-		return options
-	end)
-	Dropdown("Stat priorities", -196, "mode", function()
-		return { { "auto", "Automatic (leveling below 60)" }, { "leveling", "Leveling" }, { "standard", "Standard" } }
-	end)
-	for index, option in ipairs({ { "bags", "Arrows on bag items" }, { "quests", "Quest reward arrows and best-value coin" },
-		{ "unusable", "Shade equipment I cannot wear red" }, { "popups", "Prompt when I obtain an upgrade" },
-		{ "tooltips", "Compact item tooltip comparison" } }) do
-		local key, label = option[1], option[2]
-		local check = CreateFrame("CheckButton", nil, panel, "UICheckButtonTemplate")
-		check:SetPoint("TOPLEFT", 16, -282 - (index - 1) * 32)
-		local text = check:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-		text:SetPoint("LEFT", check, "RIGHT", 4, 0)
-		text:SetText(label)
-		check:SetScript("OnShow", function(button) button:SetChecked(ns.db[key]) end)
-		check:SetScript("OnClick", function(button) ns:SetOption(key, button:GetChecked()) end)
-	end
-	local note = Text("Leveling gives health and recovery more value. Use a manual build when gearing for a different role.\n\nScores estimate useful item stats; special effects, set bonuses and exact damage rotations need your judgment.\n\n/gw upgrades reviews upgrades already in your bags.", 20, -464)
-	note:SetWidth(560)
-	note:SetJustifyH("LEFT")
-	note:SetTextColor(0.65, 0.69, 0.74)
-	panel:SetScript("OnShow", function() self:Refresh() end)
-	panel:Hide()
-	if Settings and Settings.RegisterCanvasLayoutCategory then
-		self.category = Settings.RegisterCanvasLayoutCategory(panel, "Gearwise")
-		Settings.RegisterAddOnCategory(self.category)
-	end
-	self:Refresh()
 	SLASH_GEARWISE1, SLASH_GEARWISE2 = "/gearwise", "/gw"
 	SlashCmdList.GEARWISE = function(message)
 		local command, argument = (message or ""):lower():match("^%s*(%S*)%s*(.-)%s*$")
@@ -91,8 +31,10 @@ function Options:Init()
 				ns.Print("Builds: " .. table.concat(names, ", "))
 			end
 		elseif command == "status" then
-			self:Refresh()
-			ns.Print(self.status:GetText() or "Class data unavailable")
+			local p = ns.profile
+			ns.Print(p and (p.label .. " " .. p.className .. "  /  " .. p.source .. "  /  "
+				.. (p.leveling and "Leveling" or "Standard") .. "  /  Level " .. p.level)
+				or "Class data unavailable")
 		elseif command == "arrows" and (argument == "on" or argument == "off") then
 			ns.db.bags, ns.db.quests = argument == "on", argument == "on"
 			ns:Invalidate(false)
@@ -100,6 +42,21 @@ function Options:Init()
 			ns:SetOption("tooltips", argument == "on")
 		elseif (command == "popups" or command == "unusable") and (argument == "on" or argument == "off") then
 			ns:SetOption(command, argument == "on")
+		elseif command == "space" and (argument == "on" or argument == "off") then
+			ns:SetOption("spaceToEquip", argument == "on")
+			ns.Upgrades:RefreshKeys()
+			ns.Print("Space equips the upgrade prompt: " .. (argument == "on" and "on." or "off."))
+		elseif command == "styles" then
+			if argument == "on" or argument == "off" then
+				ns:SetOption("styles", argument == "on")
+				ns.Print("Equal-value look offers " .. (argument == "on" and "on." or "off."))
+			elseif argument == "reset" then
+				local count = ns.Sidegrades:ClearDeclined()
+				ns.Print(("Forgot %d declined item%s."):format(count, count == 1 and "" or "s"))
+				ns.Sidegrades:Review()
+			else
+				ns.Sidegrades:Review()
+			end
 		elseif command == "upgrades" then
 			if ns.db.popups then ns.Upgrades:Review() else ns.Print("Enable upgrade popups with /gw popups on.") end
 		elseif command == "debug" then

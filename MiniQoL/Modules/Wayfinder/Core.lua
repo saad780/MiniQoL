@@ -170,6 +170,9 @@ local function InitializeDatabase()
 	db.waypoints = db.waypoints or {}
 	db.questAvailability = db.questAvailability or {}
 	db.observations = db.observations or {}
+	-- The last map position and zoom are session state, not settings. Older
+	-- builds saved them per character; drop anything left behind.
+	db.mapViews = nil
 	-- 1.0 had an on/off "show unexplored terrain" setting.
 	if db.settings.revealAll ~= nil then
 		if db.settings.revealAll == true and db.settings.unexploredTerrain == nil then

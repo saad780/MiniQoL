@@ -72,6 +72,32 @@ function api.CanvasFromWorldPos(cont, wx, wy)
 end
 
 function Continuous:IsActive() return api.IsStitched() end
+
+local function Finite(value)
+	return type(value) == "number" and value == value and value > -math.huge and value < math.huge
+end
+
+-- Where you left the map is remembered for this play session only: closing and
+-- reopening returns to the same place, while a reload or a relog starts fresh on
+-- the map the game itself opens. Deliberately a plain upvalue, never saved
+-- variables, so nothing carries over into the next session.
+local sessionView
+
+function Continuous:SaveView()
+	if not self:IsActive() then return end
+	local u, v, zoom = Controller().ViewNow()
+	if not Finite(u) or not Finite(v) or not Finite(zoom) or zoom < 1 then return end
+	local _, surface = engine.MapStitch.GetUndergroundView()
+	sessionView = { u = u, v = v, zoom = zoom, surface = surface == true }
+end
+
+function Continuous:SavedView()
+	local saved = sessionView
+	if type(saved) ~= "table" then return end
+	engine.MapStitch.SetUndergroundView(saved.surface)
+	return saved.u, saved.v, saved.zoom
+end
+
 function Continuous:UpdateLayerButton(city, surface)
 	local button = self.layerButton
 	if not city then if button then button:Hide() end; return end
@@ -188,6 +214,8 @@ function Continuous:Start()
 	self:SuspendOpenMap()
 	local mod = Controller()
 	mod.enabled = true
+	mod.SavedView = function() return self:SavedView() end
+	mod.OnMapHidden = function() self:SaveView() end
 	mod.OnStitchedChanged = function(on)
 		if not on and ns.DetailView:IsFollowingMap() then ns.DetailView:Exit(true) end
 		Fire("OpenMap_StitchedChanged", on)
@@ -214,7 +242,6 @@ function Continuous:Start()
 	end
 	mod:OnEnable()
 	ns.OpenMapCompat:Install()
-	map:HookScript("OnHide", function() engine.MapStitch.ResetUndergroundView() end)
 	-- Quest/exploration events update the detail layer directly. An idle map
 	-- does not need to recull artwork and rebuild terrain on a polling timer.
 end

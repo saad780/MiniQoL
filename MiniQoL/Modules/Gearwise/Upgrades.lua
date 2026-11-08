@@ -60,18 +60,24 @@ function Upgrades:Scan(review)
 		return
 	end
 	local found, loading, similar, worse, unusable = 0, 0, 0, 0, 0
-	if ns.db.popups then
-		for key, candidate in pairs(bags) do
-			if review then
-				local status = ns.Compare:Get(candidate.link).status
-				if status == "upgrade" then found = found + 1
-				elseif status == "pending" then loading = loading + 1
-				elseif status == "equal" then similar = similar + 1
-				elseif status == "downgrade" then worse = worse + 1
-				elseif status == "unusable" or status == "unsupported" then unusable = unusable + 1 end
-			end
-			if review or (self.counts and counts[key] > (self.counts[key] or 0)) then self:Enqueue(candidate) end
+	-- One pass over the bags serves both prompts: the upgrade queue and the
+	-- equal-value look offers, which must see the same acquisitions.
+	local acquired = {}
+	for key, candidate in pairs(bags) do
+		if review then
+			local status = ns.Compare:Get(candidate.link).status
+			if status == "upgrade" then found = found + 1
+			elseif status == "pending" then loading = loading + 1
+			elseif status == "equal" then similar = similar + 1
+			elseif status == "downgrade" then worse = worse + 1
+			elseif status == "unusable" or status == "unsupported" then unusable = unusable + 1 end
 		end
+		if review or (self.counts and counts[key] > (self.counts[key] or 0)) then
+			acquired[#acquired + 1] = candidate
+		end
+	end
+	if ns.db.popups then
+		for _, candidate in ipairs(acquired) do self:Enqueue(candidate) end
 	else
 		wipe(self.queue); wipe(self.queued)
 		self.current = nil
@@ -79,6 +85,7 @@ function Upgrades:Scan(review)
 	end
 	self.counts, self.bags = counts, bags
 	self:Advance()
+	if ns.Sidegrades then ns.Sidegrades:Consider(bags, acquired) end
 	if review then
 		self.reviewRequested, self.reviewWaiting = nil, nil
 		local message
@@ -143,10 +150,30 @@ function Upgrades:Advance()
 	for _, candidate in ipairs(pending) do self.queue[#self.queue + 1] = candidate end
 	if #pending > 0 then self:Schedule(0.5) end
 	if not self.current and self.frame then self.frame:Hide() end
+	if self.current then self:UpdateQueueBadge() end
 end
 
 local function SameReplacement(a, b)
 	return a and b and a.slot == b.slot and table.concat(a.oldLinks or {}, "|") == table.concat(b.oldLinks or {}, "|")
+end
+
+-- Shared by both prompts: move one reviewed bag slot into one equipment slot,
+-- straight from the player's click. Returns false, with a reason printed, when
+-- the client will not allow it right now.
+function Upgrades:EquipLocation(location, slot)
+	if InCombatLockdown() then ns.Print("You can equip the item after combat."); return false end
+	if CursorHasItem and CursorHasItem() then ns.Print("Put down the item on your cursor first."); return false end
+	local info = Container("GetContainerItemInfo", "GetContainerItemInfo", location.bag, location.slot)
+	if type(info) == "table" and info.isLocked then ns.Print("That item is busy. Try again in a moment."); return false end
+	local pickup = C_Container and C_Container.PickupContainerItem or PickupContainerItem
+	if not pickup or not EquipCursorItem then ns.Print("Equipping is unavailable on this client."); return false end
+	pickup(location.bag, location.slot)
+	if CursorHasItem and not CursorHasItem() then return false end
+	EquipCursorItem(slot)
+	local binding = StaticPopup_Visible and (StaticPopup_Visible("EQUIP_BIND")
+		or StaticPopup_Visible("EQUIP_BIND_TRADEABLE") or StaticPopup_Visible("EQUIP_BIND_REFUNDABLE"))
+	if ClearCursor and not binding then ClearCursor() end
+	return true
 end
 
 function Upgrades:Equip()
@@ -165,27 +192,28 @@ function Upgrades:Equip()
 		ns.Print("Your equipment changed. Review the updated comparison, then click Equip.")
 		return
 	end
-	local info = Container("GetContainerItemInfo", "GetContainerItemInfo", location.bag, location.slot)
-	if type(info) == "table" and info.isLocked then ns.Print("That item is busy. Try again in a moment."); return end
-	local pickup = C_Container and C_Container.PickupContainerItem or PickupContainerItem
-	if not pickup or not EquipCursorItem then ns.Print("Equipping is unavailable on this client."); return end
 	-- This runs only from the player's click, with the exact reviewed slot.
-	pickup(location.bag, location.slot)
-	if CursorHasItem and not CursorHasItem() then return end
-	EquipCursorItem(result.slot)
-	local binding = StaticPopup_Visible and (StaticPopup_Visible("EQUIP_BIND")
-		or StaticPopup_Visible("EQUIP_BIND_TRADEABLE") or StaticPopup_Visible("EQUIP_BIND_REFUNDABLE"))
-	if ClearCursor and not binding then ClearCursor() end
+	if not self:EquipLocation(location, result.slot) then return end
 	self.counts, self.bags = counts, bags
 	-- Keep the prompt until equipment events confirm success (including bind confirmation).
 	self:Schedule(0.5)
 end
 
+local MEDIA = "Interface\\AddOns\\MiniQoL\\Modules\\Gearwise\\Media\\"
+local SLOT_NAMES = ns.slotNames or {}
+local WIDTH, PAD, HEADER = 400, 15, 34
+local INNER = WIDTH - PAD * 2
+-- The icon is the fastest way to recognise a piece of gear, so it gets the
+-- room; the row grows with it to keep the same margins.
+local ICON_SIZE = 36
+local ROW_HEIGHT = 46
+
 function Upgrades:CreateFrame()
+	local T = MiniQoL.Theme
 	local frame = CreateFrame("Frame", "GearwiseUpgradePopup", UIParent, "BackdropTemplate")
 	self.frame = frame
 	frame:Hide()
-	frame:SetSize(350, 171)
+	frame:SetSize(WIDTH, 280)
 	frame:SetPoint("CENTER", UIParent, "CENTER", 0, 80)
 	frame:SetFrameStrata("DIALOG")
 	frame:SetClampedToScreen(true)
@@ -194,67 +222,122 @@ function Upgrades:CreateFrame()
 	frame:RegisterForDrag("LeftButton")
 	frame:SetScript("OnDragStart", frame.StartMoving)
 	frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
-	frame:SetBackdrop({ bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
-		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", tile = true, tileSize = 16, edgeSize = 16,
-		insets = { left = 4, right = 4, top = 4, bottom = 4 } })
-	frame:SetBackdropColor(0.04, 0.06, 0.09, 0.98)
-	frame:SetBackdropBorderColor(0.4, 0.65, 0.8)
-	local function Text(text, x, y, font, width)
-		local label = frame:CreateFontString(nil, "ARTWORK", font or "GameFontHighlight")
-		label:SetPoint("TOPLEFT", x, y)
-		label:SetWidth(width or 326)
-		label:SetJustifyH("LEFT")
-		label:SetText(text)
+	T:Window(frame, HEADER)
+
+	local title = T:Text(frame, "Gearwise", "GameFontNormal", nil, T.GOLD)
+	title:SetPoint("TOPLEFT", PAD, -11)
+	frame.subtitle = T:Text(frame, "", "GameFontDisableSmall", 190, T.MUTED)
+	frame.subtitle:SetJustifyH("RIGHT")
+	frame.subtitle:SetPoint("TOPRIGHT", -34, -13)
+	T:CloseButton(frame, function() self:Dismiss() end):SetPoint("TOPRIGHT", -5, -7)
+
+	-- Score banner: the one number the prompt exists to deliver.
+	local score = CreateFrame("Frame", nil, frame, "BackdropTemplate")
+	score:SetSize(INNER, 38)
+	score:SetPoint("TOPLEFT", PAD, -(HEADER + 11))
+	T:Chrome(score, { 0.105, 0.095, 0.072, 0.9 }, T.GOLD_SOFT)
+	frame.score = score
+	score.value = T:Text(score, "", "GameFontNormalLarge", nil, T.GOOD)
+	score.value:SetJustifyV("MIDDLE")
+	score.value:SetPoint("LEFT", 11, 0)
+	score.caption = T:Text(score, "", "GameFontDisableSmall", 230, T.MUTED)
+	score.caption:SetJustifyH("RIGHT")
+	score.caption:SetJustifyV("MIDDLE")
+	score.caption:SetPoint("RIGHT", -11, 0)
+
+	local function Heading(text)
+		local label = T:Text(frame, text, "GameFontDisableSmall", INNER, T.GOLD_SOFT)
 		return label
 	end
-	Text("Gearwise", 12, -12, "GameFontNormalLarge", 94)
-	frame.summary = Text("", 112, -15, "GameFontHighlightSmall", 188)
-	Text("Equipped", 12, -36, "GameFontNormal", 157)
-	Text("Upgrade", 181, -36, "GameFontNormal", 157)
-	local function Card(x, y)
-		local card = CreateFrame("Button", nil, frame)
-		card:SetPoint("TOPLEFT", x, y)
-		card:SetSize(157, 48)
-		card.icon = card:CreateTexture(nil, "ARTWORK")
-		card.icon:SetSize(48, 48)
-		card.icon:SetPoint("TOPLEFT", 0, 0)
-		card.label = card:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-		card.label:SetPoint("TOPLEFT", card.icon, "TOPRIGHT", 6, 0)
-		card.label:SetWidth(103)
-		card.label:SetJustifyH("LEFT")
-		card:SetScript("OnEnter", function(button)
+	frame.fromHeading = Heading("REPLACING")
+	frame.toHeading = Heading("UPGRADE")
+
+	local function Row()
+		local row = CreateFrame("Button", nil, frame, "BackdropTemplate")
+		row:SetSize(INNER, ROW_HEIGHT)
+		T:Chrome(row, T.BG_CARD, { 0.27, 0.24, 0.17, 1 })
+		row.icon = row:CreateTexture(nil, "ARTWORK")
+		row.icon:SetSize(ICON_SIZE, ICON_SIZE)
+		row.icon:SetPoint("LEFT", 6, 0)
+		row.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+		row.iconEdge = CreateFrame("Frame", nil, row, "BackdropTemplate")
+		row.iconEdge:SetPoint("TOPLEFT", row.icon, -1, 1)
+		row.iconEdge:SetPoint("BOTTOMRIGHT", row.icon, 1, -1)
+		row.iconEdge:SetBackdrop({ edgeFile = T.SOLID, edgeSize = 1 })
+		row.iconEdge:SetBackdropBorderColor(0.3, 0.27, 0.2, 1)
+		row.name = T:Text(row, "", "GameFontHighlightSmall", INNER - ICON_SIZE - 24)
+		row.name:SetWordWrap(false)
+		row.name:SetJustifyV("MIDDLE")
+		row.name:SetPoint("LEFT", row.icon, "RIGHT", 10, 8)
+		row.detail = T:Text(row, "", "GameFontDisableSmall", INNER - ICON_SIZE - 24, T.MUTED)
+		row.detail:SetWordWrap(false)
+		row.detail:SetPoint("LEFT", row.icon, "RIGHT", 10, -9)
+		row:SetScript("OnEnter", function(button)
+			button:SetBackdropBorderColor(T.Color(T.BORDER_HI))
 			if button.link then
 				GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
 				GameTooltip:SetHyperlink(button.link)
 				GameTooltip:Show()
 			end
 		end)
-		card:SetScript("OnLeave", function() GameTooltip:Hide() end)
-		card:SetScript("OnClick", function(button)
+		row:SetScript("OnLeave", function(button)
+			button:SetBackdropBorderColor(0.27, 0.24, 0.17, 1)
+			GameTooltip:Hide()
+		end)
+		row:SetScript("OnClick", function(button)
 			if button.link and HandleModifiedItemClick then HandleModifiedItemClick(button.link) end
 		end)
-		return card
+		return row
 	end
-	frame.old = { Card(12, -53), Card(12, -107) }
-	frame.new = Card(181, -53)
-	frame.changes = Text("", 12, -107, "GameFontHighlightSmall")
-	frame.note = Text("", 12, -125, "GameFontHighlightSmall")
-	frame.note:SetTextColor(0.68, 0.72, 0.78)
-	local equip = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-	equip:SetSize(184, 34)
-	equip:SetPoint("BOTTOMRIGHT", -12, 10)
-	equip:SetText("Equip upgrade")
-	equip:SetScript("OnClick", function() self:Equip() end)
-	frame.equip = equip
-	local later = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-	later:SetSize(104, 22)
-	later:SetPoint("RIGHT", equip, "LEFT", -8, 0)
-	later:SetText("Keep current")
-	later:SetScript("OnClick", function() self:Dismiss() end)
-	local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
-	close:SetPoint("TOPRIGHT", -3, -3)
-	close:SetScript("OnClick", function() self:Dismiss() end)
+	frame.old = { Row(), Row() }
+	frame.new = Row()
+
+	frame.arrow = frame:CreateTexture(nil, "ARTWORK")
+	frame.arrow:SetSize(16, 16)
+	frame.arrow:SetTexture(MEDIA .. "Upgrade.tga")
+
+	frame.rule = T:Rule(frame)
+	frame.rule:SetWidth(INNER)
+	frame.changes = T:Text(frame, "", "GameFontHighlightSmall", INNER)
+	frame.note = T:Text(frame, "", "GameFontDisableSmall", INNER, T.MUTED)
+
+	frame.equip = T:Button(frame, "Equip upgrade", 182, 26, function() self:Equip() end)
+	frame.equip:SetPrimary(true)
+	frame.equip:SetPoint("BOTTOMRIGHT", -PAD, PAD - 2)
+	frame.equip:SetLabelAnchor("LEFT", frame.equip, "LEFT", 14, 0)
+	-- The same chip the dialogue hotkeys use, so the key reads as a key.
+	local hint = CreateFrame("Frame", nil, frame.equip, "BackdropTemplate")
+	frame.spaceHint = hint
+	hint:SetSize(44, 16)
+	hint:SetPoint("RIGHT", -8, 0)
+	hint:SetBackdrop({ bgFile = T.SOLID, edgeFile = T.SOLID, edgeSize = 1 })
+	hint:SetBackdropColor(0.07, 0.065, 0.05, 0.92)
+	hint:SetBackdropBorderColor(0.65, 0.51, 0.25, 0.7)
+	hint.text = T:Text(hint, "Space", "GameFontNormalSmall", 44, T.GOLD)
+	hint.text:SetJustifyH("CENTER")
+	hint.text:SetPoint("CENTER", 0, 0)
+	T:Tip(frame.equip, "Equip upgrade", function()
+		local body = "Swaps the item in from your bags. Bind-on-equip items still ask for confirmation."
+		if ns.db and ns.db.spaceToEquip then
+			body = body .. "\n\nSpace does the same while this prompt is open, so it will not jump until you answer."
+		end
+		return body
+	end)
+	frame.later = T:Button(frame, "Keep current", 110, 26, function() self:Dismiss() end)
+	frame.later:SetPoint("RIGHT", frame.equip, "LEFT", -8, 0)
+	T:Tip(frame.later, "Keep current", "Dismisses this prompt. Use /gw upgrades to review bag upgrades again.")
+
+	-- A one-pixel keyboard listener, armed only while the prompt is up. Every
+	-- path that hides the prompt disarms it, because it hangs off OnHide.
+	self.keys = CreateFrame("Frame", "GearwiseUpgradeKeys", UIParent)
+	self.keys:SetFrameStrata("DIALOG")
+	self.keys:SetSize(1, 1)
+	self.keys:SetPoint("CENTER")
+	self.keys:Hide()
+
+	frame:SetScript("OnShow", function() self:ArmKeys(true) end)
 	frame:SetScript("OnHide", function()
+		self:ArmKeys(false)
 		if GameTooltip.GetOwner then
 			local owner = GameTooltip:GetOwner()
 			if owner == frame.new or owner == frame.old[1] or owner == frame.old[2] then GameTooltip:Hide() end
@@ -263,42 +346,164 @@ function Upgrades:CreateFrame()
 	return frame
 end
 
+---------------------------------------------------------------------------
+-- Space to equip
+---------------------------------------------------------------------------
+-- The same rules the NPC dialogue hotkeys use: the key is only taken while the
+-- prompt is actually on screen, and never while something else owns the
+-- keyboard. Gossip and quest windows are listed too, so the dialogue hotkeys
+-- keep Space to themselves whenever both could be open.
+local function KeyBlocked()
+	if InCombatLockdown() then return true end
+	if GetCurrentKeyBoardFocus and GetCurrentKeyBoardFocus() then return true end
+	for _, panel in ipairs({ GameMenuFrame or false, SettingsPanel or false, InterfaceOptionsFrame or false,
+		ColorPickerFrame or false, WorldMapFrame or false, GossipFrame or false, QuestFrame or false,
+		MerchantFrame or false, TradeFrame or false, MiniQoL and MiniQoL.panel or false }) do
+		if panel and panel.IsVisible and panel:IsVisible() then return true end
+	end
+	if InputUtil and InputUtil.IsGamepadUIEnabled and InputUtil.IsGamepadUIEnabled() then return true end
+	for index = 1, STATICPOPUP_NUMDIALOGS or 4 do
+		local popup = _G["StaticPopup" .. index]
+		if popup and popup:IsVisible() then return true end
+	end
+	return false
+end
+
+function Upgrades:KeyDown(key)
+	self.keys:SetPropagateKeyboardInput(true)
+	local normalized = key == "SPACE" and key or nil
+	if not normalized then return end
+	if (IsAltKeyDown and IsAltKeyDown()) or (IsControlKeyDown and IsControlKeyDown())
+		or (IsShiftKeyDown and IsShiftKeyDown()) then return end
+	if not self.frame or not self.frame:IsShown() or not self.current then return end
+	if KeyBlocked() then return end
+	-- Swallow the repeat as well as the press, so holding Space cannot equip
+	-- twice or fall through to a jump.
+	self.keys:SetPropagateKeyboardInput(false)
+	if self.held then return end
+	self.held = true
+	self:Equip()
+end
+
+function Upgrades:ArmKeys(on)
+	local input = self.keys
+	if not input then return end
+	self.held = nil
+	if on and ns.db and ns.db.spaceToEquip and not InCombatLockdown() then
+		input:SetPropagateKeyboardInput(true)
+		input:SetScript("OnKeyDown", function(_, key) self:KeyDown(key) end)
+		input:SetScript("OnKeyUp", function(_, key)
+			if key == "SPACE" then self.held = nil end
+			if not InCombatLockdown() then input:SetPropagateKeyboardInput(true) end
+		end)
+		input:EnableKeyboard(true)
+		input:Show()
+	else
+		-- Forever can dispatch keys to any frame that still holds an OnKeyDown
+		-- script, so clear them rather than only disabling the keyboard.
+		input:SetScript("OnKeyDown", nil)
+		input:SetScript("OnKeyUp", nil)
+		input:EnableKeyboard(false)
+		input:Hide()
+		if not InCombatLockdown() then input:SetPropagateKeyboardInput(true) end
+	end
+	if self.frame and self.frame.spaceHint then
+		self.frame.spaceHint:SetShown(ns.db and ns.db.spaceToEquip and true or false)
+	end
+end
+
+-- Re-applies the hotkey setting to a prompt that is already on screen.
+function Upgrades:RefreshKeys()
+	self:ArmKeys(self.frame ~= nil and self.frame:IsShown())
+end
+
+-- "Upgrade 1 of 4" once more than one candidate is waiting, so dismissing the
+-- prompt does not look like it threw the rest away.
+function Upgrades:UpdateQueueBadge()
+	local frame = self.frame
+	if not frame or not frame.subtitle then return end
+	local waiting = #self.queue
+	frame.subtitle:SetText(waiting > 0 and ("Upgrade 1 of " .. (waiting + 1)) or "Upgrade found in your bags")
+end
+
 function Upgrades:Show(result)
 	local frame = self.frame or self:CreateFrame()
+	local T = MiniQoL.Theme
 	self.result = result
-	local function Fill(card, link)
-		card.link = link
+
+	local function Fill(row, link, detail)
+		row.link = link
 		local item = link and ns.Items:Get(link)
-		card.icon:SetTexture(item and item.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
-		card.label:SetText(link or "Empty slot")
-		local height = math.max(48, card.label:GetStringHeight())
-		card:SetHeight(height)
-		card:Show()
-		return height
+		row.icon:SetTexture(item and item.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
+		local color = link and T:QualityColor(link) or T.MUTED
+		row.name:SetText(link and (item and item.name or T:StripColor(link)) or "Nothing equipped")
+		row.name:SetTextColor(T.Color(color))
+		row.iconEdge:SetBackdropBorderColor(T.Color(color, link and 0.8 or 0.4))
+		row.detail:SetText(detail or "")
+		row:Show()
 	end
-	local oldHeight = Fill(frame.old[1], result.oldLinks[1])
-	if result.oldLinks[2] then
-		frame.old[2]:ClearAllPoints()
-		frame.old[2]:SetPoint("TOPLEFT", 12, -53 - oldHeight - 6)
-		oldHeight = oldHeight + 6 + Fill(frame.old[2], result.oldLinks[2])
-	else frame.old[2]:Hide() end
-	local newHeight = Fill(frame.new, self.current.link)
-	local score = result.percent and ("  |cff55df82+%.1f%%|r"):format(result.percent) or "  Empty slot"
-	frame.summary:SetText(ns.profile.label .. score)
-	local statsTop = 53 + math.max(oldHeight, newHeight) + 6
-	frame.changes:ClearAllPoints()
-	frame.changes:SetPoint("TOPLEFT", 12, -statsTop)
+
+	-- Every row is re-anchored on each prompt, so clear the previous point first.
+	local function Place(region, y, x, point, relativePoint)
+		region:ClearAllPoints()
+		region:SetPoint(point or "TOPLEFT", frame, relativePoint or "TOPLEFT", x or PAD, -y)
+	end
+
+	local twoHanded = #result.oldLinks > 1
+	local slotLabel = SLOT_NAMES[result.slot] or "Equipment"
+	local y = HEADER + 11 + 38 + 13
+
+	frame.fromHeading:SetText(#result.oldLinks > 0 and "REPLACING" or "EMPTY SLOT")
+	Place(frame.fromHeading, y)
+	y = y + 15
+	Place(frame.old[1], y)
+	Fill(frame.old[1], result.oldLinks[1], twoHanded and "Main hand" or slotLabel)
+	y = y + ROW_HEIGHT
+	if twoHanded then
+		y = y + 4
+		Place(frame.old[2], y)
+		Fill(frame.old[2], result.oldLinks[2], "Off hand")
+		y = y + ROW_HEIGHT
+	else
+		frame.old[2]:Hide()
+	end
+
+	y = y + 6
+	Place(frame.arrow, y, PAD + 6 + ICON_SIZE / 2, "TOP")
+	y = y + 18
+
+	Place(frame.toHeading, y)
+	y = y + 15
+	Place(frame.new, y)
+	Fill(frame.new, self.current.link, "In your bags")
+	y = y + ROW_HEIGHT + 12
+
+	Place(frame.rule, y)
+	y = y + 11
+
 	local changes = ns.Display:Changes(result, math.huge, 2)
+	Place(frame.changes, y)
 	frame.changes:SetText(#changes > 0 and table.concat(changes, "\n") or "No base stat changes.")
-	local contentBottom = statsTop + math.max(14, frame.changes:GetStringHeight())
-	frame.note:ClearAllPoints()
-	frame.note:SetPoint("TOPLEFT", 12, -contentBottom - 4)
+	y = y + math.max(14, frame.changes:GetStringHeight())
+
 	local notes = {}
-	if #result.oldLinks > 1 then notes[#notes + 1] = "Replaces main hand and off hand." end
-	if result.effects then notes[#notes + 1] = "Effects and set bonuses excluded." end
+	if twoHanded then notes[#notes + 1] = "Replaces both weapon slots." end
+	if result.effects then notes[#notes + 1] = "Use effects and set bonuses are not scored." end
 	frame.note:SetText(table.concat(notes, "\n"))
-	if #notes > 0 then contentBottom = contentBottom + 4 + frame.note:GetStringHeight() end
-	frame:SetHeight(contentBottom + 50)
+	Place(frame.note, y + 7)
+	if #notes > 0 then y = y + 7 + frame.note:GetStringHeight() end
+
+	if result.percent then
+		frame.score.value:SetText(("+%.1f%%"):format(result.percent))
+		frame.score.value:SetTextColor(T.Color(T.GOOD))
+	else
+		frame.score.value:SetText(result.empty and "New gear" or "Upgrade")
+		frame.score.value:SetTextColor(T.Color(T.GOLD))
+	end
+	frame.score.caption:SetText(ns.profile.label .. " " .. ns.profile.className .. "  \194\183  " .. slotLabel)
+	self:UpdateQueueBadge()
+
+	frame:SetHeight(y + 14 + 26 + PAD)
 	frame:Show()
 end
 

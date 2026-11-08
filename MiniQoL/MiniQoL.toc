@@ -1,7 +1,7 @@
 ## Interface: 16001
 ## Title: Mini QoL
 ## Author: saad780 and credited module authors
-## Version: 1.0.2
+## Version: 1.1.0
 ## X-License: GPL-3.0-only
 ## Notes: Standalone consolidation for WoW Forever.
 ## LoadSavedVariablesFirst: 1
@@ -11,6 +11,7 @@
 ## SavedVariablesPerCharacter: AutoSellBlueItems, AutoSellGreenItems, AutoSellGreyItems, AutoSellPurpleItems, AutoSellUnwantedItems, AutoSellWhiteItems, GearwiseDB, ItemsToSell, SoulboundOnly, UnmarkedItems
 
 Core.lua
+Theme.lua
 Runtime.lua
 LegacyProfiles.lua
 CharacterStates.lua
@@ -21,6 +22,7 @@ Modules\Gearwise\Items.lua
 Modules\Gearwise\Compare.lua
 Modules\Gearwise\Display.lua
 Modules\Gearwise\Upgrades.lua
+Modules\Gearwise\Sidegrades.lua
 Modules\Gearwise\Options.lua
 Modules\Gearwise\_MiniQoLComplete.lua
 Modules\Peddler\vo\WantedItems.lua

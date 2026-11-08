@@ -411,7 +411,6 @@ local function markCargBagsNivayaBags()
         checkItem(itemsBagNumber, itemsSlotNumber, itemButton)
       end
     end
-    slotNumber = slotNumber + 1
   end
 end
 
@@ -428,7 +427,6 @@ local function markMonoBags()
       local itemsSlotNumber = itemButton:GetID()
       checkItem(itemsBagNumber, itemsSlotNumber, itemButton)
     end
-    slotNumber = slotNumber + 1
   end
 end
 
@@ -522,7 +520,6 @@ local function markRealUIBags()
         checkItem(itemsBagNumber, itemsSlotNumber, itemButton)
       end
     end
-    slotNumber = slotNumber + 1
   end
 end
 

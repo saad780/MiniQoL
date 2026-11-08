@@ -21,6 +21,13 @@ function ns.Print(text)
 	print("|cff8bc5e8Gearwise|r: " .. text)
 end
 
+ns.slotNames = {
+	[1] = "Head", [2] = "Neck", [3] = "Shoulder", [4] = "Shirt", [5] = "Chest",
+	[6] = "Waist", [7] = "Legs", [8] = "Feet", [9] = "Wrist", [10] = "Hands",
+	[11] = "Ring", [12] = "Ring", [13] = "Trinket", [14] = "Trinket",
+	[15] = "Back", [16] = "Main hand", [17] = "Off hand", [18] = "Ranged", [19] = "Tabard",
+}
+
 function ns:Invalidate(items)
 	self.revision = self.revision + 1
 	self.Compare:Clear()
@@ -46,9 +53,10 @@ events:SetScript("OnEvent", function(_, event, ...)
 			GearwiseDB = type(GearwiseDB) == "table" and GearwiseDB or {}
 			ns.db = GearwiseDB
 			for key, default in pairs({ spec = "auto", mode = "auto", bags = true, quests = true,
-				tooltips = true, unusable = true, popups = true }) do
+				tooltips = true, unusable = true, popups = true, styles = true, spaceToEquip = true }) do
 				if ns.db[key] == nil then ns.db[key] = default end
 			end
+			if type(ns.db.styleRejected) ~= "table" then ns.db.styleRejected = {} end
 		elseif ns.loggedIn then
 			ns.Display:InstallHooks()
 		end
@@ -57,6 +65,7 @@ events:SetScript("OnEvent", function(_, event, ...)
 		ns.profile = ns.Profiles:Detect()
 		ns.Display:Init()
 		ns.Upgrades:Init()
+		ns.Sidegrades:Init()
 		ns.Options:Init()
 		for _, name in ipairs({ "BAG_UPDATE_DELAYED", "PLAYER_EQUIPMENT_CHANGED", "PLAYER_LEVEL_UP",
 			"PLAYER_TALENT_UPDATE", "CHARACTER_POINTS_CHANGED", "ACTIVE_TALENT_GROUP_CHANGED",

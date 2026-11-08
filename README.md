@@ -5,12 +5,26 @@ addon for WoW Forever (interface `16001`), with a compact settings panel and
 keyboard shortcuts for the game's NPC dialogue windows.
 
 Open `/mqol` or click the minimap gear. Maps, gear advice, selling, XP/reputation
-and NPC shortcuts have their own settings pages. Other addons keep their own
-settings and minimap icons.
+and NPC shortcuts have their own settings pages. Every setting for every bundled
+module lives there, so the game's AddOns list holds a single **Mini QoL** entry
+whose only job is to open the panel. Other addons keep their own settings and
+minimap icons.
+
+The continuous map remembers the position, zoom and map layer you left it on for
+the rest of the play session, so closing and reopening returns you to the same
+place. A reload or a relog starts fresh on the map the game itself opens; the
+view is never written to saved variables. Use **Show my location** to return to
+your character.
+
+Gearwise prompts when you loot an upgrade, and **Space** equips it while that
+prompt is open. When a looted item scores exactly what you are wearing, a small
+badge waits at the edge of the screen instead: hover it to see your character
+side by side in both versions and keep whichever you prefer. Items you turn down
+never ask again.
 
 ## Download and install
 
-Download **MiniQoL-1.0.2.zip** from the [latest release](https://github.com/saad780/MiniQoL/releases/latest).
+Download **MiniQoL-1.1.0.zip** from the [latest release](https://github.com/saad780/MiniQoL/releases/latest).
 
 1. Exit WoW and back up your addon settings.
 2. Extract the `MiniQoL` folder into your game's `Interface/AddOns` directory.
@@ -86,5 +100,6 @@ optional `--account` import creates a private local profile snapshot; keep those
 builds, account backups and `WTF` data out of source control and releases.
 
 Offline checks cover scope, Lua compilation, source references, settings, panel
-navigation, NPC shortcuts and native map API mixin lookups during player
-sampling. In-game validation of the combined addon remains pending.
+navigation, NPC shortcuts, native map API mixin lookups during player sampling
+and session-only map views. In-game validation of the combined addon remains
+pending.

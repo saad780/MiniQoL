@@ -306,8 +306,9 @@ end
 SLASH_XPCOUNTER1 = "/xpcounter"
 SLASH_XPCOUNTER2 = "/xpc"
 SlashCmdList.XPCOUNTER = function()
-    if addon.OpenSettings then
-        addon.OpenSettings()
+    -- Every XP Counter setting lives on the Mini QoL panel's own page.
+    if MiniQoL and MiniQoL.ShowPage then
+        MiniQoL:ShowPage("quests")
     else
         say("Tracking XP and reputation. Kill estimates use the XP from your most recent kill.")
     end

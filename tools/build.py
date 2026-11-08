@@ -17,10 +17,28 @@ LUA_COMPILER = LuaRuntime(encoding=None, unpack_returned_tuples=True).eval(
     b"function(source) local fn, err = loadstring(source); return fn ~= nil, err end")
 
 XP_BRIDGE = b'''
--- Mini QoL adapter: use XP Counter's popup state and movement cancellation.
+-- Mini QoL adapter. XP Counter has no settings window of its own; the Mini QoL
+-- panel drives the floating text through these.
 function addon.MiniQoLSetPopups(value)
+    if not db then return end
     db.popupsEnabled = not not value
     if not value then setMoving(false) end
+end
+
+function addon.MiniQoLStartMoving()
+    setMoving(true)
+end
+
+function addon.MiniQoLPreview()
+    preview()
+end
+
+function addon.MiniQoLResetPosition()
+    if not db then return end
+    db.x, db.y = 0, 180
+    popup:ClearAllPoints()
+    popup:SetPoint("CENTER", UIParent, "CENTER", db.x, db.y)
+    if moving then preview() end
 end
 '''
 
@@ -276,7 +294,7 @@ def build(addons, account, destination, refresh=False):
     (output / "CharacterStates.lua").write_text("MiniQoLCharacterStates = " + lua(states) + "\n", encoding="utf-8")
     manifest = {"modules": modules, "order": order}
     (output / "Manifest.lua").write_text("MiniQoLRuntime:Install(" + lua(manifest) + ", MiniQoLCharacterStates)\nMiniQoLCharacterStates = nil\nMiniQoL:Initialize()\n", encoding="utf-8")
-    entries = ["Core.lua", "Runtime.lua", "LegacyProfiles.lua", "CharacterStates.lua", "Manifest.lua"]
+    entries = ["Core.lua", "Theme.lua", "Runtime.lua", "LegacyProfiles.lua", "CharacterStates.lua", "Manifest.lua"]
     bindings = []
     credits = [(ROOT / "THIRD_PARTY.md").read_text(encoding="utf-8"),
                "\n## Bundled component versions\n"]

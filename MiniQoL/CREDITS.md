@@ -114,7 +114,7 @@ by Blizzard or the other projects credited here.
 
 Author: saad780
 
-Version: 1.1.5
+Version: 1.2.0
 
 Manifest: Modules/Gearwise/Gearwise.toc
 
@@ -134,11 +134,11 @@ Licences: LICENSE.txt
 
 Author: saad780
 
-Version: 1.4.18
+Version: 1.4.19
 
 Manifest: Modules/Wayfinder/Wayfinder.toc
 
-Licences: LICENSE.txt, Vendor/OpenMap/LICENSE.txt
+Licences: LICENSE.txt, Vendor\OpenMap\LICENSE.txt
 
 ## XPCounter
 

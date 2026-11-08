@@ -180,6 +180,10 @@ function S.ResetUndergroundView()
 	undergroundContext, showSurface = false, false
 	ns.ContinuousMap:UpdateLayerButton()
 end
+function S.SetUndergroundView(surface)
+	showSurface = surface == true
+	UpdateUndergroundContext()
+end
 function S.ToggleUndergroundView()
 	if not undergroundContext then return end
 	showSurface = not showSurface
@@ -236,8 +240,8 @@ function S.SetShown(on)
 	if root then root:SetShown(shown) end
 	if S.playerLayer then S.playerLayer:SetShown(shown) end
 	if ns.WorldFog and ns.WorldFog.frame and not shown then ns.WorldFog.frame:Hide() end
-	-- Leaving this area (or visiting a dungeon) does not close the world map.
-	-- Keep the selected floor until the map's actual OnHide resets it.
+	-- Preserve the selected floor while hidden; the next opening this session
+	-- restores the view you left, including its layer.
 	if not shown then UpdateUndergroundContext() end
 	if not shown and ns.DetailView:IsFollowingMap() then ns.DetailView:Exit(true) end
 end

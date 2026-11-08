@@ -105,7 +105,10 @@ equal(MiniQoLDB.minimap.angle, 19, "existing shell profile retained")
 equal(MiniQoLDB.favorites.example, true)
 
 -- UI-independent settings contracts: direct controls call their owners' APIs.
-Wayfinder = { db = {}, state = { showMinimapServices = true, unexploredTerrain = 2 }, categories = {} }
+-- The service icon checkboxes are generated from Wayfinder's own category
+-- list, so the stand-in has to supply one.
+Wayfinder = { db = {}, state = { showMinimapServices = true, unexploredTerrain = 2 }, categories = {},
+	CategoryList = { { id = "mailbox", label = "Mailboxes" }, { id = "bank", label = "Bankers" } } }
 function Wayfinder:GetSetting(k) return self.state[k] end
 function Wayfinder:SetSetting(k, v) self.state[k] = v; self.lastChanged = k end
 function Wayfinder:IsCategoryEnabled(k) return self.categories[k] ~= false end
@@ -119,7 +122,7 @@ for _, feature in ipairs(ns.features) do index[feature.id] = feature end
 equal(ns:Write(index["wayfinder.showMinimapServices"], false), true)
 equal(Wayfinder.state.showMinimapServices, false)
 equal(Wayfinder.lastChanged, "showMinimapServices", "owning setter invoked")
-ns:Write(index["wayfinder.mailbox"], false)
+ns:Write(index["wayfinder.cat.mailbox"], false)
 equal(Wayfinder.categories.mailbox, false, "mailbox category identity")
 ns:Write(index["wayfinder.fog"], 2)
 equal(Wayfinder.state.unexploredTerrain, 2)

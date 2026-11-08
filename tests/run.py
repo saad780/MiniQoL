@@ -17,6 +17,9 @@ mixins = LuaRuntime(unpack_returned_tuples=True)
 package = Path(sys.argv[1]) if len(sys.argv) > 1 else root / "MiniQoL"
 mixins.execute((root / "tests/native_mixins.lua").read_text(), str(package).replace("\\", "/"))
 
+memory = LuaRuntime(unpack_returned_tuples=True)
+memory.execute((root / "tests/map_memory.lua").read_text(), str(package).replace("\\", "/"))
+
 if len(sys.argv) > 1:
     package = Path(sys.argv[1])
     sys.path.insert(0, str(root / "tools"))
