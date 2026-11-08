@@ -998,6 +998,54 @@ end
 ---------------------------------------------------------------------------
 -- Frames
 ---------------------------------------------------------------------------
+-- The map's own buttons -- the quest panel toggle and its neighbours -- sit
+-- over the canvas at a low frame level. The detail view fills that same canvas
+-- far above them, so without this they vanish under the terrain as it fades in.
+-- Lift them while the view is up and put every level back afterwards, leaving
+-- protected frames alone in combat.
+local raisedOverlays = {}
+
+local function MapChrome()
+	local frames, seen = {}, {}
+	local function add(frame)
+		if type(frame) == "table" and frame.GetFrameLevel and not seen[frame] then
+			seen[frame] = true
+			frames[#frames + 1] = frame
+		end
+	end
+	add(WorldMapFrame.SidePanelToggle)
+	for _, frame in ipairs(WorldMapFrame.overlayFrames or {}) do add(frame) end
+	return frames
+end
+
+local function LiftMapChrome(above)
+	if above and view then
+		-- Clear the markers too: FollowMap lifts the pin layer well past the
+		-- view's own level so quest pins stay readable over the terrain.
+		local top = view:GetFrameLevel()
+		if pinLayer then top = max(top, pinLayer:GetFrameLevel()) end
+		local level = min(top + 40, 9500)
+		for _, frame in ipairs(MapChrome()) do
+			if not (InCombatLockdown() and frame:IsProtected()) then
+				if raisedOverlays[frame] == nil then raisedOverlays[frame] = frame:GetFrameLevel() end
+				frame:SetFrameLevel(level)
+				-- The toggle keeps its open/close arrows as children.
+				for _, child in ipairs({ frame:GetChildren() }) do
+					if child.GetFrameLevel and not (InCombatLockdown() and child:IsProtected()) then
+						if raisedOverlays[child] == nil then raisedOverlays[child] = child:GetFrameLevel() end
+						child:SetFrameLevel(level + 2)
+					end
+				end
+			end
+		end
+		return
+	end
+	for frame, level in pairs(raisedOverlays) do
+		if not (InCombatLockdown() and frame:IsProtected()) then frame:SetFrameLevel(level) end
+	end
+	wipe(raisedOverlays)
+end
+
 local function UpdateFrameLevel()
 	local container = WorldMapFrame:GetCanvasContainer()
 	local manager = WorldMapFrame.GetPinFrameLevelsManager and WorldMapFrame:GetPinFrameLevelsManager()
@@ -1006,6 +1054,8 @@ local function UpdateFrameLevel()
 		topPinLevel = max(topPinLevel, container:GetFrameLevel() + 8600)
 	end
 	view:SetFrameLevel(min(topPinLevel + 20, 9000))
+	-- The view just moved; the chrome has to move with it.
+	if view:IsShown() then LiftMapChrome(true) end
 end
 
 local function CreateFrames()
@@ -1016,6 +1066,10 @@ local function CreateFrames()
 	view:SetClipsChildren(true)
 	view:EnableMouse(true)
 	view:EnableMouseWheel(true)
+	-- Every way in and out of the detail view goes through showing and hiding
+	-- this frame, so the map's buttons are handled in one place.
+	view:SetScript("OnShow", function() LiftMapChrome(true) end)
+	view:SetScript("OnHide", function() LiftMapChrome(false) end)
 	view:Hide()
 
 	local background = view:CreateTexture(nil, "BACKGROUND", nil, -8)
@@ -1142,6 +1196,9 @@ function DetailView:FollowMap(continent, wx, wy, pixelsPerYard, alpha, level, qu
 	arrowFrame:Hide()
 	view:SetAlpha(alpha)
 	view:Show()
+	-- The pin layer's level was just set from the host map's; keep the map's
+	-- own buttons above whichever of the two ended up higher.
+	LiftMapChrome(true)
 	if reset then
 		ns.MapPins:RefreshNow()
 		ns.AddonPins:Refresh()
