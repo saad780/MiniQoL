@@ -492,7 +492,8 @@ local function PinOnMouseUp(pin, button)
 				else
 					ns:RemoveLocation(pin.rec)
 				end
-			elseif pin.rec.waypoint then
+			else
+				-- Matches the world map: left-click shares whatever pin it is.
 				ns.Navigation:CopyWaypoint(pin.rec)
 			end
 		end

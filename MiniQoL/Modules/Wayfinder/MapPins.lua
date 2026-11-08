@@ -46,6 +46,7 @@ function Tooltip:Show(owner, rec, catID)
 	elseif (rec.a or 0) > APPROXIMATE_YARDS then
 		GameTooltip:AddLine(("Approximate (within ~%d yards)"):format(rec.a), 1, 0.6, 0.2)
 	end
+	GameTooltip:AddLine("Left-click to copy a link to chat", 0.5, 0.5, 0.5)
 	GameTooltip:AddLine("Middle-click to set a waypoint here", 0.5, 0.5, 0.5)
 	GameTooltip:AddLine("Shift-click to remove", 0.5, 0.5, 0.5)
 	GameTooltip:Show()
@@ -125,6 +126,12 @@ end
 WayfinderMapPinMixin = CreateFromMixins(MapCanvasPinMixin)
 
 function WayfinderMapPinMixin:OnLoad()
+	-- Keep whatever the base mixin sets up; overriding OnLoad outright is how a
+	-- pin ends up never being offered clicks.
+	if MapCanvasPinMixin.OnLoad then MapCanvasPinMixin.OnLoad(self) end
+	if self.SetMouseClickEnabled then self:SetMouseClickEnabled(true) end
+	if self.SetMouseMotionEnabled then self:SetMouseMotionEnabled(true) end
+	if self.RegisterForClicks then self:RegisterForClicks("AnyUp") end
 	self:UseFrameLevelType("PIN_FRAME_LEVEL_AREA_POI")
 	self:SetScalingLimits(1, 1.0, 1.2)
 end
@@ -151,7 +158,22 @@ function WayfinderMapPinMixin:OnMouseLeave()
 	GameTooltip:Hide()
 end
 
-function WayfinderMapPinMixin:OnMouseClickAction(button)
+-- Depending on the client, a pin is told about a click through the canvas's
+-- mouse-action dispatch, through OnClick, or through plain OnMouseUp. Take
+-- whichever arrives and drop the duplicates: several can fire for one press,
+-- and GetTime is constant within a frame, so the same press is easy to spot.
+function WayfinderMapPinMixin:HandleClick(button)
+	local now = GetTime()
+	if self.clickButton == button and self.clickAt == now then return end
+	self.clickButton, self.clickAt = button, now
+	self:OnPinClicked(button)
+end
+
+function WayfinderMapPinMixin:OnMouseClickAction(button) self:HandleClick(button) end
+function WayfinderMapPinMixin:OnClick(button) self:HandleClick(button) end
+function WayfinderMapPinMixin:OnMouseUp(button) self:HandleClick(button) end
+
+function WayfinderMapPinMixin:OnPinClicked(button)
 	if button == "MiddleButton" then
 		ns.Navigation:ToggleWaypointAt(self.rec, self.catID)
 	elseif button == "LeftButton" and IsShiftKeyDown() then
@@ -160,7 +182,10 @@ function WayfinderMapPinMixin:OnMouseClickAction(button)
 		else
 			ns:RemoveLocation(self.rec)
 		end
-	elseif button == "LeftButton" and self.rec.waypoint then
+	elseif button == "LeftButton" then
+		-- Any pin can be shared, not only the one that happens to be the
+		-- current waypoint: left-click meaning nothing on most pins is the
+		-- reason sharing looked broken.
 		ns.Navigation:CopyWaypoint(self.rec)
 	end
 end

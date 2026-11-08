@@ -251,7 +251,8 @@ end
 function Navigation:CopyWaypoint(rec)
 	local link = self:GetWaypointLink(rec)
 	if not link then
-		ns.Print(current and "This waypoint can't be shared on a map." or "Set a waypoint first.")
+		ns.Print((rec or current) and "That spot has no place on a map that can be linked."
+			or "Set a waypoint first, or left-click any map pin to share it.")
 		return false
 	end
 	-- The player still chooses when to send it.
