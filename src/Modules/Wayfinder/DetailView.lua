@@ -506,12 +506,33 @@ local function PinOnMouseUp(pin, button)
 	end
 end
 
+-- SetPassThroughButtons is protected: calling it during combat is blocked
+-- outright. Pins are pooled and only need a different set when the detail view
+-- starts or stops following the world map, so remember what each pin already
+-- has, leave it alone in combat, and catch up once combat ends.
+local function ApplyPassThrough(pin)
+	local wanted = following and "follow" or "plain"
+	if pin.passThrough == wanted then return end
+	if InCombatLockdown() then
+		pin.passThroughStale = true
+		return
+	end
+	if following then pin:SetPassThroughButtons("LeftButton", "RightButton")
+	else pin:SetPassThroughButtons("RightButton") end
+	pin.passThrough, pin.passThroughStale = wanted, nil
+end
+
+local function RefreshPassThrough()
+	for _, pin in ipairs(activePins) do
+		if pin.passThroughStale then ApplyPassThrough(pin) end
+	end
+end
+
 local function AcquirePin()
 	local pin = table.remove(freePins)
 	if not pin then
 		pin = CreateFrame("Frame", nil, pinLayer)
 		pin:EnableMouse(true)
-		pin:SetPassThroughButtons("RightButton")
 		pin.icon = pin:CreateTexture(nil, "ARTWORK")
 		pin.icon:SetAllPoints()
 		pin.highlight = pin:CreateTexture(nil, "HIGHLIGHT")
@@ -525,8 +546,7 @@ local function AcquirePin()
 	end
 	pin.rec, pin.catID, pin.quest, pin.external, pin.marker = nil, nil, nil, nil, nil
 	pin.mapID = underlayMapID
-	if following then pin:SetPassThroughButtons("LeftButton", "RightButton")
-	else pin:SetPassThroughButtons("RightButton") end
+	ApplyPassThrough(pin)
 	pin.icon:Show()
 	pin.highlight:Show()
 	pin:SetFrameLevel(pinLayer:GetFrameLevel() + 1)
@@ -1336,4 +1356,7 @@ function DetailView:OnLogin()
 		MarkPins()
 	end)
 	ns:RegisterEvent("QUESTLINE_UPDATE", MarkPins)
+	-- Pins acquired during combat could not take their protected click
+	-- pass-through; give it to them as soon as the fight is over.
+	ns:RegisterEvent("PLAYER_REGEN_ENABLED", RefreshPassThrough)
 end

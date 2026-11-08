@@ -106,7 +106,6 @@ function Continuous:UpdateLayerButton(city, surface)
 		button:SetPoint("TOPRIGHT", container, "TOPRIGHT", -12, -44)
 		button:SetFrameLevel(math.min(9500, container:GetFrameLevel() + 8700))
 		button:RegisterForClicks("LeftButtonUp")
-		button:SetPassThroughButtons("RightButton", "MiddleButton")
 		button:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
 		button:SetBackdropColor(0.035, 0.05, 0.06, 0.96)
 		button:SetBackdropBorderColor(0.42, 0.34, 0.19, 1)
@@ -148,6 +147,12 @@ function Continuous:UpdateLayerButton(city, surface)
 			GameTooltip_Hide()
 		end)
 		self.layerButton = button
+	end
+	-- Protected in combat, and this button can first appear mid-fight. The
+	-- function runs on every view change, so it catches up by itself.
+	if not button.passThrough and not InCombatLockdown() then
+		button:SetPassThroughButtons("RightButton", "MiddleButton")
+		button.passThrough = true
 	end
 	button.label:SetText(surface and "Overworld" or "Undercity")
 	for _, line in ipairs(button.upperLayer) do line:SetColorTexture(surface and 0.96 or 0.4, surface and 0.75 or 0.47, surface and 0.36 or 0.5, 1) end
