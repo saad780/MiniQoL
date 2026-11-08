@@ -20,6 +20,9 @@ mixins.execute((root / "tests/native_mixins.lua").read_text(), str(package).repl
 memory = LuaRuntime(unpack_returned_tuples=True)
 memory.execute((root / "tests/map_memory.lua").read_text(), str(package).replace("\\", "/"))
 
+fishing = LuaRuntime(unpack_returned_tuples=True)
+fishing.execute((root / "tests/fishing.lua").read_text(), str(shell).replace("\\", "/"))
+
 share = LuaRuntime(unpack_returned_tuples=True)
 share.execute((root / "tests/waypoint_share.lua").read_text(), str(package).replace("\\", "/"))
 

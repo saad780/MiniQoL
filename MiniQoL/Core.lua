@@ -18,6 +18,8 @@ ns.pages = {
       description = "Chat reports, kill estimates and floating text." },
     { id = "sound", label = "NPC dialogue", group = "Mini QoL",
       description = "Keyboard shortcuts for Blizzard's gossip and quest windows." },
+    { id = "fishing", label = "Fishing", group = "Mini QoL",
+      description = "A louder splash, one-key casting, lures, an outfit swap and a record of your catch." },
     { id = "miniqol", label = "Mini QoL", group = "Mini QoL",
       description = "Panel preferences, module switches and source credits." },
 }
@@ -174,13 +176,22 @@ events:SetScript("OnEvent", function(_, event, name)
         ns:CreateMinimapButton()
         ns:RegisterSettings()
         if ns.Dialogue then ns.Dialogue:Initialize() end
+        if ns.Fishing then ns.Fishing:Start() end
     end
 end)
 
 SLASH_MINIQOL1, SLASH_MINIQOL2 = "/mqol", "/miniqol"
 SlashCmdList.MINIQOL = function(input)
     input = (input or ""):lower():match("^%s*(.-)%s*$")
-    if input == "icon" then
+    local command, rest = input:match("^(%S*)%s*(.-)$")
+    if command == "fish" then
+        -- The whole point is one action: into the fishing outfit, then back.
+        if not ns.Fishing or not ns.Fishing.db then return end
+        if rest == "show" then ns.Fishing:ToggleBar()
+        elseif rest == "gear" then ns:ShowPage("fishing")
+        elseif rest == "bar" then ns.Fishing:Set("bar", not ns.Fishing:Get("bar"))
+        else ns.Fishing:ToggleGear() end
+    elseif input == "icon" then
         ns.db.minimap.hide = false
         ns:UpdateMinimapButton()
     elseif input == "resetpos" then

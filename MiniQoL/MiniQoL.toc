@@ -67,6 +67,16 @@ Modules\Wayfinder\_MiniQoLComplete.lua
 Modules\XPCounter\XPCounter.lua
 Modules\XPCounter\Popup.lua
 Modules\XPCounter\_MiniQoLComplete.lua
+Fishing\Core.lua
+Fishing\Catches.lua
+Fishing\Sound.lua
+Fishing\Character.lua
+Fishing\Lures.lua
+Fishing\Stats.lua
+Fishing\EasyCast.lua
+Fishing\Gear.lua
+Fishing\Page.lua
+Fishing\Bar.lua
 Dialogue.lua
 Integrations.lua
 Panel.lua
