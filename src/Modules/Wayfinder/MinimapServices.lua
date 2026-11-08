@@ -119,6 +119,16 @@ function Mini:SyncTracking()
 	if self.syncing then return end
 	if not C_Minimap or not C_Minimap.SetTracking or not C_Minimap.GetNumTrackingTypes
 		or not C_Minimap.GetTrackingInfo then self.nativeCategories = {}; return end
+	-- Writing minimap tracking runs Blizzard's own layout path with our taint
+	-- still on the stack. While Edit Mode is open that path walks every UI
+	-- system, and a system that reads auras is then refused. Stay out of it
+	-- until the player is done rearranging, and out of combat too; the dirty
+	-- flag brings us straight back.
+	local editMode = EditModeManagerFrame
+	if InCombatLockdown() or (editMode and editMode.IsShown and editMode:IsShown()) then
+		self.trackingDirty = true
+		return
+	end
 	local now = GetTime()
 	if not self.trackingDirty and self.trackingActive == self.active and self.trackingAPI == C_Minimap.GetTrackingInfo
 		and self.trackingFilterAPI == C_Minimap.GetTrackingFilter and now < (self.trackingCheckAt or 0) then return end
