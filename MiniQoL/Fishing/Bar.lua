@@ -11,7 +11,8 @@ local QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
 local bar, lureButtons, foodButton
 
 local function Secure(parent, name)
-    local button = CreateFrame("Button", name, parent, "SecureActionButtonTemplate")
+    -- BackdropTemplate as well as the secure one: Chrome below needs SetBackdrop.
+    local button = CreateFrame("Button", name, parent, "SecureActionButtonTemplate, BackdropTemplate")
     button:SetSize(ICON, ICON)
     button:RegisterForClicks("AnyUp")
     T:Chrome(button, T.BG_CARD, { 0.27, 0.24, 0.17, 1 })

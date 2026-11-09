@@ -16,19 +16,38 @@ function frame:RegisterEvent(event) self.events[event] = true end
 function frame:RegisterUnitEvent(event) self.events[event] = true end
 function frame:UnregisterEvent(event) self.events[event] = nil end
 function frame:Fire(event, ...) if self.handlers.OnEvent then self.handlers.OnEvent(self, event, ...) end end
-for _, name in ipairs({ "SetSize", "SetPoint", "ClearAllPoints", "Show", "Hide", "SetShown", "SetAttribute",
+for _, name in ipairs({ "SetSize", "SetPoint", "ClearAllPoints", "SetAttribute",
     "RegisterForClicks", "SetFrameStrata", "SetClampedToScreen", "SetMovable", "EnableMouse",
-    "RegisterForDrag", "SetBackdrop", "SetBackdropColor", "SetBackdropBorderColor", "SetWidth",
-    "SetHeight", "SetAllPoints", "SetTexture", "SetTexCoord", "SetJustifyH", "SetText", "SetTextColor",
-    "SetWordWrap", "SetColorTexture", "SetDesaturated", "SetTexelSnappingBias", "SetSnapToPixelGrid" }) do
+    "RegisterForDrag", "SetWidth", "StartMoving", "StopMovingOrSizing", "SetFrameLevel",
+    "SetHeight", "SetAllPoints", "SetTexture", "SetTexCoord", "SetJustifyH", "SetJustifyV",
+    "SetText", "SetTextColor", "SetWordWrap", "SetColorTexture", "SetDesaturated",
+    "SetTexelSnappingBias", "SetSnapToPixelGrid", "SetThickness", "SetStartPoint", "SetEndPoint",
+    "SetMaxLetters", "SetAutoFocus", "SetTextInsets", "SetFontObject" }) do
     frame[name] = noop
 end
-function frame:IsShown() return false end
+function frame:Show() self.shown = true end
+function frame:Hide() self.shown = false end
+function frame:SetShown(value) self.shown = value and true or false end
+-- Only frames built with BackdropTemplate have the backdrop methods. Faking
+-- them on everything hides a missing template until the game reports it.
+local function RequiresBackdrop(self, method)
+    assert(self.template and self.template:find("BackdropTemplate"),
+        (self.name or "a frame") .. " needs BackdropTemplate to call " .. method
+            .. " (template: " .. tostring(self.template) .. ")")
+end
+function frame:SetBackdrop() RequiresBackdrop(self, "SetBackdrop") end
+function frame:SetBackdropColor() RequiresBackdrop(self, "SetBackdropColor") end
+function frame:SetBackdropBorderColor() RequiresBackdrop(self, "SetBackdropBorderColor") end
+function frame:IsShown() return self.shown == true end
+function frame:GetFrameLevel() return 1 end
+function frame:GetStringHeight() return 12 end
+function frame:GetPoint() return "CENTER", nil, "CENTER", 0, 0 end
 function frame:CreateTexture() return setmetatable({ handlers = {}, events = {} }, frame) end
 function frame:CreateFontString() return setmetatable({ handlers = {}, events = {} }, frame) end
-function CreateFrame()
-    local f = setmetatable({ handlers = {}, events = {} }, frame)
+function CreateFrame(kind, name, parent, template)
+    local f = setmetatable({ handlers = {}, events = {}, name = name, template = template }, frame)
     scripts[#scripts + 1] = f
+    if name then _G[name] = f end
     return f
 end
 
@@ -96,15 +115,12 @@ function ns:Print(message) PRINTED = message end
 function ns:RegisterFeature(spec) FEATURES[#FEATURES + 1] = spec end
 function ns:ShowPage() end
 FEATURES = {}
-ns.Theme = { Chrome = noop, Text = function() return setmetatable({ handlers = {}, events = {} }, frame) end,
-    Window = noop, Rule = function() return setmetatable({ handlers = {}, events = {} }, frame) end,
-    CloseButton = function() return setmetatable({ handlers = {}, events = {} }, frame) end,
-    Color = function(c) return c[1], c[2], c[3], c[4] end,
-    BG_CARD = { 0, 0, 0, 1 }, GOLD = { 1, 1, 1, 1 }, MUTED = { 1, 1, 1, 1 }, TEXT = { 1, 1, 1, 1 },
-    INFO = { 1, 1, 1, 1 }, GOLD_SOFT = { 1, 1, 1, 1 }, BORDER_HI = { 1, 1, 1, 1 } }
+-- The real theme, so a frame that cannot take a backdrop is caught here
+-- rather than on the first login after a change.
+assert(loadfile(root .. "/Theme.lua"))("MiniQoL", ns)
 
 local base = root .. "/Fishing/"
-for _, file in ipairs({ "Core", "Catches", "Sound", "Character", "Lures", "Stats", "Gear", "Page" }) do
+for _, file in ipairs({ "Core", "Catches", "Sound", "Character", "Lures", "Stats", "Gear", "Page", "Bar" }) do
     assert(loadfile(base .. file .. ".lua"))("MiniQoL", ns)
 end
 local F = ns.Fishing
@@ -231,4 +247,30 @@ equal(F:GearSlotValue(16), "empty", "set through the page")
 byID["fishing.slot.16"].set("ignore")
 equal(F:GearSlotValue(16), nil, "and cleared through the page")
 
-print("Fishing outfit swap, catch record, stats, splash and settings rows passed")
+---------------------------------------------------------------------------
+print("-- the fishing window --")
+-- Building the window is what caught a secure button missing BackdropTemplate.
+F:SetupBar()
+assert(F.bar, "the window exists")
+equal(F.bar:IsShown(), false, "hidden without a pole")
+
+POLES[777] = true
+EQUIPPED[16] = link(777)
+BAGS[6530] = 12        -- Nightcrawlers
+BAGS[4593] = 3         -- fishing food
+F:Set("bar", true)
+F:UpdateBar()
+equal(F.bar:IsShown(), true, "shown once a pole is in hand")
+-- Drawing it builds the secure lure and food buttons, which is the path that
+-- failed in game.
+F:RefreshBar()
+assert(_G.MiniQoLFishingLure1, "a lure button was built")
+assert(_G.MiniQoLFishingFoodButton, "a food button was built")
+equal(_G.MiniQoLFishingLure1.template, "SecureActionButtonTemplate, BackdropTemplate",
+    "secure buttons also need a backdrop template")
+
+EQUIPPED[16] = nil
+F:UpdateBar()
+equal(F.bar:IsShown(), false, "hidden again when the pole is put away")
+
+print("Fishing outfit swap, catch record, stats, splash, settings rows and window passed")
