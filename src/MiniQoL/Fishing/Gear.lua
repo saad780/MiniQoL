@@ -1,7 +1,7 @@
 local _, ns = ...
 -- The fishing outfit: swap into it with one click, swap back to exactly what
--- you were wearing with the same click. The set can be snapshotted from what
--- you have on, edited slot by slot, or snapshotted and then tweaked.
+-- you were wearing with the same click. The set can be filled from the fishing
+-- gear you carry, snapshotted from what you have on, or picked slot by slot.
 local Fishing = ns.Fishing
 
 Fishing.SLOT_NAMES = {
@@ -15,6 +15,29 @@ Fishing.SLOT_NAMES = {
 Fishing.GEAR_SLOTS = { 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18 }
 
 local EMPTY = "empty" -- the set deliberately leaves this slot bare
+local MAIN_HAND, OFF_HAND = 16, 17
+
+-- Where each kind of item can go. Rings, trinkets and one-handed weapons fit
+-- either of a pair.
+local SLOTS_FOR = {
+    INVTYPE_HEAD = { 1 }, INVTYPE_NECK = { 2 }, INVTYPE_SHOULDER = { 3 }, INVTYPE_BODY = { 4 },
+    INVTYPE_CHEST = { 5 }, INVTYPE_ROBE = { 5 }, INVTYPE_WAIST = { 6 }, INVTYPE_LEGS = { 7 },
+    INVTYPE_FEET = { 8 }, INVTYPE_WRIST = { 9 }, INVTYPE_HAND = { 10 }, INVTYPE_FINGER = { 11, 12 },
+    INVTYPE_TRINKET = { 13, 14 }, INVTYPE_CLOAK = { 15 },
+    INVTYPE_WEAPON = { 16, 17 }, INVTYPE_2HWEAPON = { 16 }, INVTYPE_WEAPONMAINHAND = { 16 },
+    INVTYPE_WEAPONOFFHAND = { 17 }, INVTYPE_SHIELD = { 17 }, INVTYPE_HOLDABLE = { 17 },
+    INVTYPE_RANGED = { 18 }, INVTYPE_RANGEDRIGHT = { 18 }, INVTYPE_THROWN = { 18 }, INVTYPE_RELIC = { 18 },
+    INVTYPE_TABARD = { 19 },
+}
+
+local function ItemID(link)
+    return type(link) == "string" and tonumber(link:match("item:(%d+)")) or nil
+end
+
+local function EquipLoc(link)
+    local _, _, _, equipLoc = Fishing.GetItemInfoInstant(link)
+    return equipLoc
+end
 
 local function EquipByLink(link, slot)
     local equip = (C_Item and C_Item.EquipItemByName) or EquipItemByName
@@ -35,6 +58,124 @@ end
 
 function Fishing:EquippedLink(slot)
     return GetInventoryItemLink("player", slot)
+end
+
+---------------------------------------------------------------------------
+-- What could go where
+---------------------------------------------------------------------------
+function Fishing.SameItem(a, b)
+    return a == b or (ItemID(a) ~= nil and ItemID(a) == ItemID(b))
+end
+
+function Fishing:ItemFitsSlot(link, slot)
+    local itemID, _, _, equipLoc = self.GetItemInfoInstant(link or "")
+    if not itemID then return false end
+    if slot == MAIN_HAND and self:IsPoleItem(itemID) then return true end
+    if slot == OFF_HAND and equipLoc == "INVTYPE_WEAPON" and CanDualWield and not CanDualWield() then
+        return false
+    end
+    for _, fits in ipairs(SLOTS_FOR[equipLoc] or {}) do
+        if fits == slot then return true end
+    end
+    return false
+end
+
+-- "+5" from "Equip: Increased Fishing +5". Read from the item's tooltip, so
+-- enchants and any client's wording are covered; remembered per link once the
+-- client has the item.
+local bonusCache = {}
+
+function Fishing:ItemFishingBonus(link)
+    if type(link) ~= "string" then return 0 end
+    if bonusCache[link] then return bonusCache[link] end
+    if not (C_TooltipInfo and C_TooltipInfo.GetHyperlink) then return 0 end
+    local ok, tooltip = pcall(C_TooltipInfo.GetHyperlink, link:match("|H(item:[^|]+)|h") or link)
+    if not ok or not tooltip or not tooltip.lines then return 0 end
+    bonusCache[link] = self.TooltipFishingBonus(tooltip)
+    return bonusCache[link]
+end
+
+local function BagLinks()
+    local links, container = {}, C_Container
+    if not (container and container.GetContainerNumSlots) then return links end
+    for bag = BACKPACK_CONTAINER or 0, NUM_BAG_SLOTS or 4 do
+        for index = 1, container.GetContainerNumSlots(bag) or 0 do
+            local link = container.GetContainerItemLink(bag, index)
+            if link then links[#links + 1] = link end
+        end
+    end
+    return links
+end
+
+-- Worn or in the bags: an outfit piece that is neither cannot be swapped in.
+function Fishing:IsCarried(link)
+    local id = ItemID(link)
+    if not id then return false end
+    for _, slot in ipairs(self.GEAR_SLOTS) do
+        if ItemID(self:EquippedLink(slot)) == id then return true end
+    end
+    return (self.GetItemCount(id) or 0) > 0
+end
+
+function Fishing:DescribeItem(link)
+    local itemID, _, _, _, icon = self.GetItemInfoInstant(link)
+    local name, _, quality, level = self.GetItemInfo(link)
+    return { link = link, itemID = itemID, icon = icon, name = name or self.LinkName(link) or "Item",
+        quality = quality, level = level or 0, bonus = self:ItemFishingBonus(link),
+        pole = self:IsPoleItem(itemID) }
+end
+
+local function Better(a, b)
+    if a.pole ~= b.pole then return a.pole end
+    if a.bonus ~= b.bonus then return a.bonus > b.bonus end
+    if (a.quality or 0) ~= (b.quality or 0) then return (a.quality or 0) > (b.quality or 0) end
+    if a.level ~= b.level then return a.level > b.level end
+    return a.name < b.name
+end
+
+-- Everything that could fill a slot: what is worn there, whatever in the bags
+-- fits, and the piece the outfit already names even if it is not on you. Best
+-- for fishing first.
+function Fishing:SlotCandidates(slot)
+    local list, seen = {}, {}
+    local function add(link, worn)
+        local key = ItemID(link) or link
+        if seen[key] then
+            seen[key].worn = seen[key].worn or worn
+            return
+        end
+        local item = self:DescribeItem(link)
+        item.worn, item.carried = worn, true
+        seen[key] = item
+        list[#list + 1] = item
+    end
+    local worn = self:EquippedLink(slot)
+    if worn then add(worn, true) end
+    for _, link in ipairs(BagLinks()) do
+        if self:ItemFitsSlot(link, slot) then add(link, false) end
+    end
+    local saved = self:GearSlotValue(slot)
+    if saved and saved ~= EMPTY and not seen[ItemID(saved) or saved] then
+        add(saved, false)
+        list[#list].carried = self:IsCarried(saved)
+    end
+    table.sort(list, Better)
+    return list
+end
+
+-- The slot an item would land in: the one asked for if it fits, else the first
+-- it fits, preferring a free one of a pair (the second ring, say).
+function Fishing:SlotForItem(link, preferred)
+    if preferred and self:ItemFitsSlot(link, preferred) then return preferred end
+    local first
+    for _, slot in ipairs(self.GEAR_SLOTS) do
+        if self:ItemFitsSlot(link, slot) then
+            first = first or slot
+            local value = self:GearSlotValue(slot)
+            if value == nil or value == EMPTY then return slot end
+        end
+    end
+    return first
 end
 
 ---------------------------------------------------------------------------
@@ -94,6 +235,36 @@ function Fishing:GearCount()
     return count
 end
 
+-- The pieces the outfit names, in slot order, and how many slots it empties.
+function Fishing:GearSummary()
+    local pieces, bare = {}, 0
+    for _, slot in ipairs(self.GEAR_SLOTS) do
+        local value = self.db.gear.set[slot]
+        if value == EMPTY then bare = bare + 1
+        elseif value then pieces[#pieces + 1] = value end
+    end
+    return pieces, bare
+end
+
+-- Fills the outfit from what you carry: the best pole, and every piece that
+-- adds to fishing. Slots with nothing for fishing keep whatever was chosen.
+function Fishing:SuggestGear()
+    local pole, pieces, used = nil, 0, {}
+    for _, slot in ipairs(self.GEAR_SLOTS) do
+        for _, item in ipairs(self:SlotCandidates(slot)) do
+            local useful = item.bonus > 0 or (slot == MAIN_HAND and item.pole)
+            if useful and item.carried and not used[item.itemID] then
+                used[item.itemID] = true
+                self.db.gear.set[slot] = item.link
+                if slot == MAIN_HAND and item.pole then pole = item else pieces = pieces + 1 end
+                break
+            end
+        end
+    end
+    self:Fire("GEAR_CHANGED")
+    return pole, pieces
+end
+
 function Fishing:WearingGear()
     return self.db.gear.active == true
 end
@@ -108,17 +279,27 @@ end
 function Fishing:SwapToGear()
     if InCombatLockdown() then ns:Print("Fishing gear can wait until after combat."); return false end
     if not self:HasGearSet() then
-        ns:Print("No fishing outfit saved yet. Open Mini QoL, go to Fishing, and save what you are wearing.")
+        ns:Print("No fishing outfit yet. Type /mqol fish gear to choose one.")
         return false
     end
-    -- Remember exactly what is on now, including the slots that are bare, so
-    -- swapping back restores the outfit rather than approximating it.
+    local set = self.db.gear.set
+    -- A two-handed pole pushes the off hand into the bags, so remember that
+    -- too, or swapping back would leave the shield there.
+    local guardOffHand = set[OFF_HAND] == nil and set[MAIN_HAND] ~= nil and set[MAIN_HAND] ~= EMPTY
+        and EquipLoc(set[MAIN_HAND]) == "INVTYPE_2HWEAPON"
+    -- Remember exactly what is on now, before anything moves and including
+    -- the slots that are bare, so swapping back restores the outfit rather
+    -- than approximating it.
     local previous, changed = {}, 0
     for _, slot in ipairs(self.GEAR_SLOTS) do
-        local wanted = self.db.gear.set[slot]
+        if set[slot] ~= nil or (slot == OFF_HAND and guardOffHand) then
+            previous[slot] = self:EquippedLink(slot) or EMPTY
+        end
+    end
+    for _, slot in ipairs(self.GEAR_SLOTS) do
+        local wanted = set[slot]
         if wanted ~= nil then
             local current = self:EquippedLink(slot)
-            previous[slot] = current or EMPTY
             if wanted == EMPTY then
                 if current then changed = changed + (Unequip(slot) and 1 or 0) end
             elseif current ~= wanted then
@@ -144,12 +325,14 @@ function Fishing:SwapBack()
         self:Fire("GEAR_CHANGED")
         return false
     end
+    -- Slot order, so the main hand is back before the off hand goes on.
     local changed = 0
-    for slot, link in pairs(previous) do
+    for _, slot in ipairs(self.GEAR_SLOTS) do
+        local link = previous[slot]
         local current = self:EquippedLink(slot)
         if link == EMPTY then
             if current then changed = changed + (Unequip(slot) and 1 or 0) end
-        elseif current ~= link then
+        elseif link and current ~= link then
             if EquipByLink(link, slot) then changed = changed + 1 end
         end
     end

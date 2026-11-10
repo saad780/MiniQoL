@@ -75,6 +75,7 @@ Fishing\Lures.lua
 Fishing\Stats.lua
 Fishing\EasyCast.lua
 Fishing\Gear.lua
+Fishing\Outfit.lua
 Fishing\Page.lua
 Fishing\Bar.lua
 Dialogue.lua

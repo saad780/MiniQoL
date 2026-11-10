@@ -4,7 +4,9 @@ local T = ns.Theme
 local WIDTH, HEIGHT, HEADER, SIDEBAR, FOOTER = 880, 520, 54, 190, 46
 local CONTENT_W, COL_W, COL_GAP, ROW_H = 620, 307, 6, 30
 local CARD_H, TILE_H = 54, 52
-local LABEL_W, LABEL_W_SOURCE, LABEL_W_CHOICE = 260, 196, 180
+local LABEL_W, LABEL_W_SOURCE = 260, 196
+local LABEL_X, CONTROL_INSET = 25, 18
+local SELECT_W, ACTION_W = 110, 100
 
 ---------------------------------------------------------------------------
 -- Module switches
@@ -243,10 +245,20 @@ end
 ---------------------------------------------------------------------------
 -- One setting
 ---------------------------------------------------------------------------
--- Sliders and read-only lines need the full content width; everything else
--- pairs up in two columns.
+-- Sliders and read-only lines need the full content width, as does anything
+-- that asks for it; everything else pairs up in two columns.
 local function IsWide(feature)
-    return feature.kind == "slider" or feature.kind == "info"
+    return feature.wide or feature.kind == "slider" or feature.kind == "info"
+end
+
+-- A label may be worked out at repaint (a summary beside a button, say). The
+-- static label still names the row for search and tooltips.
+local function LabelText(feature)
+    if feature.text then
+        local ok, text = pcall(feature.text)
+        if ok and text then return text end
+    end
+    return feature.label
 end
 
 local function Options(feature)
@@ -281,11 +293,15 @@ function ns:FeatureRow(feature, x, y, showSource)
 
         local kind = feature.kind
         local labelWidth = LABEL_W
-        if kind == "select" or kind == "action" then labelWidth = LABEL_W_CHOICE
+        local controlWidth = feature.controlWidth or (kind == "select" and SELECT_W or ACTION_W)
+        if kind == "select" or kind == "action" then
+            -- Stop short of the button: a long label is cut off with an
+            -- ellipsis (the tooltip has it in full) rather than running under it.
+            labelWidth = (wide and CONTENT_W or COL_W) - LABEL_X - CONTROL_INSET - controlWidth - 6
         elseif kind == "slider" then labelWidth = 240
         elseif kind == "info" then labelWidth = CONTENT_W - 44 end
         row.label = T:Text(row, "", kind == "info" and "GameFontDisableSmall" or "GameFontHighlight", labelWidth)
-        row.label:SetPoint("LEFT", 25, 0)
+        row.label:SetPoint("LEFT", LABEL_X, 0)
         row.label:SetJustifyV("MIDDLE")
         row.label:SetWordWrap(false)
         row.source = T:Text(row, "", "GameFontDisableSmall", 62, T.FAINT)
@@ -310,14 +326,19 @@ function ns:FeatureRow(feature, x, y, showSource)
                 or "Keeps this control on the Overview page." end)
 
         if kind == "select" then
-            row.control = T:Button(row, "", 110, 20, function(button) ns:OpenSelect(feature, button) end)
-            row.control:SetPoint("RIGHT", -18, 0)
+            row.control = T:Button(row, "", controlWidth, 20, function(button) ns:OpenSelect(feature, button) end)
+            row.control:SetPoint("RIGHT", -CONTROL_INSET, 0)
             T:Caret(row.control, 9)
             row.control:SetLabelAnchor("LEFT", row.control, "LEFT", 8, 0)
+            -- The chosen value stays inside the button, clear of the caret.
+            row.control.label:SetWidth(controlWidth - 26)
+            row.control.label:SetJustifyH("LEFT")
+            row.control.label:SetWordWrap(false)
             T:Tip(row.control, feature.label, "Click to choose.")
         elseif kind == "action" then
-            row.control = T:Button(row, feature.button or "Run", 100, 20, function() ns:Run(feature) end)
-            row.control:SetPoint("RIGHT", -18, 0)
+            row.control = T:Button(row, feature.button or "Run", controlWidth, 20, function() ns:Run(feature) end)
+            row.control:SetPoint("RIGHT", -CONTROL_INSET, 0)
+            if feature.primary then row.control:SetPrimary(true) end
             T:Tip(row.control, feature.label, function() return feature.tooltip or feature.label end)
         elseif kind == "slider" then
             row.value = T:Text(row, "", "GameFontHighlightSmall", 56, T.GOLD)
@@ -349,7 +370,12 @@ function ns:FeatureRow(feature, x, y, showSource)
             local body = feature.tooltip or feature.label
             if feature.addon then body = body .. "\n\nFrom the " .. feature.addon .. " module." end
             if feature.reload then body = body .. "\n\nTakes effect after a UI reload." end
-            if not ns:Available(feature) then body = body .. "\n\nEnable the source module and reload first." end
+            if not ns:Available(feature) then
+                -- Settings that depend on another one say which; module
+                -- settings wait for their module.
+                local why = feature.unavailable or (feature.addon and "Enable the source module and reload first.")
+                if why then body = body .. "\n\n" .. why end
+            end
             return body
         end)
     end
@@ -368,7 +394,7 @@ function ns:FeatureRow(feature, x, y, showSource)
     if feature.kind == "info" then
         row.label:SetText(available and (self:Read(feature) or feature.label) or feature.label)
     else
-        row.label:SetText(feature.label)
+        row.label:SetText(available and LabelText(feature) or feature.label)
     end
     if row.check then
         row.check:SetEnabled(available)

@@ -164,16 +164,22 @@ function Fishing:RefreshBar()
     bar.rule:SetPoint("TOPLEFT", PAD, -y)
     y = y + 8
 
-    local total, _, caught = self:SessionSummary(false)
-    local _, missed = self:CastSummary()
+    local includeMissed = self:Get("statsIncludeMissed")
+    local total, _, caught = self:SessionSummary(includeMissed)
     local rate = self:SessionRate()
     local session = { ("%d caught"):format(caught) }
+    local missed = total - caught
+    if includeMissed and missed > 0 then
+        session[#session + 1] = ("%d empty"):format(missed)
+        session[#session + 1] = ("%.0f%% hit"):format(caught / total * 100)
+    end
     if rate then session[#session + 1] = ("%.0f/hr"):format(rate) end
     if self:SessionLength() > 0 then session[#session + 1] = self.Duration(self:SessionLength()) end
     bar.session:ClearAllPoints()
     bar.session:SetPoint("TOPLEFT", PAD, -y)
-    bar.session:SetText(table.concat(session, "   \194\183   "))
-    y = y + 16
+    bar.session:SetText(table.concat(session, "  \194\183  "))
+    -- Empty casts can push the line onto a second row.
+    y = y + math.max(12, bar.session:GetStringHeight()) + 4
 
     local lines = {}
     for _, entry in ipairs(self:RecentCatches(4)) do
@@ -226,6 +232,8 @@ function Fishing:SetupBar()
         if key == "bar" then
             if not self:Get("bar") then self.barForced = nil end
             self:UpdateBar()
+        elseif key == "statsIncludeMissed" then
+            self:RefreshBar()
         end
     end)
     local events = CreateFrame("Frame")

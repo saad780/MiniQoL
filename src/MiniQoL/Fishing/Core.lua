@@ -151,6 +151,7 @@ function Fishing:Start()
     self:SetupSound()
     self:SetupEasyCast()
     self:SetupGear()
+    self:SetupOutfit()
     self:RegisterPage()
     self:SetupBar()
 end

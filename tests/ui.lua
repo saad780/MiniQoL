@@ -78,7 +78,8 @@ function InCombatLockdown() return false end
 C_AddOns = { GetAddOnMetadata = function() return "test" end, IsAddOnLoaded = function() return false end,
     GetNumAddOns = function() return 0 end }
 Settings = { RegisterCanvasLayoutCategory = function() return {} end, RegisterAddOnCategory = function() end }
-GameTooltip = { SetOwner = function() end, SetText = function() end, AddLine = function() end, Show = function() end, Hide = function() end }
+GameTooltip = { SetOwner = function() end, SetText = function() end, AddLine = function(_, text) tip = text end,
+    Show = function() end, Hide = function() end }
 function ReloadUI() reloaded = true end
 -- The service icon rows are generated from Wayfinder's own category list. The
 -- module itself stays unloaded, so the rows render disabled, which is exactly
@@ -117,6 +118,33 @@ SlashCmdList.MINIQOL("icon")
 assert(ns.minimapButton:IsShown(), "slash command restores hidden icon")
 ns.reload.scripts.OnClick()
 assert(reloaded, "reload button")
+
+-- A summary row spans the page with its label worked out at repaint, and
+-- labels stop short of their buttons instead of running underneath.
+ns:RegisterFeature({ id = "test.summary", page = "fishing", group = "Layout", label = "Summary", kind = "action",
+    wide = true, primary = true, button = "Edit", text = function() return "3 pieces, 1 slot taken off" end,
+    run = function() ranSummary = true end })
+ns:RegisterFeature({ id = "test.choice", page = "fishing", group = "Layout", label = "Choice", kind = "select",
+    controlWidth = 132, choices = { { "a", "A rather long option name" } },
+    get = function() return "a" end, set = function() end,
+    available = function() return false end, unavailable = "Turn the other setting on first." })
+ns:RegisterFeature({ id = "test.plain", page = "fishing", group = "Layout", label = "Plain", kind = "action",
+    button = "Run", run = function() end })
+ns:ShowPage("fishing")
+local summary = ns.rows["feature.test.summary"]
+assert(summary.label:GetText() == "3 pieces, 1 slot taken off", "a row's label can be worked out at repaint")
+assert(summary.width == 620, "a wide action spans the page")
+assert(summary.label.width == 620 - 25 - 18 - 100 - 6, "its label stops short of the button")
+assert(summary.control.primary, "and its button can lead")
+summary.control.scripts.OnClick()
+assert(ranSummary, "the wide button runs")
+local choice = ns.rows["feature.test.choice"]
+assert(choice.control.width == 132 and choice.label.width == 307 - 25 - 18 - 132 - 6, "selects can be wider")
+assert(choice.control.label.width == 132 - 26, "and the value stays inside the button")
+assert(choice.label:GetText() == "Choice", "an unavailable row shows its plain label")
+choice.scripts.OnEnter(choice)
+assert(tip and tip:find("Turn the other setting on first"), "an unavailable setting says why")
+assert(ns.rows["feature.test.plain"].label.width == 307 - 25 - 18 - 100 - 6, "plain actions keep clear of their button")
 local count = #objects
 for i = 1, 20 do ns:Render() end
 assert(#objects == count, "refresh reuses UI widgets")

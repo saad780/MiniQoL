@@ -34,24 +34,30 @@ local function RankAndLure()
     end
 end
 
--- "Increased Fishing +3" -> 3
+-- "Increased Fishing +3" or "+3 Fishing" -> 3
 local function FishingNumber(line)
-    return tonumber(line and line:match("[Ff]ishing[^%d]-(%d+)"))
+    return tonumber(line and (line:match("[Ff]ishing[^%d]-(%d+)") or line:match("%+(%d+) [Ff]ishing")))
 end
 
--- Everything worn: "Equip: Increased Fishing +3" lines and fishing enchants.
+-- One item's "Equip: Increased Fishing +3" lines and fishing enchants.
+function Fishing.TooltipFishingBonus(tooltip)
+    local total = 0
+    for _, line in ipairs(tooltip and tooltip.lines or {}) do
+        local text = line.leftText
+        -- "Requires Fishing (1)" is a requirement, not a bonus.
+        if text and (text:match("^Equip:") or text:match("[Ff]ishing %+%d")) then
+            total = total + (FishingNumber(text) or 0)
+        end
+    end
+    return total
+end
+
+-- Everything worn.
 local function GearBonus()
     if not C_TooltipInfo then return 0 end
     local total = 0
     for slot = Fishing.FIRST_SLOT, Fishing.LAST_SLOT do
-        local tooltip = C_TooltipInfo.GetInventoryItem("player", slot)
-        for _, line in ipairs(tooltip and tooltip.lines or {}) do
-            local text = line.leftText
-            -- "Requires Fishing (1)" is a requirement, not a bonus.
-            if text and (text:match("^Equip:") or text:match("[Ff]ishing %+%d")) then
-                total = total + (FishingNumber(text) or 0)
-            end
-        end
+        total = total + Fishing.TooltipFishingBonus(C_TooltipInfo.GetInventoryItem("player", slot))
     end
     return total
 end

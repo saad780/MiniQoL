@@ -188,7 +188,7 @@ SlashCmdList.MINIQOL = function(input)
         -- The whole point is one action: into the fishing outfit, then back.
         if not ns.Fishing or not ns.Fishing.db then return end
         if rest == "show" then ns.Fishing:ToggleBar()
-        elseif rest == "gear" then ns:ShowPage("fishing")
+        elseif rest == "gear" or rest == "outfit" then ns.Fishing:ToggleOutfit()
         elseif rest == "bar" then ns.Fishing:Set("bar", not ns.Fishing:Get("bar"))
         else ns.Fishing:ToggleGear() end
     elseif input == "icon" then
