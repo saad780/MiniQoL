@@ -16,6 +16,18 @@ local READY = "Interface\\RaidFrame\\ReadyCheck-Ready"
 local DECLINE = "Interface\\RaidFrame\\ReadyCheck-NotReady"
 local QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
 local MAX_OFFERS = 6
+-- The model loads your character in the background and dresses it in what you
+-- wear once it arrives, which undoes a try-on made before then. The preview
+-- puts the item on again at these points after each load, and keeps at it a
+-- little longer while the item's look is still loading.
+local TRY_AGAIN, GIVE_UP = { 0.05, 0.15, 0.35, 0.7, 1.2, 2 }, 5
+-- Without a hand named, trying on a one-hander twice fills both hands.
+local HAND = { [16] = "MAINHANDSLOT", [17] = "SECONDARYHANDSLOT" }
+-- Neck, rings and trinkets: nothing to see on the character.
+local UNSEEN = { [2] = true, [11] = true, [12] = true, [13] = true, [14] = true }
+local REASON = Enum and Enum.ItemTryOnReason or {}
+local WRONG_RACE, NOT_WEARABLE = REASON.WrongRace or 1, REASON.NotEquippable or 2
+local LOADING = REASON.DataPending or 3
 
 local function Theme() return MiniQoL.Theme end
 
@@ -56,12 +68,59 @@ function Sidegrades:SetFacing(facing)
 	end
 end
 
-function Sidegrades:Dress(model, link)
+-- A line over the model, for when it cannot show the difference.
+function Sidegrades:Note(model, text)
+	if not model.note then return end
+	model.note.text:SetText(text or "")
+	model.note:SetShown(text ~= nil)
+end
+
+-- Your character as you are now, plus, for the preview, the looted item in the
+-- slot it would go to.
+function Sidegrades:Dress(model, link, slot)
 	if not model.SetUnit then return end
-	model.tryOn = link
+	model.tryOn, model.hand = link, HAND[slot]
+	model.refused, model.loading = false, false
+	self:Note(model, nil)
 	pcall(model.SetUnit, model, "player")
-	if link and model.TryOn then pcall(model.TryOn, model, link) end
+	-- Takes off what the last offer tried on, when the model was already loaded.
+	if model.Dress then pcall(model.Dress, model) end
+	self:TryOn(model)
+	self:Settle(model)
 	if model.SetFacing then pcall(model.SetFacing, model, self.facing or 0.4) end
+end
+
+function Sidegrades:TryOn(model)
+	if not model.tryOn then return end
+	if not model.TryOn then model.refused = true; return end
+	local ok, reason = pcall(model.TryOn, model, model.tryOn, model.hand)
+	if not ok and model.hand then ok, reason = pcall(model.TryOn, model, model.tryOn) end
+	-- Before the character arrives the answer can be a refusal; only the last
+	-- one counts.
+	model.refused = not ok or reason == WRONG_RACE or reason == NOT_WEARABLE
+	model.loading = ok and reason == LOADING
+	if not model.refused and not model.loading then self:Note(model, nil) end
+end
+
+-- Starts the try-on schedule over, after a dressing or a load.
+function Sidegrades:Settle(model)
+	model.since, model.step = 0, 1
+	model.due = model.tryOn and TRY_AGAIN[1] or nil
+end
+
+function Sidegrades:Retry(model, elapsed)
+	model.since = model.since + elapsed
+	if model.since < model.due then return end
+	self:TryOn(model)
+	model.step = model.step + 1
+	model.due = TRY_AGAIN[model.step]
+	if not model.due and model.loading and model.since < GIVE_UP then model.due = model.since + 0.5 end
+	if model.due then return end
+	if model.refused then
+		self:Note(model, "Can't be shown on your character.")
+	elseif model.loading then
+		self:Note(model, "Still loading. Hover again in a moment.")
+	end
 end
 
 function Sidegrades:CreateModel(parent, x)
@@ -89,7 +148,8 @@ function Sidegrades:CreateModel(parent, x)
 		self.dragX = nil
 		Sidegrades.turning = false
 	end)
-	model:SetScript("OnUpdate", function(self)
+	model:SetScript("OnUpdate", function(self, elapsed)
+		if self.due then Sidegrades:Retry(self, elapsed or 0) end
 		if not self.dragX then return end
 		local x = GetCursorPosition()
 		if x == self.dragX then return end
@@ -98,9 +158,23 @@ function Sidegrades:CreateModel(parent, x)
 	end)
 	-- SetUnit loads asynchronously; re-apply the preview once the model arrives.
 	model:SetScript("OnModelLoaded", function(self)
-		if self.tryOn and self.TryOn then pcall(self.TryOn, self, self.tryOn) end
+		Sidegrades:TryOn(self)
+		Sidegrades:Settle(self)
 		if self.SetFacing then pcall(self.SetFacing, self, Sidegrades.facing or 0.4) end
 	end)
+
+	-- Its own frame, so the line sits above the character rather than behind it.
+	model.note = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+	model.note:SetPoint("BOTTOMLEFT", model, 6, 6)
+	model.note:SetPoint("BOTTOMRIGHT", model, -6, 6)
+	model.note:SetHeight(40)
+	model.note:SetFrameLevel(model:GetFrameLevel() + 2)
+	T:Chrome(model.note, { 0.05, 0.045, 0.038, 0.92 }, T.BORDER)
+	model.note.text = T:Text(model.note, "", "GameFontDisableSmall", MODEL_W - 24, T.MUTED)
+	model.note.text:SetJustifyH("CENTER")
+	model.note.text:SetJustifyV("MIDDLE")
+	model.note.text:SetPoint("CENTER", 0, 0)
+	model.note:Hide()
 	return model
 end
 
@@ -213,6 +287,11 @@ function Sidegrades:ShowPanel(offer, badge)
 	if InCombatLockdown() then return end
 	local T = Theme()
 	local panel = self.panel or self:CreatePanel()
+	-- Back on the same badge: leave the models as they are, turned or not.
+	if panel:IsShown() and self.active == offer then
+		self.hovered, panel.away = badge, 0
+		return
+	end
 	self.active, self.hovered, self.turning = offer, badge, false
 	self.facing = 0.4
 
@@ -225,11 +304,10 @@ function Sidegrades:ShowPanel(offer, badge)
 	panel.current.name:SetTextColor(T.Color(oldLink and T:QualityColor(oldLink) or T.MUTED))
 	panel.preview.name:SetText(newItem and newItem.name or "New item")
 	panel.preview.name:SetTextColor(T.Color(T:QualityColor(offer.link)))
-	if panel.currentModel then self:Dress(panel.currentModel, nil) end
-	if panel.previewModel then self:Dress(panel.previewModel, offer.link) end
 
-	local slot = ns.slotNames and ns.slotNames[offer.result.slot] or "Equipment"
-	panel.footnote:SetText(slot .. "  \194\183  identical score for " .. (ns.profile and ns.profile.label or "your build"))
+	local slot = offer.result.slot
+	local slotName = ns.slotNames and ns.slotNames[slot] or "Equipment"
+	panel.footnote:SetText(slotName .. "  \194\183  identical score for " .. (ns.profile and ns.profile.label or "your build"))
 
 	panel:ClearAllPoints()
 	local centre = badge:GetCenter()
@@ -241,6 +319,14 @@ function Sidegrades:ShowPanel(offer, badge)
 	end
 	panel.away = 0
 	panel:Show()
+	-- Dressed only once shown: a model reloads the character when it appears,
+	-- which would undo anything tried on while it was hidden.
+	if panel.currentModel then self:Dress(panel.currentModel, nil) end
+	local preview = panel.previewModel
+	if preview then
+		self:Dress(preview, not UNSEEN[slot] and offer.link or nil, slot)
+		if UNSEEN[slot] then self:Note(preview, "This doesn't show on your character.") end
+	end
 end
 
 ---------------------------------------------------------------------------
