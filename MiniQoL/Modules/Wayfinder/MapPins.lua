@@ -150,6 +150,21 @@ function WayfinderMapPinMixin:OnAcquired(rec, catID, x, y)
 	ns.OpenMapCompat:RaisePin(self)
 end
 
+-- AcquirePin sets every pin's click passthrough, and SetPassThroughButtons is
+-- blocked in combat, so opening the map mid-fight was blocked. Pins are pooled
+-- and always ask for the same buttons, so each pin is set once, out of combat;
+-- one first shown during a fight catches up when it ends.
+function WayfinderMapPinMixin:CheckMouseButtonPassthrough(...)
+	local wanted = table.concat({ ... }, ",")
+	if self.passThrough == wanted then return end
+	if InCombatLockdown() then
+		self.passThroughLater = { ... }
+		return
+	end
+	MapCanvasPinMixin.CheckMouseButtonPassthrough(self, ...)
+	self.passThrough, self.passThroughLater = wanted, nil
+end
+
 function WayfinderMapPinMixin:OnMouseEnter()
 	Tooltip:Show(self, self.rec, self.catID)
 end
@@ -319,6 +334,12 @@ function MapPins:OnLogin()
 	ns:On("QUEST_AVAILABILITY_CHANGED", Refresh)
 	ns:On("MAP_LAYER_CHANGED", Refresh)
 	ns:On("SERVICE_SOURCES_CHANGED", Refresh)
+	ns:RegisterEvent("PLAYER_REGEN_ENABLED", function()
+		if not WorldMapFrame then return end
+		for pin in WorldMapFrame:EnumeratePinsByTemplate(PIN_TEMPLATE) do
+			if pin.passThroughLater then pin:CheckMouseButtonPassthrough(unpack(pin.passThroughLater)) end
+		end
+	end)
 end
 
 end)
