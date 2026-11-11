@@ -103,4 +103,35 @@ edit:SetText("mangled")
 dialog.EditBoxOnTextChanged(edit, TOKEN)
 equal(edit.text, TOKEN, "editing cannot corrupt the token")
 
-print("Waypoint sharing across chat namespaces, lockdown and the copyable fallback passed")
+-- 8. Shift-clicking the game's own map pin. Its handler copies a /way command
+--    to the clipboard, which is refused once the map is tainted, so the link is
+--    shared here and the game's handler is stopped before it gets there.
+reset()
+ChatFrameUtil = {
+    GetActiveWindow = function() return box end,
+    InsertLink = function(text) box.shown = true; box.text = box.text .. text; return true end,
+}
+MapCanvasMixin = { MouseAction = { Up = 1, Down = 2, Click = 3 } }
+local handler, priority
+WorldMapFrame = { ScrollContainer = { HookScript = noop },
+    AddGlobalPinMouseActionHandler = function(_, fn, level) handler, priority = fn, level end }
+Navigation.CreateLocateButton = noop
+Navigation:HookWorldMap()
+assert(handler and priority > 1000, "the handler goes in ahead of the seamless map's")
+local PIN_LINK = "|cffffff00|Hworldmap:1429:5000:5000|h[Map Pin Location]|h|r"
+C_Map = { GetUserWaypointHyperlink = function() return PIN_LINK end }
+local focus, shift, played = { { pinTemplate = "WaypointLocationPinTemplate" } }, true, false
+function GetMouseFoci() return focus end
+function IsModifiedClick(kind) return kind == "CHATLINK" and shift end
+SOUNDKIT = { UI_MAP_WAYPOINT_CHAT_SHARE = 1 }
+function PlaySound() played = true end
+equal(handler(WorldMapFrame, MapCanvasMixin.MouseAction.Up, "LeftButton"), false, "the release still reaches the pin")
+equal(handler(WorldMapFrame, MapCanvasMixin.MouseAction.Click, "LeftButton"), true, "the shift-click is taken over")
+equal(box.text, PIN_LINK, "and its link reaches chat")
+assert(played, "with the game's sound")
+shift = false
+equal(handler(WorldMapFrame, MapCanvasMixin.MouseAction.Click, "LeftButton"), false, "a plain click still tracks the pin")
+shift, focus = true, { { pinTemplate = "QuestPinTemplate" } }
+equal(handler(WorldMapFrame, MapCanvasMixin.MouseAction.Click, "LeftButton"), false, "other pins keep their own shift-click")
+
+print("Waypoint sharing across chat namespaces, lockdown, the copyable fallback and the game's map pin passed")

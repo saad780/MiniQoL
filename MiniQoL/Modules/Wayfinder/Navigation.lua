@@ -522,7 +522,32 @@ function Navigation:CreateLocateButton()
 	self.locateButton = button
 end
 
+-- Shift-clicking the game's own map pin puts its link in chat and copies a
+-- /way command to the clipboard. Wayfinder moves Blizzard's map about, which
+-- leaves its pins tainted, and the clipboard is closed to addons outright, so
+-- the click was blocked. Share the link here and stop the game's handler.
+local function WaypointPinUnderCursor()
+	local foci = GetMouseFoci and GetMouseFoci() or { GetMouseFocus and GetMouseFocus() }
+	for _, focus in ipairs(foci) do
+		if type(focus) == "table" and focus.pinTemplate == "WaypointLocationPinTemplate" then return focus end
+	end
+end
+
+function Navigation:OnMapPinAction(action)
+	if action ~= MapCanvasMixin.MouseAction.Click or not IsModifiedClick("CHATLINK") then return false end
+	if not WaypointPinUnderCursor() then return false end
+	local link = C_Map.GetUserWaypointHyperlink and C_Map.GetUserWaypointHyperlink()
+	if link then
+		self:ShareText(link)
+		if SOUNDKIT and SOUNDKIT.UI_MAP_WAYPOINT_CHAT_SHARE then PlaySound(SOUNDKIT.UI_MAP_WAYPOINT_CHAT_SHARE) end
+	end
+	return true
+end
+
 function Navigation:HookWorldMap()
+	if WorldMapFrame.AddGlobalPinMouseActionHandler and MapCanvasMixin and MapCanvasMixin.MouseAction then
+		WorldMapFrame:AddGlobalPinMouseActionHandler(function(_, action) return self:OnMapPinAction(action) end, 2000)
+	end
 	local container = WorldMapFrame.ScrollContainer
 	container:HookScript("OnMouseUp", function(_, button)
 		if button ~= "MiddleButton" then
