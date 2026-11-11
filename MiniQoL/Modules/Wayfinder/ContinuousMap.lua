@@ -87,18 +87,23 @@ function Continuous:SaveView()
 	if not self:IsActive() then return end
 	local u, v, zoom = Controller().ViewNow()
 	if not Finite(u) or not Finite(v) or not Finite(zoom) or zoom < 1 then return end
-	local _, surface = engine.MapStitch.GetUndergroundView()
-	sessionView = { u = u, v = v, zoom = zoom, surface = surface == true }
+	local _, terrain = engine.MapStitch.GetCityView()
+	sessionView = { u = u, v = v, zoom = zoom, terrain = terrain == true }
 end
 
 function Continuous:SavedView()
 	local saved = sessionView
 	if type(saved) ~= "table" then return end
-	engine.MapStitch.SetUndergroundView(saved.surface)
+	engine.MapStitch.SetCityView(saved.terrain)
 	return saved.u, saved.v, saved.zoom
 end
 
-function Continuous:UpdateLayerButton(city, surface)
+-- A capital's two layers: the button's label for each, then the same in a
+-- sentence. Undercity's terrain is the overworld above it.
+local LAYERS = { [1458] = { "Undercity", "Overworld", "Undercity", "overworld" } }
+local CITY_LAYERS = { "City map", "Terrain", "city map", "terrain" }
+
+function Continuous:UpdateLayerButton(city, terrain)
 	local button = self.layerButton
 	if not city then if button then button:Hide() end; return end
 	if not button then
@@ -131,16 +136,17 @@ function Continuous:UpdateLayerButton(city, surface)
 		button.label:SetPoint("LEFT", button, "LEFT", 32, 0)
 		button.label:SetTextColor(0.9, 0.85, 0.72)
 		button:SetScript("OnClick", function(owner)
-			engine.MapStitch.ToggleUndergroundView()
+			engine.MapStitch.ToggleCityView()
 			if owner:IsMouseOver() then owner:GetScript("OnEnter")(owner) end
 		end)
 		button:SetScript("OnEnter", function(owner)
 			owner:SetBackdropColor(0.09, 0.11, 0.12, 1)
 			owner:SetBackdropBorderColor(0.85, 0.65, 0.31, 1)
-			local _, overworld = engine.MapStitch.GetUndergroundView()
+			local here, onTerrain = engine.MapStitch.GetCityView()
+			local names = LAYERS[here] or CITY_LAYERS
 			GameTooltip:SetOwner(owner, "ANCHOR_LEFT")
-			GameTooltip:SetText(overworld and "Show Undercity" or "Show overworld")
-			GameTooltip:AddLine(overworld and "Current layer: overworld" or "Current layer: Undercity", 1, 1, 1)
+			GameTooltip:SetText("Show " .. names[onTerrain and 3 or 4])
+			GameTooltip:AddLine("Current layer: " .. names[onTerrain and 4 or 3], 1, 1, 1)
 			GameTooltip:Show()
 		end)
 		button:SetScript("OnLeave", function(owner)
@@ -156,11 +162,11 @@ function Continuous:UpdateLayerButton(city, surface)
 		button:SetPassThroughButtons("RightButton", "MiddleButton")
 		button.passThrough = true
 	end
-	button.label:SetText(surface and "Overworld" or "Undercity")
-	for _, line in ipairs(button.upperLayer) do line:SetColorTexture(surface and 0.96 or 0.4, surface and 0.75 or 0.47, surface and 0.36 or 0.5, 1) end
-	for _, line in ipairs(button.lowerLayer) do line:SetColorTexture(surface and 0.4 or 0.96, surface and 0.47 or 0.75, surface and 0.5 or 0.36, 1) end
-	for _, line in ipairs(button.up) do line:SetColorTexture(0.9, 0.85, 0.72, 1); line:SetShown(not surface) end
-	for _, line in ipairs(button.down) do line:SetColorTexture(0.9, 0.85, 0.72, 1); line:SetShown(surface) end
+	button.label:SetText((LAYERS[city] or CITY_LAYERS)[terrain and 2 or 1])
+	for _, line in ipairs(button.upperLayer) do line:SetColorTexture(terrain and 0.96 or 0.4, terrain and 0.75 or 0.47, terrain and 0.36 or 0.5, 1) end
+	for _, line in ipairs(button.lowerLayer) do line:SetColorTexture(terrain and 0.4 or 0.96, terrain and 0.47 or 0.75, terrain and 0.5 or 0.36, 1) end
+	for _, line in ipairs(button.up) do line:SetColorTexture(0.9, 0.85, 0.72, 1); line:SetShown(not terrain) end
+	for _, line in ipairs(button.down) do line:SetColorTexture(0.9, 0.85, 0.72, 1); line:SetShown(terrain) end
 	button:Show()
 end
 function Continuous:GetMaxZoom(u, v)

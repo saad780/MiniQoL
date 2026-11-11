@@ -24,7 +24,7 @@ local UNDERLAY_SHADE = 0.85
 
 local view, plane, pinLayer, arrowFrame, hud
 local active, following = false, false
-local pinsOnly = false -- underground city art replaces terrain, never its markers
+local pinsOnly = false -- a city's map replaces terrain, never its markers
 local cont
 local cx, cy, scale = 0, 0, 1       -- current centre (plane yards) and UI units per yard
 local verticalRatio = 1            -- continuous map art can stretch the two axes differently
@@ -1162,8 +1162,8 @@ end
 function DetailView:IsFollowingMap() return active and following end
 function DetailView:IsTerrainVisible() return active and not pinsOnly end
 
--- Terrain and markers use the native map's exact centre/scale. Underground
--- cities keep only the markers; their city artwork replaces surface tiles.
+-- Terrain and markers use the native map's exact centre/scale. Showing a city
+-- map keeps only the markers; the city artwork replaces surface tiles.
 function DetailView:FollowMap(continent, wx, wy, pixelsPerYard, alpha, level, questLevel, pixelsPerYardY, withoutTerrain)
 	if not view then CreateFrames() end
 	local ratio = (pixelsPerYardY or pixelsPerYard) / pixelsPerYard

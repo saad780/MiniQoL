@@ -18,7 +18,9 @@ local rects, maps, built, root, player, W, H = {}, {}, false, nil, nil, 1002, 66
 local shown, viewU, viewV, halfU, halfV, zoom = false, 0.5, 0.5, 0.5, 0.5, 1
 local artLevel
 local UNDERCITY, UNDERCITY_SURFACE = 1458, 1420
-local undergroundContext, showSurface = false, false
+-- Close in on a capital, either its city map or the minimap terrain is shown,
+-- never both on top of each other. Undercity's terrain is the overworld above it.
+local cityContext, showTerrain = nil, false
 -- Begin the blend only after reaching the old detail view's closer framing.
 local TERRAIN_FROM, TERRAIN_FULL = 2500, 1400
 local function Smooth(a, b, value)
@@ -63,7 +65,7 @@ function S.ChainAt(u, v)
 			if last == parent then chain[#chain + 1] = city end
 		end
 	end
-	if showSurface and chain[#chain] == UNDERCITY then
+	if showTerrain and chain[#chain] == UNDERCITY then
 		table.remove(chain)
 		if S.Rect(UNDERCITY_SURFACE) and chain[#chain] ~= UNDERCITY_SURFACE then
 			chain[#chain + 1] = UNDERCITY_SURFACE
@@ -165,30 +167,38 @@ function S.VisibleMaps()
 	end
 	return result
 end
-function S.GetUndergroundView()
-	if undergroundContext then return UNDERCITY, showSurface end
+-- The capital the view is in (nil outside one), and whether terrain is chosen
+-- over city maps; that choice lasts the session, from one city to the next.
+function S.GetCityView() return cityContext, showTerrain end
+local function UpdateCityContext()
+	cityContext = nil
+	for id in pairs(CITIES) do
+		local rec = maps[id]
+		if rec and shown and viewU >= rec.l and viewU <= rec.r and viewV >= rec.t and viewV <= rec.b
+			and zoom >= 0.7 * math.min(1 / (rec.r-rec.l), 1 / (rec.b-rec.t)) then
+			cityContext = id
+			break
+		end
+	end
+	ns.ContinuousMap:UpdateLayerButton(S.GetCityView())
 end
-local function UpdateUndergroundContext()
-	local rec = maps[UNDERCITY]
-	local inside = rec and shown and viewU >= rec.l and viewU <= rec.r
-		and viewV >= rec.t and viewV <= rec.b
-		and zoom >= 0.7 * math.min(1 / (rec.r-rec.l), 1 / (rec.b-rec.t))
-	undergroundContext = inside and true or false
-	ns.ContinuousMap:UpdateLayerButton(S.GetUndergroundView())
-end
-function S.ResetUndergroundView()
-	undergroundContext, showSurface = false, false
+function S.ResetCityView()
+	cityContext, showTerrain = nil, false
 	ns.ContinuousMap:UpdateLayerButton()
 end
-function S.SetUndergroundView(surface)
-	showSurface = surface == true
-	UpdateUndergroundContext()
+function S.SetCityView(terrain)
+	showTerrain = terrain == true
+	UpdateCityContext()
 end
-function S.ToggleUndergroundView()
-	if not undergroundContext then return end
-	showSurface = not showSurface
-	local controller = ns.ContinuousEngine:GetModule("worldmap")
-	controller.FollowLayerMap(showSurface and UNDERCITY_SURFACE or UNDERCITY)
+function S.ToggleCityView()
+	if not cityContext then return end
+	showTerrain = not showTerrain
+	-- Only Undercity is a different map from its terrain; elsewhere the city's
+	-- own map stays underneath, with its pins, either way.
+	if cityContext == UNDERCITY then
+		local controller = ns.ContinuousEngine:GetModule("worldmap")
+		controller.FollowLayerMap(showTerrain and UNDERCITY_SURFACE or UNDERCITY)
+	end
 	S.SetView(viewU, viewV, halfU, halfV, zoom, zoom)
 	ns:Fire("MAP_LAYER_CHANGED")
 end
@@ -200,9 +210,9 @@ function S.Recull()
 		local fit = math.min(1 / (rec.r - rec.l), 1 / (rec.b - rec.t))
 		local alpha = id == S.WORLD and 1 or rec.city and Smooth(0.2 * fit, 0.4 * fit, zoom)
 			or rec.continent and Smooth(1.1, 2.2, zoom) or Smooth(0.35 * fit, 0.8 * fit, zoom)
-		if id == UNDERCITY then
-			visible = visible and not showSurface
-			if undergroundContext then alpha = 1 end
+		if id == UNDERCITY and showTerrain then visible = false end
+		if id == cityContext then
+			if showTerrain then visible = false else alpha = 1 end
 		end
 		rec.visible = visible and alpha > 0.001
 		if rec.visible and not rec.frame then BuildMap(rec) end
@@ -242,19 +252,19 @@ function S.SetShown(on)
 	if ns.WorldFog and ns.WorldFog.frame and not shown then ns.WorldFog.frame:Hide() end
 	-- Preserve the selected floor while hidden; the next opening this session
 	-- restores the view you left, including its layer.
-	if not shown then UpdateUndergroundContext() end
+	if not shown then UpdateCityContext() end
 	if not shown and ns.DetailView:IsFollowingMap() then ns.DetailView:Exit(true) end
 end
 function S.SetZoom() end -- SetView supplies the matching view and zoom together.
 function S.SetView(u, v, hu, hv, _, stepZoom)
 	viewU, viewV, halfU, halfV, zoom = u, v, hu, hv, stepZoom
-	UpdateUndergroundContext()
+	UpdateCityContext()
 	S.Recull()
 	if player and player:IsShown() then S.SetPlayer(player.u, player.v, player.facing) end
 	ns.WorldFog:Follow(root, artLevel + 66, u, v, hu, hv, shown)
-	-- Underground artwork replaces the surface tiles, but keeps the same
-	-- marker layer. Exiting DetailView here also removed all persistent pins.
-	local pinsOnly = undergroundContext and not showSurface
+	-- A city map replaces the surface tiles, but keeps the same marker layer.
+	-- Exiting DetailView here would also remove all persistent pins.
+	local pinsOnly = cityContext ~= nil and not showTerrain
 	local id = S.ContinentAt(u, v)
 	local rect = id and ns.GetMapRect(id)
 	local l, r, t, b

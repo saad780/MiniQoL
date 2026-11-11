@@ -107,9 +107,9 @@ function S.ArtSize(id) if rects[id] then return 1000, id == 947 and 750 or 1000 
 function S.Size() return 1000, 750 end
 S.IsBuilt, S.Layout = function() return true end, function() return true end
 S.ContinentAt, S.Recull, S.SetShown, S.SetZoom, S.SetView, S.SetPlayer, S.RaiseArrow = noop, noop, noop, noop, noop, noop, noop
-function S.GetUndergroundView() return 1458, surface end
-function S.SetUndergroundView(value) surface = value == true end
-function S.ResetUndergroundView() surface = false end
+function S.GetCityView() return 1458, surface end
+function S.SetCityView(value) surface = value == true end
+function S.ResetCityView() surface = false end
 assert(loadfile(base .. "Vendor/OpenMap/WorldMap.lua"))("Wayfinder", ns)
 local painter = frames[#frames]
 local continuous, controller = ns.ContinuousMap, ns.ContinuousEngine:GetModule("worldmap")
