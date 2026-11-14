@@ -513,7 +513,7 @@ function Sidegrades:Review()
 	wipe(self.offers)
 	wipe(self.shown)
 	wipe(self.waiting)
-	local counts, bags = ns.Upgrades:Snapshot()
+	local counts, bags, worn = ns.Upgrades:Snapshot()
 	if not counts then
 		ns.Print("Waiting for inventory item data...")
 		ns.Upgrades:Schedule(0.5)
@@ -521,7 +521,7 @@ function Sidegrades:Review()
 	end
 	local everything = {}
 	for _, candidate in pairs(bags) do everything[#everything + 1] = candidate end
-	ns.Upgrades.counts, ns.Upgrades.bags = counts, bags
+	ns.Upgrades.counts, ns.Upgrades.bags, ns.Upgrades.worn = counts, bags, worn
 	self:Consider(bags, everything)
 	local count, waiting = #self.offers, #self.waiting
 	local message = count > 0

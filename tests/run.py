@@ -36,6 +36,9 @@ sidegrades = LuaRuntime(unpack_returned_tuples=True)
 gearwise = (Path(sys.argv[1]) / "Modules" if len(sys.argv) > 1 else root / "src" / "Modules") / "Gearwise"
 sidegrades.execute((root / "tests/sidegrades.lua").read_text(), str(gearwise).replace("\\", "/"), str(shell).replace("\\", "/"))
 
+upgrades = LuaRuntime(unpack_returned_tuples=True)
+upgrades.execute((root / "tests/upgrades.lua").read_text(), str(gearwise).replace("\\", "/"), str(shell).replace("\\", "/"))
+
 if len(sys.argv) > 1:
     package = Path(sys.argv[1])
     sys.path.insert(0, str(root / "tools"))

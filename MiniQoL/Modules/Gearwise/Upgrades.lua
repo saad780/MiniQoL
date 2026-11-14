@@ -13,8 +13,10 @@ local function Container(method, legacy, ...)
 	if getter then return getter(...) end
 end
 
+-- Returns, per item: how many you carry (worn included), where the first one
+-- sits in the bags, and which item each equipment slot holds.
 function Upgrades:Snapshot()
-	local counts, bags = {}, {}
+	local counts, bags, worn = {}, {}, {}
 	local function Count(link, amount, bag, slot)
 		local key = ItemKey(link)
 		if not key then return end
@@ -37,8 +39,30 @@ function Upgrades:Snapshot()
 		local link = GetInventoryItemLink("player", slot)
 		if not link and GetInventoryItemID and GetInventoryItemID("player", slot) then return nil end
 		Count(link)
+		worn[slot] = ItemKey(link)
 	end
-	return counts, bags
+	return counts, bags, worn
+end
+
+-- Gear a swap just pushed out of a slot and into the bags. Its count did not
+-- change, so it never looks newly looted, yet it can still beat what another
+-- slot holds: the old main hand over the off hand, a ring the game swapped out
+-- over the other ring. Only a slot that something else now fills counts, so
+-- taking a piece off by hand, or a two-hander clearing the off hand, does not.
+-- The slot it came from is kept so it is not offered straight back there.
+function Upgrades:Displaced(worn, bags)
+	local displaced = {}
+	if not self.worn then return displaced end
+	local stillWorn = {}
+	for _, key in pairs(worn) do stillWorn[key] = true end
+	for slot, key in pairs(self.worn) do
+		local location = bags[key]
+		if location and worn[slot] and worn[slot] ~= key and not stillWorn[key] then
+			displaced[#displaced + 1] = { key = key, link = location.link, bag = location.bag,
+				slot = location.slot, from = slot }
+		end
+	end
+	return displaced
 end
 
 function Upgrades:Enqueue(candidate)
@@ -50,7 +74,7 @@ end
 function Upgrades:Scan(review)
 	if review then self.reviewRequested = true end
 	review = self.reviewRequested
-	local counts, bags = self:Snapshot()
+	local counts, bags, worn = self:Snapshot()
 	if not counts then
 		if review and not self.reviewWaiting then
 			self.reviewWaiting = true
@@ -78,12 +102,14 @@ function Upgrades:Scan(review)
 	end
 	if ns.db.popups then
 		for _, candidate in ipairs(acquired) do self:Enqueue(candidate) end
+		-- Only the upgrade prompt: a piece you just took off is no new look.
+		for _, candidate in ipairs(self:Displaced(worn, bags)) do self:Enqueue(candidate) end
 	else
 		wipe(self.queue); wipe(self.queued)
 		self.current = nil
 		if self.frame then self.frame:Hide() end
 	end
-	self.counts, self.bags = counts, bags
+	self.counts, self.bags, self.worn = counts, bags, worn
 	self:Advance()
 	if ns.Sidegrades then ns.Sidegrades:Consider(bags, acquired) end
 	if review then
@@ -141,8 +167,9 @@ function Upgrades:Advance()
 		local result = location and ns.Compare:Get(location.link)
 		if result and result.status == "pending" then
 			pending[#pending + 1] = candidate
-		elseif result and result.status == "upgrade" then
+		elseif result and result.status == "upgrade" and result.slot ~= candidate.from then
 			self.current = location
+			location.from = candidate.from
 			self:Show(result)
 			break
 		else self.queued[candidate.key] = nil end
@@ -180,7 +207,7 @@ function Upgrades:Equip()
 	if not self.current then return end
 	if InCombatLockdown() then ns.Print("You can equip the upgrade after combat."); return end
 	if CursorHasItem and CursorHasItem() then ns.Print("Put down the item on your cursor first."); return end
-	local counts, bags = self:Snapshot()
+	local counts, bags, worn = self:Snapshot()
 	local location = bags and bags[self.current.key]
 	if not location then self:Scan(); return end
 	ns.Compare:Clear()
@@ -194,7 +221,7 @@ function Upgrades:Equip()
 	end
 	-- This runs only from the player's click, with the exact reviewed slot.
 	if not self:EquipLocation(location, result.slot) then return end
-	self.counts, self.bags = counts, bags
+	self.counts, self.bags, self.worn = counts, bags, worn
 	-- Keep the prompt until equipment events confirm success (including bind confirmation).
 	self:Schedule(0.5)
 end
@@ -475,7 +502,8 @@ function Upgrades:Show(result)
 	Place(frame.toHeading, y)
 	y = y + 15
 	Place(frame.new, y)
-	Fill(frame.new, self.current.link, "In your bags")
+	local from = self.current.from and SLOT_NAMES[self.current.from]
+	Fill(frame.new, self.current.link, from and ("Just swapped out of your " .. from:lower()) or "In your bags")
 	y = y + ROW_HEIGHT + 12
 
 	Place(frame.rule, y)
