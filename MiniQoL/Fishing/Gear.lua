@@ -39,23 +39,6 @@ local function EquipLoc(link)
     return equipLoc
 end
 
-local function EquipByLink(link, slot)
-    local equip = (C_Item and C_Item.EquipItemByName) or EquipItemByName
-    if not equip then return false end
-    return pcall(equip, link, slot)
-end
-
-local function Unequip(slot)
-    if not PickupInventoryItem then return false end
-    local ok = pcall(PickupInventoryItem, slot)
-    if not ok then return false end
-    if CursorHasItem and CursorHasItem() then
-        if PutItemInBackpack then pcall(PutItemInBackpack) end
-        if CursorHasItem() and ClearCursor then ClearCursor() end
-    end
-    return true
-end
-
 function Fishing:EquippedLink(slot)
     return GetInventoryItemLink("player", slot)
 end
@@ -265,19 +248,280 @@ function Fishing:SuggestGear()
     return pole, pieces
 end
 
-function Fishing:WearingGear()
-    return self.db.gear.active == true
-end
-
 ---------------------------------------------------------------------------
 -- Swapping
 ---------------------------------------------------------------------------
+-- Bag positions are never remembered. Each piece is looked up again when it
+-- is needed: the very same item by its GUID when one was recorded, else any
+-- copy with the same item ID (the exact link first). So moving or sorting
+-- your bags in between doesn't matter, and neither does levelling up (item
+-- links carry your level, so an old link no longer matches the item).
+local WEAPON_SLOTS = { [16] = true, [17] = true, [18] = true } -- the only ones combat allows
+local MAX_TRIES, TIMEOUT, TICK = 3, 8, 0.1
+local Container = C_Container
+local PickupBagItem = (Container and Container.PickupContainerItem) or PickupContainerItem
+local EquipCursor = EquipCursorItem or PickupInventoryItem
+
 local function Describe(count)
     return count == 1 and "1 piece" or (count .. " pieces")
 end
 
+local function CharacterKey()
+    local realm = (GetNormalizedRealmName and GetNormalizedRealmName()) or (GetRealmName and GetRealmName()) or ""
+    return (UnitName("player") or "?") .. "-" .. realm
+end
+
+local function GUIDAt(location)
+    if not (location and C_Item and C_Item.GetItemGUID and C_Item.DoesItemExist) then return nil end
+    local ok, exists = pcall(C_Item.DoesItemExist, location)
+    if not ok or not exists then return nil end
+    local found, guid = pcall(C_Item.GetItemGUID, location)
+    return found and guid or nil
+end
+
+local function WornGUID(slot)
+    return ItemLocation and GUIDAt(ItemLocation:CreateFromEquipmentSlot(slot)) or nil
+end
+
+local function BagGUID(bag, index)
+    return ItemLocation and GUIDAt(ItemLocation:CreateFromBagAndSlot(bag, index)) or nil
+end
+
+-- What a slot should hold: EMPTY, or { link, id, guid }. Older records and
+-- the outfit itself store bare links.
+local function Want(value)
+    if value == EMPTY or type(value) == "table" then return value end
+    if type(value) == "string" then return { link = value, id = ItemID(value) } end
+end
+
+local function Remember(slot)
+    local link = GetInventoryItemLink("player", slot)
+    if not link then return EMPTY end
+    return { link = link, id = ItemID(link), guid = WornGUID(slot) }
+end
+
+local function Holds(slot, want)
+    local link = GetInventoryItemLink("player", slot)
+    if want == EMPTY then return link == nil end
+    if not link or type(want) ~= "table" then return false end
+    if want.guid then
+        local guid = WornGUID(slot)
+        if guid then return guid == want.guid end
+    end
+    return ItemID(link) == want.id
+end
+
+local function BagCount(bag)
+    return Container and Container.GetContainerNumSlots and Container.GetContainerNumSlots(bag) or 0
+end
+
+-- Where a piece is in the bags right now, skipping bag slots this pass has
+-- already used.
+local function FindInBags(want, claimed)
+    if not want.id then return nil end
+    local sameLink, sameID
+    for bag = BACKPACK_CONTAINER or 0, NUM_BAG_SLOTS or 4 do
+        for index = 1, BagCount(bag) do
+            local key = bag .. ":" .. index
+            local link = not claimed[key] and Container.GetContainerItemLink(bag, index)
+            if link and ItemID(link) == want.id then
+                if want.guid and BagGUID(bag, index) == want.guid then return bag, index, key end
+                if link == want.link and not sameLink then sameLink = { bag, index, key } end
+                sameID = sameID or { bag, index, key }
+            end
+        end
+    end
+    local hit = sameLink or sameID
+    if hit then return hit[1], hit[2], hit[3] end
+end
+
+-- The piece worn in another slot (a ring or one-hander on the other side),
+-- unless that slot already holds what it should.
+function Fishing:FindWornElsewhere(want, slot, targets)
+    for _, other in ipairs(self.GEAR_SLOTS) do
+        if other ~= slot and Holds(other, want) and not (targets[other] ~= nil and Holds(other, targets[other])) then
+            return other
+        end
+    end
+end
+
+-- An empty slot in a plain bag (profession bags only take their own kind).
+local function FreeBagSlot(claimed)
+    if not Container then return nil end
+    for bag = BACKPACK_CONTAINER or 0, NUM_BAG_SLOTS or 4 do
+        local free, family = 1, 0
+        if Container.GetContainerNumFreeSlots then free, family = Container.GetContainerNumFreeSlots(bag) end
+        if (free or 0) > 0 and (family or 0) == 0 then
+            for index = 1, BagCount(bag) do
+                local key = bag .. ":" .. index
+                if not claimed[key] and not Container.GetContainerItemLink(bag, index) then return bag, index, key end
+            end
+        end
+    end
+end
+
+local function BagLocked(bag, index)
+    local info = Container.GetContainerItemInfo and Container.GetContainerItemInfo(bag, index)
+    return type(info) == "table" and info.isLocked or false
+end
+
+-- Each move puts one thing on the cursor and drops it where it goes. A drop
+-- the game refuses goes back where it came from.
+local function Move(pickUp, drop)
+    ClearCursor()
+    pickUp()
+    if not CursorHasItem() then return false end
+    drop()
+    if CursorHasItem() then ClearCursor(); return false end
+    return true
+end
+
+local function EquipFromBag(bag, index, slot)
+    -- What was worn there drops into the bag slot the piece came from.
+    return Move(function() pcall(PickupBagItem, bag, index) end, function() pcall(EquipCursor, slot) end)
+end
+
+local function MoveWorn(from, slot)
+    return Move(function() pcall(PickupInventoryItem, from) end, function() pcall(PickupInventoryItem, slot) end)
+end
+
+local function TakeOff(slot, bag, index)
+    return Move(function() pcall(PickupInventoryItem, slot) end, function() pcall(PickupBagItem, bag, index) end)
+end
+
+-- What each character had on before the outfit, kept per character because
+-- the outfit itself is shared by all of them.
+function Fishing:SwapRecord()
+    local gear = self.db.gear
+    if type(gear.worn) ~= "table" then gear.worn = {} end
+    local key = CharacterKey()
+    -- Older builds kept a single record for every character.
+    if gear.active ~= nil or gear.saved ~= nil then
+        if gear.active and type(gear.saved) == "table" and gear.worn[key] == nil then gear.worn[key] = gear.saved end
+        gear.active, gear.saved = nil, nil
+    end
+    return gear.worn[key]
+end
+
+function Fishing:SetSwapRecord(record)
+    self:SwapRecord()
+    self.db.gear.worn[CharacterKey()] = record
+end
+
+function Fishing:WearingGear()
+    return self:SwapRecord() ~= nil
+end
+
+-- A swap runs in short passes until every slot is right. A slot waits while
+-- its item is locked (the server hasn't confirmed the last move yet), and the
+-- off hand waits for the main hand, so a two-handed pole is out of the way
+-- first. In combat only weapons can change; the rest waits for combat to end.
+function Fishing:StartSwap(job)
+    job.failed, job.tries, job.deadline, job.waitingForCombat = {}, {}, GetTime() + TIMEOUT, nil
+    job.before = job.before or {}
+    for slot, want in pairs(job.targets) do
+        if job.before[slot] == nil then job.before[slot] = Holds(slot, want) end
+    end
+    self.job = job
+    if not self.swapTicker then
+        self.swapTicker = C_Timer.NewTicker(TICK, function() self:RunSwap() end)
+    end
+    self:RunSwap()
+end
+
+function Fishing:StopSwapTicker()
+    if self.swapTicker then self.swapTicker:Cancel(); self.swapTicker = nil end
+end
+
+function Fishing:RunSwap()
+    local job = self.job
+    if not job then self:StopSwapTicker(); return end
+    local combat = InCombatLockdown()
+    if combat and job.kind == "outfit" then
+        -- Never keep dressing for fishing once a fight starts.
+        self.job = nil
+        self:StopSwapTicker()
+        ns:Print("Combat started, so the fishing outfit stopped going on. Use it again to change back.")
+        self:Fire("GEAR_CHANGED")
+        return
+    end
+    local targets, claimed, busy, deferred = job.targets, {}, false, false
+    for _, slot in ipairs(self.GEAR_SLOTS) do
+        local want = targets[slot]
+        if want ~= nil and not job.failed[slot] and not Holds(slot, want) then
+            local mainFirst = slot == OFF_HAND and targets[MAIN_HAND] ~= nil and not job.failed[MAIN_HAND]
+                and not Holds(MAIN_HAND, targets[MAIN_HAND])
+            if combat and not WEAPON_SLOTS[slot] then
+                deferred = true
+            elseif mainFirst or IsInventoryItemLocked(slot) then
+                busy = true
+            elseif (job.tries[slot] or 0) >= MAX_TRIES then
+                job.failed[slot] = "the game would not put it on"
+            elseif want == EMPTY then
+                local bag, index, key = FreeBagSlot(claimed)
+                if bag then
+                    claimed[key], job.tries[slot], busy = true, (job.tries[slot] or 0) + 1, true
+                    TakeOff(slot, bag, index)
+                else
+                    job.failed[slot] = "no room in your bags"
+                end
+            else
+                local bag, index, key = FindInBags(want, claimed)
+                local from = not bag and self:FindWornElsewhere(want, slot, targets)
+                if bag then
+                    claimed[key], busy = true, true
+                    if not BagLocked(bag, index) then
+                        job.tries[slot] = (job.tries[slot] or 0) + 1
+                        EquipFromBag(bag, index, slot)
+                    end
+                elseif from then
+                    busy = true
+                    if not IsInventoryItemLocked(from) then
+                        job.tries[slot] = (job.tries[slot] or 0) + 1
+                        MoveWorn(from, slot)
+                    end
+                elseif ItemID(GetInventoryItemLink("player", slot)) ~= want.id then
+                    -- (A copy of it already in the slot is good enough.)
+                    job.failed[slot] = "not in your bags"
+                end
+            end
+        end
+    end
+    if busy and GetTime() < job.deadline then return end
+    self:StopSwapTicker()
+    if deferred then
+        -- Weapons are done; armour can't change until the fight is over.
+        if not job.waitingForCombat then
+            job.waitingForCombat = true
+            ns:Print("Weapons are back. The rest goes back on when combat ends.")
+        end
+        self:Fire("GEAR_CHANGED")
+        return
+    end
+    self.job = nil
+    local changed, problems = 0, {}
+    for _, slot in ipairs(self.GEAR_SLOTS) do
+        local want = targets[slot]
+        if want ~= nil then
+            if Holds(slot, want) then
+                if not job.before[slot] then changed = changed + 1 end
+            elseif want ~= EMPTY and not (want.id and ItemID(GetInventoryItemLink("player", slot)) == want.id) then
+                local name = self.LinkName(want.link) or self.SLOT_NAMES[slot]
+                problems[#problems + 1] = ("%s (%s)"):format(name, job.failed[slot] or "timed out")
+            elseif want == EMPTY then
+                problems[#problems + 1] = ("%s (%s)"):format(self.SLOT_NAMES[slot], job.failed[slot] or "timed out")
+            end
+        end
+    end
+    job.finish(changed, problems)
+    if #problems > 0 then
+        ns:Print((job.kind == "outfit" and "Couldn't put on: " or "Couldn't put back: ") .. table.concat(problems, ", "))
+    end
+    self:Fire("GEAR_CHANGED")
+end
+
 function Fishing:SwapToGear()
-    if InCombatLockdown() then ns:Print("Fishing gear can wait until after combat."); return false end
+    if InCombatLockdown() then ns:Print("The fishing outfit can't go on during combat."); return false end
     if not self:HasGearSet() then
         ns:Print("No fishing outfit yet. Type /mqol fish gear to choose one.")
         return false
@@ -290,57 +534,41 @@ function Fishing:SwapToGear()
     -- Remember exactly what is on now, before anything moves and including
     -- the slots that are bare, so swapping back restores the outfit rather
     -- than approximating it.
-    local previous, changed = {}, 0
+    local previous, targets = {}, {}
     for _, slot in ipairs(self.GEAR_SLOTS) do
-        if set[slot] ~= nil or (slot == OFF_HAND and guardOffHand) then
-            previous[slot] = self:EquippedLink(slot) or EMPTY
+        if set[slot] ~= nil or (slot == OFF_HAND and guardOffHand) then previous[slot] = Remember(slot) end
+        if set[slot] ~= nil then targets[slot] = Want(set[slot]) end
+    end
+    self:SetSwapRecord(previous)
+    self:StartSwap({ kind = "outfit", targets = targets, finish = function(changed)
+        if self:Get("announceGear") then
+            ns:Print(("Fishing outfit on (%s changed). Use it again to go back."):format(Describe(changed)))
         end
-    end
-    for _, slot in ipairs(self.GEAR_SLOTS) do
-        local wanted = set[slot]
-        if wanted ~= nil then
-            local current = self:EquippedLink(slot)
-            if wanted == EMPTY then
-                if current then changed = changed + (Unequip(slot) and 1 or 0) end
-            elseif current ~= wanted then
-                if EquipByLink(wanted, slot) then changed = changed + 1 end
-            end
-        end
-    end
-    self.db.gear.saved = previous
-    self.db.gear.active = true
-    if self:Get("announceGear") then
-        ns:Print(("Fishing outfit on (%s changed). Use it again to go back."):format(Describe(changed)))
-    end
+    end })
     self:Fire("GEAR_CHANGED")
     return true
 end
 
+-- Allowed in combat: weapons go back straight away, armour once it ends.
 function Fishing:SwapBack()
-    if InCombatLockdown() then ns:Print("Your gear can wait until after combat."); return false end
-    local previous = self.db.gear.saved
+    local previous = self:SwapRecord()
     if type(previous) ~= "table" or next(previous) == nil then
-        self.db.gear.active = false
+        self:SetSwapRecord(nil)
         ns:Print("Nothing to go back to; the outfit you had on was not recorded.")
         self:Fire("GEAR_CHANGED")
         return false
     end
-    -- Slot order, so the main hand is back before the off hand goes on.
-    local changed = 0
-    for _, slot in ipairs(self.GEAR_SLOTS) do
-        local link = previous[slot]
-        local current = self:EquippedLink(slot)
-        if link == EMPTY then
-            if current then changed = changed + (Unequip(slot) and 1 or 0) end
-        elseif link and current ~= link then
-            if EquipByLink(link, slot) then changed = changed + 1 end
+    local targets = {}
+    for slot, value in pairs(previous) do
+        slot = tonumber(slot)
+        if slot then targets[slot] = Want(value) end
+    end
+    self:StartSwap({ kind = "back", targets = targets, finish = function(changed)
+        self:SetSwapRecord(nil)
+        if self:Get("announceGear") then
+            ns:Print(("Back in your own gear (%s changed)."):format(Describe(changed)))
         end
-    end
-    self.db.gear.saved = nil
-    self.db.gear.active = false
-    if self:Get("announceGear") then
-        ns:Print(("Back in your own gear (%s changed)."):format(Describe(changed)))
-    end
+    end })
     self:Fire("GEAR_CHANGED")
     return true
 end
@@ -395,15 +623,11 @@ function Fishing:PickupGearMacro()
 end
 
 function Fishing:SetupGear()
-    -- Leaving the outfit on across a logout is fine, but the gear you had on
-    -- is only meaningful while the game remembers those items.
+    -- Armour that couldn't go back during a fight goes back once it ends.
     local events = CreateFrame("Frame")
     events:RegisterEvent("PLAYER_REGEN_ENABLED")
     events:SetScript("OnEvent", function()
-        if self.pendingSwap then
-            local action = self.pendingSwap
-            self.pendingSwap = nil
-            if action == "toggle" then self:ToggleGear() end
-        end
+        local job = self.job
+        if job and job.waitingForCombat then self:StartSwap(job) end
     end)
 end

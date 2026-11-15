@@ -68,8 +68,12 @@ NOW, CLOCK = 1000, 1700000000
 function GetTime() return NOW end
 function time() return CLOCK end
 function date(_, stamp) return { hour = 12 } end
+-- A ticker keeps its function so a test can turn it by hand.
 C_Timer = { After = function(_, fn) end, NewTimer = function() return { Cancel = noop } end,
-    NewTicker = function() return { Cancel = noop } end }
+    NewTicker = function(_, fn) return { fn = fn, Cancel = noop } end }
+function UnitName() return PLAYER_NAME or "Tester" end
+function GetNormalizedRealmName() return "Realm" end
+function IsInventoryItemLocked() return false end
 function InCombatLockdown() return COMBAT == true end
 function GetCVar(key) return CVARS[key] end
 function SetCVar(key, value) CVARS[key] = tostring(value) end
@@ -114,25 +118,68 @@ function GetInventoryItemID(_, slot)
     local link = EQUIPPED[slot]
     return link and tonumber(link:match("item:(%d+)")) or nil
 end
-EQUIPS = {}
-function EquipItemByName(link, slot)
-    EQUIPS[#EQUIPS + 1] = { link = link, slot = slot }
-    EQUIPPED[slot] = link
-    -- A two-handed weapon takes the off hand with it, as in game.
-    if slot == 16 and EQUIP_LOC[id(link)] == "INVTYPE_2HWEAPON" then EQUIPPED[17] = nil end
-end
-CURSOR = nil
-function PickupInventoryItem(slot) CURSOR = EQUIPPED[slot] EQUIPPED[slot] = nil end
-function CursorHasItem() return CURSOR ~= nil end
-function PutItemInBackpack() CURSOR = nil end
-function ClearCursor() CURSOR = nil end
-function GetCursorInfo() if CURSOR then return "item", id(CURSOR), CURSOR end end
 function CanDualWield() return false end
--- Bags 0-4, each a list of links.
-BAG_ITEMS = {}
+-- Bags 0-4: BAG_ITEMS[bag][index] = link. BAG_SIZE gives a bag empty slots;
+-- without it a bag is exactly its list.
+BAG_ITEMS, BAG_SIZE = {}, {}
+local function bagSize(bag) return BAG_SIZE[bag] or (BAG_ITEMS[bag] and #BAG_ITEMS[bag]) or 0 end
+local function bagItem(bag, index) return BAG_ITEMS[bag] and BAG_ITEMS[bag][index] end
+local function setBagItem(bag, index, item)
+    BAG_ITEMS[bag] = BAG_ITEMS[bag] or {}
+    BAG_ITEMS[bag][index] = item
+end
+-- The cursor holds an item and where it came from: { link, slot } or
+-- { link, bag, index }. A test may also set it to a bare link. As in game,
+-- dropping it on an occupied place sends what was there to where it came from.
+CURSOR = nil
+local function cursorLink() return type(CURSOR) == "table" and CURSOR.link or CURSOR end
+local function sendHome(item)
+    if type(CURSOR) ~= "table" then return end
+    if CURSOR.slot then EQUIPPED[CURSOR.slot] = item else setBagItem(CURSOR.bag, CURSOR.index, item) end
+end
+local function wear(slot)
+    local item = cursorLink()
+    sendHome(EQUIPPED[slot])
+    EQUIPPED[slot], CURSOR = item, nil
+    -- A two-handed weapon pushes the off hand into the bags.
+    if slot == 16 and EQUIP_LOC[id(item)] == "INVTYPE_2HWEAPON" and EQUIPPED[17] then
+        for bag = 0, 4 do
+            for index = 1, bagSize(bag) do
+                if EQUIPPED[17] and not bagItem(bag, index) then setBagItem(bag, index, EQUIPPED[17]); EQUIPPED[17] = nil end
+            end
+        end
+    end
+end
+function PickupInventoryItem(slot)
+    if CURSOR then wear(slot)
+    elseif EQUIPPED[slot] then CURSOR = { link = EQUIPPED[slot], slot = slot }; EQUIPPED[slot] = nil end
+end
+function EquipCursorItem(slot) if CURSOR then wear(slot) end end
+function CursorHasItem() return CURSOR ~= nil end
+function ClearCursor() sendHome(cursorLink()); CURSOR = nil end
+function GetCursorInfo() local item = cursorLink(); if item then return "item", id(item), item end end
 C_Container = {
-    GetContainerNumSlots = function(bag) return BAG_ITEMS[bag] and #BAG_ITEMS[bag] or 0 end,
-    GetContainerItemLink = function(bag, slot) return BAG_ITEMS[bag] and BAG_ITEMS[bag][slot] end,
+    GetContainerNumSlots = bagSize,
+    GetContainerItemLink = bagItem,
+    GetContainerItemInfo = function(bag, index)
+        return bagItem(bag, index) and { hyperlink = bagItem(bag, index), isLocked = false } or nil
+    end,
+    GetContainerNumFreeSlots = function(bag)
+        local free = 0
+        for index = 1, bagSize(bag) do if not bagItem(bag, index) then free = free + 1 end end
+        return free, 0
+    end,
+    PickupContainerItem = function(bag, index)
+        if CURSOR then
+            local here = bagItem(bag, index)
+            setBagItem(bag, index, cursorLink())
+            sendHome(here)
+            CURSOR = nil
+        elseif bagItem(bag, index) then
+            CURSOR = { link = bagItem(bag, index), bag = bag, index = index }
+            setBagItem(bag, index, nil)
+        end
+    end,
 }
 C_TooltipInfo = {
     GetItemByID = function() return nil end,
@@ -192,8 +239,20 @@ end
 local F = ns.Fishing
 F:Initialize()
 F:SetupOutfit()
+F:SetupGear()
+local gearEvents = scripts[#scripts]
 
 local function link(id) return "|cffffffff|Hitem:" .. id .. "|h[Item" .. id .. "]|h|r" end
+-- The same item after a level-up: links carry the player's level.
+local function relink(id) return "|cffffffff|Hitem:" .. id .. "::::::::14|h[Item" .. id .. "]|h|r" end
+-- In game a swap runs a pass at a time on a ticker; here it is turned by hand.
+local function settle()
+    for _ = 1, 50 do
+        if not F.swapTicker then return end
+        F.swapTicker.fn()
+    end
+    error("the swap never finished")
+end
 local function equal(actual, expected, label)
     assert(actual == expected, (label or "value") .. ": " .. tostring(actual) .. " ~= " .. tostring(expected))
 end
@@ -215,28 +274,39 @@ equal(F:GearSlotValue(16), link(777), "main hand now holds the pole")
 F:ClearGearSlot(1)
 equal(F:GearSlotValue(1), nil, "a cleared slot is left alone by the swap")
 
--- Now dress in ordinary gear and swap.
-EQUIPPED[1], EQUIPPED[5], EQUIPPED[15], EQUIPPED[16] = link(201), link(205), link(215), link(216)
-EQUIPS = {}
+-- Now dress in ordinary gear and swap. The outfit's pieces are in the bags,
+-- with room for what comes off.
+EQUIPPED = { [1] = link(201), [5] = link(205), [15] = link(215), [16] = link(216) }
+BAG_SIZE, BAG_ITEMS = { [0] = 6 }, { [0] = { link(105), link(777) } }
 F:SwapToGear()
+settle()
 equal(F:WearingGear(), true, "wearing the outfit")
 equal(EQUIPPED[16], link(777), "pole equipped")
 equal(EQUIPPED[5], link(105), "fishing chest equipped")
 equal(EQUIPPED[15], nil, "a slot the outfit empties is taken off")
 equal(EQUIPPED[1], link(201), "an ignored slot keeps what it had")
+equal(CURSOR, nil, "nothing left on the cursor")
 
-print("-- swapping back --")
+print("-- swapping back after the bags were sorted --")
+-- The swapped-out pieces end up somewhere else entirely, and a level-up has
+-- changed the sword's link. Neither may matter.
+BAG_SIZE = { [0] = 6, [1] = 4 }
+BAG_ITEMS = { [0] = { [2] = link(777), [4] = link(215), [6] = relink(216) }, [1] = { [3] = link(205), [4] = link(105) } }
 F:SwapBack()
+settle()
 equal(F:WearingGear(), false, "back in your own gear")
-equal(EQUIPPED[16], link(216), "the old weapon is back")
+equal(EQUIPPED[16], relink(216), "the old weapon is back")
 equal(EQUIPPED[5], link(205), "the old chest is back")
 equal(EQUIPPED[15], link(215), "the cloak that was taken off is back")
 equal(EQUIPPED[1], link(201), "the ignored slot never moved")
+equal(bagItem(0, 6), link(777), "the pole went where the sword was")
 
 print("-- one action toggles --")
 F:ToggleGear()
+settle()
 equal(F:WearingGear(), true, "toggle swaps in")
 F:ToggleGear()
+settle()
 equal(F:WearingGear(), false, "toggle swaps back")
 equal(EQUIPPED[15], link(215), "and restores again")
 
@@ -246,6 +316,56 @@ equal(F:WearingGear(), false, "combat refuses the swap")
 assert(PRINTED:find("combat"), "and says why")
 COMBAT = false
 
+print("-- changing back during combat --")
+F:ToggleGear()
+settle()
+COMBAT = true
+F:ToggleGear()
+settle()
+equal(id(EQUIPPED[16]), 216, "the weapon comes back mid-fight")
+equal(EQUIPPED[5], link(105), "armour has to wait for the fight to end")
+equal(F:WearingGear(), true, "the outfit counts as on until it is all off")
+assert(PRINTED:find("combat ends"), "and says the rest follows")
+COMBAT = false
+gearEvents:Fire("PLAYER_REGEN_ENABLED")
+settle()
+equal(EQUIPPED[5], link(205), "the chest goes back once combat ends")
+equal(EQUIPPED[15], link(215), "and the cloak")
+equal(F:WearingGear(), false, "back in your own gear")
+
+print("-- a fight starting while the outfit goes on --")
+F:ToggleGear()
+COMBAT = true
+settle()
+assert(PRINTED:find("Combat started"), "dressing for fishing stops")
+equal(F:WearingGear(), true, "and the button changes back from there")
+F:ToggleGear()
+settle()
+COMBAT = false
+gearEvents:Fire("PLAYER_REGEN_ENABLED")
+settle()
+equal(F:WearingGear(), false, "all the way back")
+equal(id(EQUIPPED[16]), 216, "with the sword")
+
+print("-- one record per character --")
+F:ToggleGear()
+settle()
+PLAYER_NAME = "Alt"
+equal(F:WearingGear(), false, "another character isn't wearing this one's outfit")
+PLAYER_NAME = nil
+equal(F:WearingGear(), true, "this one still is")
+F:ToggleGear()
+settle()
+equal(F:WearingGear(), false, "and goes back")
+-- A record from an older build, kept for every character as bare links.
+F.db.gear.worn, F.db.gear.active, F.db.gear.saved = nil, true, { [15] = "empty" }
+equal(F:WearingGear(), true, "an older record is picked up")
+F:ToggleGear()
+settle()
+equal(EQUIPPED[15], nil, "and put back")
+equal(F.db.gear.saved, nil, "then dropped")
+EQUIPPED[15] = link(215)
+
 print("-- a two-handed pole and the off hand --")
 -- Only the pole is in the outfit, but equipping it pushes the shield into the
 -- bags. Swapping back has to bring the shield back as well.
@@ -253,14 +373,18 @@ local outfitBefore = F.db.gear.set
 F.db.gear.set = {}
 EQUIP_LOC[777], EQUIP_LOC[216], EQUIP_LOC[217] = "INVTYPE_2HWEAPON", "INVTYPE_WEAPONMAINHAND", "INVTYPE_SHIELD"
 EQUIPPED = { [16] = link(216), [17] = link(217) }
+BAG_SIZE, BAG_ITEMS = { [0] = 4 }, { [0] = { link(777) } }
 F:SetGearSlot(16, link(777))
 F:SwapToGear()
+settle()
 equal(EQUIPPED[16], link(777), "pole in hand")
 equal(EQUIPPED[17], nil, "the shield went to the bags with it")
 F:SwapBack()
+settle()
 equal(EQUIPPED[16], link(216), "the sword is back")
 equal(EQUIPPED[17], link(217), "and so is the shield")
 F.db.gear.set = outfitBefore
+BAG_SIZE, BAG_ITEMS = {}, {}
 
 ---------------------------------------------------------------------------
 print("-- the catch record --")
