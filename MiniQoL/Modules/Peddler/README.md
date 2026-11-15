@@ -2,7 +2,7 @@
 
 This fork adapts Peddler to WoW Forever's modern UI while keeping the Classic equipment rules. It currently targets WoW Forever `1.60.1` / interface `16001` and is based on upstream Peddler `9.1`.
 
-Peddler flags unwanted items and automatically sells them the next time you interact with a vendor. Grey items are flagged automatically by default.
+Peddler flags unwanted items and automatically sells them the next time you interact with a vendor. Marks and the automatic marking rules belong to each character. A new character starts with nothing marked; turn on automatic junk marking for it from the Selling page.
 
 ## Usage
 

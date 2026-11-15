@@ -238,7 +238,7 @@ local function peddler(key, group, label, tooltip, reload)
 end
 
 peddler("AutoSellGreyItems", "Automatic marking", "Automatically sell junk",
-    "Marks every poor quality item for sale as soon as it reaches your bags.")
+    "Marks every poor quality item for sale as soon as it reaches your bags. Set for this character only; a new character starts with it off.")
 peddler("SoulboundOnly", "Automatic marking", "Restrict automatic marks to soulbound",
     "Automatic marks skip anything you could still sell or trade. Junk is always marked.")
 peddler("AutoSellWhiteItems", "Automatic marking", "Automatically mark common equipment")

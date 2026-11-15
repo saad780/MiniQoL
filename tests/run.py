@@ -42,6 +42,9 @@ sidegrades.execute((root / "tests/sidegrades.lua").read_text(), str(gearwise).re
 upgrades = LuaRuntime(unpack_returned_tuples=True)
 upgrades.execute((root / "tests/upgrades.lua").read_text(), str(gearwise).replace("\\", "/"), str(shell).replace("\\", "/"))
 
+peddler = LuaRuntime(unpack_returned_tuples=True)
+peddler.execute((root / "tests/peddler.lua").read_text(), str(gearwise.parent / "Peddler").replace("\\", "/"))
+
 if len(sys.argv) > 1:
     package = Path(sys.argv[1])
     sys.path.insert(0, str(root / "tools"))

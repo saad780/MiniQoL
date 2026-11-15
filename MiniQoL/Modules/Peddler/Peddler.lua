@@ -660,9 +660,9 @@ local function setupDefaults()
     IconPlacement = "BOTTOMLEFT"
   end
 
-  if AutoSellGreyItems == nil then
-    AutoSellGreyItems = true
-  end
+  -- Marks belong to the character that made them. A character Peddler has
+  -- not seen before starts with nothing marked, junk included; the automatic
+  -- rules are switched on per character from the Selling page.
 end
 
 local function overrideItemClickFunction()
