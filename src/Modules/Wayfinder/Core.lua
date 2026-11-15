@@ -179,6 +179,14 @@ local function InitializeDatabase()
 		db.settings.revealAll = nil
 	end
 	ApplyDefaults(db.settings, ns.defaults)
+	-- Older builds let the client's own minimap tracking overwrite the bankers
+	-- and auctioneers choices with "off". Turn them back on once; from here on
+	-- only the player's own toggles change them.
+	if (db.bankAuctionRepair or 0) < 1 then
+		db.settings.cats.bank = true
+		db.settings.cats.auction = true
+		db.bankAuctionRepair = 1
+	end
 	ns.db = db
 end
 

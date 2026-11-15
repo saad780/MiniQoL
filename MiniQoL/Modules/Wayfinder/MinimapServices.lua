@@ -28,7 +28,23 @@ local function Selected(cats)
 	for _,cat in ipairs(cats) do if ns:IsCategoryEnabled(cat) then return true end end
 	return false
 end
+local function Projected(cats)
+	for _,cat in ipairs(cats) do if PROJECTED[cat] then return true end end
+	return false
+end
+-- The tracking menu passes each entry's GetTrackingInfo table plus its index.
+local function MenuIndex(data)
+	if Number(data) then return data end
+	if type(data)=="table" and Number(data.index) then return data.index end
+end
+local function TrackingMenuOpen()
+	local button = MinimapCluster and MinimapCluster.Tracking and MinimapCluster.Tracking.Button or MiniMapTrackingButton
+	return button and button.IsMenuOpen and button:IsMenuOpen() and true or false
+end
 function Mini:IsActive() return self.active == true end
+-- While Wayfinder service markers are switched on, its settings decide the
+-- tracking checkboxes, including the moments it can't draw (no map position).
+function Mini:Owns() return not self.leaving and ns:GetSetting("showMinimapServices") and true or false end
 
 function Mini:GetTrackingCategories(index, info)
 	info = info or C_Minimap.GetTrackingInfo(index)
@@ -75,19 +91,18 @@ function Mini:InstallTrackingMenu()
 	if not self.menuInstalled and Menu and Menu.ModifyMenu then
 		self.menuInstalled = true
 		Menu.ModifyMenu("MENU_MINIMAP_TRACKING",function(_,root)
-			if not self.active then return end
+			-- Checked against the setting, not self.active: the markers drop out for a
+			-- moment whenever the map position is unknown, and a menu opened then
+			-- fell back to Blizzard's checkboxes, which can never turn bank or
+			-- auction on because Wayfinder keeps those native filters off.
+			if not self:Owns() then return end
 			local function Visit(parent)
 				for _,desc in parent:EnumerateElementDescriptions() do
-					local data = desc:GetData()
-					if type(data)=="table" and Number(data.index) and #self:GetTrackingCategories(data.index)>0 then
-						desc:SetIsSelected(function(info)
-							if self.active then return self:IsTrackingSelected(info.index) end
-							local native = C_Minimap.GetTrackingInfo(info.index)
-							return native and native.active
-						end)
-						desc:SetResponder(function(info)
-							if self.active then self:SetTrackingSelected(info.index,not self:IsTrackingSelected(info.index))
-							else local native=C_Minimap.GetTrackingInfo(info.index); C_Minimap.SetTracking(info.index,not (native and native.active)) end
+					local index = MenuIndex(desc:GetData())
+					if index and #self:GetTrackingCategories(index)>0 then
+						desc:SetIsSelected(function() return self:IsTrackingSelected(index) end)
+						desc:SetResponder(function()
+							self:SetTrackingSelected(index,not self:IsTrackingSelected(index))
 							return MenuResponse.Refresh
 						end)
 					end
@@ -99,13 +114,23 @@ function Mini:InstallTrackingMenu()
 	end
 	if C_Minimap.SetTracking and self.trackingHook ~= C_Minimap.SetTracking then
 		hooksecurefunc(C_Minimap,"SetTracking",function(index,enabled)
-			if not self.syncing and self.active and #self:GetTrackingCategories(index)>0 then self:SetTrackingSelected(index,enabled) end
+			if self.syncing or not self.active then return end
+			local cats = self:GetTrackingCategories(index)
+			if #cats==0 then return end
+			-- The native bank/auction filters are kept off on purpose while Wayfinder
+			-- draws those icons. Blizzard's tracking button writes every filter's
+			-- current state back after each tracking change, so outside a click in
+			-- its open menu a write to them is not the player's choice: put the
+			-- native filter back and leave the setting alone.
+			if Projected(cats) and not TrackingMenuOpen() then self.trackingDirty = true; self:RequestUpdate(); return end
+			self:SetTrackingSelected(index,enabled)
 		end)
 		self.trackingHook = C_Minimap.SetTracking
 	end
 	if C_Minimap.ClearAllTracking and self.clearHook ~= C_Minimap.ClearAllTracking then
 		hooksecurefunc(C_Minimap,"ClearAllTracking",function()
-			if not self.active then return end
+			-- Only the menu's "Uncheck All" button clears tracking, so this is a choice.
+			if self.syncing or not self:Owns() then return end
 			self.settingSelection = true
 			for i=1,C_Minimap.GetNumTrackingTypes() do
 				for _,cat in ipairs(self:GetTrackingCategories(i)) do ns:SetCategoryEnabled(cat,false) end
@@ -135,27 +160,28 @@ function Mini:SyncTracking()
 	if not self.trackingDirty and self.trackingActive == self.active and self.trackingAPI == C_Minimap.GetTrackingInfo
 		and self.trackingFilterAPI == C_Minimap.GetTrackingFilter and now < (self.trackingCheckAt or 0) then return end
 	self.syncing = true
-	local nativeCategories = {}
+	local nativeCategories, owns = {}, self:Owns()
 	for i = 1, C_Minimap.GetNumTrackingTypes() do
 		local info = C_Minimap.GetTrackingInfo(i)
 		local cats, key = self:GetTrackingCategories(i, info)
 		if #cats > 0 and info and type(info.active) == "boolean" then
-			if self.active and not self.leaving then
-				tracking[key] = Selected(cats)
-				local selected = tracking[key]
-				local projected=false
-				for _,cat in ipairs(cats) do if PROJECTED[cat] then projected=true end end
-				local nativeSelected=selected and not projected
-				if info.active ~= nativeSelected then
-					pcall(C_Minimap.SetTracking, i, nativeSelected)
-					info = C_Minimap.GetTrackingInfo(i) or info
-				end
-				if info.active and not projected then for _,cat in ipairs(cats) do nativeCategories[cat] = true end end
+			local selected, projected = Selected(cats), Projected(cats)
+			local want
+			if owns then
+				-- Native filters follow the settings. Bank and auction stay off only
+				-- while Wayfinder is drawing them; otherwise the client may show them.
+				tracking[key] = selected
+				want = selected and not (self.active and projected)
 			elseif tracking[key] ~= nil then
-				local selected = Selected(cats)
-				if info.active ~= selected then pcall(C_Minimap.SetTracking, i, selected) end
+				-- Markers switched off or logging out: hand tracking back once.
 				tracking[key] = nil
+				want = selected
 			end
+			if want ~= nil and info.active ~= want then
+				pcall(C_Minimap.SetTracking, i, want)
+				info = C_Minimap.GetTrackingInfo(i) or info
+			end
+			if owns and self.active and info.active and not projected then for _,cat in ipairs(cats) do nativeCategories[cat] = true end end
 		end
 	end
 	-- Other native blips stay anchored by the client to live NPCs. Bank and

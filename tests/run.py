@@ -26,6 +26,9 @@ pins.execute((root / "tests/map_pins.lua").read_text(), str(package).replace("\\
 cities = LuaRuntime(unpack_returned_tuples=True)
 cities.execute((root / "tests/city_layers.lua").read_text(), str(package).replace("\\", "/"))
 
+tracking = LuaRuntime(unpack_returned_tuples=True)
+tracking.execute((root / "tests/minimap_tracking.lua").read_text(), str(package).replace("\\", "/"))
+
 fishing = LuaRuntime(unpack_returned_tuples=True)
 fishing.execute((root / "tests/fishing.lua").read_text(), str(shell).replace("\\", "/"))
 
