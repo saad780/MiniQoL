@@ -488,7 +488,7 @@ local function PinOnMouseUp(pin, button)
 		if not moved and pin.rec and pin:IsMouseOver() then
 			if IsShiftKeyDown() then
 				if pin.rec.waypoint then
-					ns.Navigation:ClearWaypoint()
+					ns.Navigation:RemoveWaypoint(pin.rec)
 				else
 					ns:RemoveLocation(pin.rec)
 				end
@@ -785,18 +785,21 @@ local function RefreshPins()
 	end
 	underlayMapID = savedMap
 
-	local waypoint = ns.Navigation:GetWaypoint()
-	if waypoint and waypoint.c == cont then
-		local px, py = ns.WorldToPlane(waypoint.x, waypoint.y)
-		if px >= l and px <= r and py >= t and py <= b then
-			local pin = AcquirePin()
-			pin.rec, pin.catID = waypoint, "waypoint"
-			pin.px, pin.py = px, py
-			pin:SetSize(size * 1.3, size * 1.3)
-			pin:SetFrameLevel(pinLayer:GetFrameLevel() + 3) -- above the other icons
-			ns.Categories:ApplyIcon(pin.icon, "waypoint")
-			ns.Categories:ApplyIcon(pin.highlight, "waypoint")
-			pin.icon:SetAlpha(1)
+	local active = ns.Navigation:GetWaypoint()
+	for _, waypoint in ipairs(ns.Navigation:GetWaypoints()) do
+		if waypoint.c == cont then
+			local px, py = ns.WorldToPlane(waypoint.x, waypoint.y)
+			if px >= l and px <= r and py >= t and py <= b then
+				local pin = AcquirePin()
+				pin.rec, pin.catID = waypoint, "waypoint"
+				pin.px, pin.py = px, py
+				-- The one the arrow is on stands out from the rest.
+				pin:SetSize(size * (waypoint == active and 1.3 or 1.1), size * (waypoint == active and 1.3 or 1.1))
+				pin:SetFrameLevel(pinLayer:GetFrameLevel() + 3) -- above the other icons
+				ns.Categories:ApplyIcon(pin.icon, "waypoint")
+				ns.Categories:ApplyIcon(pin.highlight, "waypoint")
+				pin.icon:SetAlpha(waypoint == active and 1 or 0.8)
+			end
 		end
 	end
 	ResolvePins()

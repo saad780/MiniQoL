@@ -21,7 +21,8 @@ function Tooltip:Show(owner, rec, catID)
 		if rec.where and rec.where ~= rec.n then
 			GameTooltip:AddLine(rec.where, 0.8, 0.8, 0.8)
 		end
-		GameTooltip:AddLine("Waypoint", 0.6, 0.85, 1)
+		GameTooltip:AddLine(rec == ns.Navigation:GetWaypoint() and "Waypoint, the arrow is on this one"
+			or "Waypoint", 0.6, 0.85, 1)
 		GameTooltip:AddLine("Left-click to copy a link to chat", 0.5, 0.5, 0.5)
 		GameTooltip:AddLine("Middle-click to remove", 0.5, 0.5, 0.5)
 		GameTooltip:Show()
@@ -193,7 +194,7 @@ function WayfinderMapPinMixin:OnPinClicked(button)
 		ns.Navigation:ToggleWaypointAt(self.rec, self.catID)
 	elseif button == "LeftButton" and IsShiftKeyDown() then
 		if self.rec.waypoint then
-			ns.Navigation:ClearWaypoint()
+			ns.Navigation:RemoveWaypoint(self.rec)
 		else
 			ns:RemoveLocation(self.rec)
 		end
@@ -283,11 +284,12 @@ function provider:RefreshAllData()
 	ns.MinimapTurnIns:QueryServices(rect.cont, minX, maxX, minY, maxY, Add)
 	Flush()
 
-	local waypoint = ns.Navigation:GetWaypoint()
-	if waypoint and waypoint.c == rect.cont and ns.BelongsToMap(waypoint, mapID) then
-		local x, y = ns.WorldToMapRect(rect, waypoint.x, waypoint.y)
-		if x >= 0 and x <= 1 and y >= 0 and y <= 1 then
-			map:AcquirePin(PIN_TEMPLATE, waypoint, "waypoint", x, y)
+	for _, waypoint in ipairs(ns.Navigation:GetWaypoints()) do
+		if waypoint.c == rect.cont and ns.BelongsToMap(waypoint, mapID) then
+			local x, y = ns.WorldToMapRect(rect, waypoint.x, waypoint.y)
+			if x >= 0 and x <= 1 and y >= 0 and y <= 1 then
+				map:AcquirePin(PIN_TEMPLATE, waypoint, "waypoint", x, y)
+			end
 		end
 	end
 end

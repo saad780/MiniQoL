@@ -12,7 +12,8 @@ local GREEN = { 0.45, 0.92, 0.45 }
 
 local sqrt, atan2, min, max = math.sqrt, math.atan2, math.min, math.max
 
-local current -- the waypoint: a location record { waypoint, c, x, y, m, n, where, cats }
+local current -- the waypoint the arrow follows: one of the records in list
+local list = {} -- every waypoint set: { waypoint, c, x, y, m, n, where, cats, uid }
 
 local function Sound(name)
 	if SOUNDKIT and SOUNDKIT[name] then
@@ -41,57 +42,197 @@ function ns.DescribeLocation(cont, wx, wy, hintMapID)
 end
 
 ---------------------------------------------------------------------------
--- The waypoint
+-- The waypoints
 ---------------------------------------------------------------------------
+-- Several waypoints stand at once, the way TomTom and every guide that speaks
+-- its language expect. The arrow follows one of them; the rest wait on the map
+-- until you pick one from the arrow's list.
+local MAX_WAYPOINTS = 50
+local SAME_SPOT_YARDS = 8
+local nextUID = 0
+
+local function NewUID()
+	nextUID = nextUID + 1
+	return "wf" .. nextUID
+end
+
+local function IndexOf(rec)
+	for index = 1, #list do
+		if list[index] == rec then
+			return index
+		end
+	end
+end
+
+local function Save()
+	-- Mutating list in place is what persists; this only records which one the
+	-- arrow is on. Guarded so the module still loads without a character.
+	if not (ns.db and ns.db.waypoints and ns.GetCharacterKey) then
+		return
+	end
+	ns.db.waypoints[ns:GetCharacterKey()] = { list = list, active = current and IndexOf(current) or nil }
+end
+
 function Navigation:GetWaypoint()
 	return current
 end
 
-function Navigation:SetWaypoint(cont, wx, wy, label, mapID)
-	local where, zone = ns.DescribeLocation(cont, wx, wy, mapID)
-	current = { waypoint = true, c = cont, x = wx, y = wy, m = zone, n = label or where, where = where, cats = {} }
-	ns.db.waypoints[ns:GetCharacterKey()] = current
-	Sound("UI_MAP_WAYPOINT_CLICK_TO_PLACE")
+function Navigation:GetWaypoints()
+	return list
+end
+
+-- The one nearest the player, which is the one worth pointing at.
+function Navigation:ClosestWaypoint()
+	local cont, wx, wy = ns.GetPlayerWorld()
+	local best, shortest
+	for _, rec in ipairs(list) do
+		if cont and rec.c == cont then
+			local distance = ns.Distance(rec.x, rec.y, wx, wy)
+			if not shortest or distance < shortest then
+				best, shortest = rec, distance
+			end
+		end
+	end
+	return best or list[#list]
+end
+
+-- Repeatedly feeding in the same spot (a quest tracker refreshing, a guide
+-- pasted twice) must not pile up identical pins.
+function Navigation:FindWaypoint(cont, wx, wy, label)
+	for _, rec in ipairs(list) do
+		if rec.c == cont and ns.Distance(rec.x, rec.y, wx, wy) <= SAME_SPOT_YARDS
+			and (label == nil or rec.n == label) then
+			return rec
+		end
+	end
+end
+
+function Navigation:SetActiveWaypoint(rec)
+	if rec == current or (rec and not IndexOf(rec)) then
+		return false
+	end
+	current = rec
+	Save()
 	ns:Fire("WAYPOINT_CHANGED", current)
 	self:RefreshArrow()
+	return true
+end
+
+-- Every waypoint arrives here. Adding rather than replacing is what lets a
+-- guide's five coordinates, or a quest's several objectives, all stand at once.
+function Navigation:AddWaypoint(cont, wx, wy, label, mapID, options)
+	options = options or {}
+	local existing = self:FindWaypoint(cont, wx, wy, label)
+	if existing then
+		if options.focus ~= false then
+			self:SetActiveWaypoint(existing)
+		end
+		return existing
+	end
+	local where, zone = ns.DescribeLocation(cont, wx, wy, mapID)
+	local rec = { waypoint = true, c = cont, x = wx, y = wy, m = zone, n = label or where,
+		where = where, cats = {}, uid = NewUID(), source = options.source }
+	list[#list + 1] = rec
+	-- Keep the oldest from piling up forever when an addon feeds them in.
+	while #list > MAX_WAYPOINTS do
+		table.remove(list, list[1] == current and 2 or 1)
+	end
+	if options.focus ~= false or not current then
+		current = rec
+	end
+	Save()
+	if not options.quiet then
+		Sound("UI_MAP_WAYPOINT_CLICK_TO_PLACE")
+	end
+	ns:Fire("WAYPOINT_CHANGED", current)
+	self:RefreshArrow()
+	return rec
+end
+
+-- Kept for everything written when there was only ever one.
+function Navigation:SetWaypoint(cont, wx, wy, label, mapID, options)
+	return self:AddWaypoint(cont, wx, wy, label, mapID, options)
 end
 
 -- A waypoint at a normalized position on a uiMap.
-function Navigation:SetWaypointOnMap(mapID, x, y, label)
+function Navigation:SetWaypointOnMap(mapID, x, y, label, options)
 	local cont, wx, wy = ns.MapToWorld(mapID, x, y)
 	if not cont then
 		ns.Print("Waypoints can't be placed on this map.")
 		return false
 	end
-	self:SetWaypoint(cont, wx, wy, label, mapID)
-	return true
+	return self:AddWaypoint(cont, wx, wy, label, mapID, options)
 end
 
 -- A waypoint at a recorded location (vendor, mailbox...).
 function Navigation:SetWaypointTo(rec, catID)
 	local cat = catID and ns.CategoryByID[catID]
-	self:SetWaypoint(rec.c, rec.x, rec.y, rec.n or (cat and cat.label), rec.m)
+	return self:AddWaypoint(rec.c, rec.x, rec.y, rec.n or (cat and cat.label), rec.m)
 end
 
+function Navigation:RemoveWaypoint(rec)
+	local index = rec and IndexOf(rec)
+	if not index then
+		return false
+	end
+	table.remove(list, index)
+	if current == rec then
+		current = self:ClosestWaypoint()
+	end
+	Save()
+	Sound("UI_MAP_WAYPOINT_REMOVE")
+	ns:Fire("WAYPOINT_CHANGED", current)
+	self:RefreshArrow()
+	return true
+end
+
+-- The one the arrow is on, which is what removing "the waypoint" has always meant.
 function Navigation:ClearWaypoint()
-	if not current then
-		return
+	return self:RemoveWaypoint(current)
+end
+
+function Navigation:ClearAllWaypoints()
+	if #list == 0 then
+		return false
+	end
+	for index = #list, 1, -1 do
+		list[index] = nil
 	end
 	current = nil
-	ns.db.waypoints[ns:GetCharacterKey()] = nil
+	Save()
 	Sound("UI_MAP_WAYPOINT_REMOVE")
 	ns:Fire("WAYPOINT_CHANGED", nil)
 	self:RefreshArrow()
+	return true
 end
 
--- What a middle-click on a map icon does: the waypoint itself is removed, anything
--- else becomes the waypoint.
+-- What a middle-click on a map icon does: a waypoint is removed, anything
+-- else becomes one.
 function Navigation:ToggleWaypointAt(rec, catID)
 	if rec.waypoint then
-		self:ClearWaypoint()
+		self:RemoveWaypoint(rec)
 	else
 		self:SetWaypointTo(rec, catID)
 	end
+end
+
+-- Read back what the character left behind, in either shape.
+function Navigation:LoadWaypoints()
+	local saved = ns.db.waypoints[ns:GetCharacterKey()]
+	if type(saved) == "table" then
+		if type(saved.list) == "table" then
+			list = saved.list
+			current = list[tonumber(saved.active) or 0]
+		elseif saved.c then
+			-- Before this, each character kept exactly one waypoint.
+			list, current = { saved }, saved
+		end
+	end
+	for _, rec in ipairs(list) do
+		rec.waypoint, rec.cats, rec.uid = true, rec.cats or {}, rec.uid or NewUID()
+	end
+	current = current or list[#list]
+	Save()
 end
 
 ---------------------------------------------------------------------------
@@ -356,7 +497,7 @@ local function CreateArrow()
 	f:SetMovable(true)
 	f:EnableMouse(true)
 	f:RegisterForDrag("LeftButton")
-	f:RegisterForClicks("RightButtonUp")
+	f:RegisterForClicks("RightButtonUp", "MiddleButtonUp")
 	f:SetScript("OnDragStart", f.StartMoving)
 	f:SetScript("OnDragStop", function(self)
 		self:StopMovingOrSizing()
@@ -365,9 +506,11 @@ local function CreateArrow()
 			ns.db.arrowPosition = { point, relativePoint, x, y }
 		end
 	end)
-	f:SetScript("OnClick", function(_, button)
-		if button == "RightButton" then
+	f:SetScript("OnClick", function(self, button)
+		if button == "MiddleButton" then
 			Navigation:ClearWaypoint()
+		elseif button == "RightButton" then
+			Navigation:OpenWaypointMenu(self)
 		end
 	end)
 	f:SetScript("OnEnter", function(self)
@@ -376,7 +519,11 @@ local function CreateArrow()
 		if current and current.where and current.where ~= current.n then
 			GameTooltip:AddLine(current.where, 0.8, 0.8, 0.8)
 		end
-		GameTooltip:AddLine("Drag to move. Right-click to remove the waypoint.", 1, 1, 1, true)
+		if #list > 1 then
+			GameTooltip:AddLine(("%d waypoints set."):format(#list), 0.6, 0.85, 1)
+		end
+		GameTooltip:AddLine("Drag to move. Middle-click to remove this waypoint.", 1, 1, 1, true)
+		GameTooltip:AddLine("Right-click for the whole list.", 1, 1, 1, true)
 		GameTooltip:Show()
 	end)
 	f:SetScript("OnLeave", GameTooltip_Hide)
@@ -443,6 +590,104 @@ function Navigation:RefreshArrow()
 	else
 		arrow:Hide()
 	end
+end
+
+---------------------------------------------------------------------------
+-- The arrow's waypoint list
+---------------------------------------------------------------------------
+local function MenuLabel(rec)
+	local text = rec.n or "Waypoint"
+	local cont, wx, wy = ns.GetPlayerWorld()
+	if cont and rec.c == cont then
+		return text .. "  |cff808080" .. FormatDistance(ns.Distance(rec.x, rec.y, wx, wy)) .. "|r"
+	elseif rec.where and rec.where ~= text then
+		return text .. "  |cff808080" .. rec.where .. "|r"
+	end
+	return text
+end
+
+local function CloseMenus()
+	if not (Menu and Menu.GetManager) then
+		return false
+	end
+	local ok, manager = pcall(Menu.GetManager)
+	if not (ok and type(manager) == "table" and manager.CloseMenus) then
+		return false
+	end
+	return pcall(manager.CloseMenus, manager) == true
+end
+
+local function CloseButton(parent)
+	local ok, button = pcall(CreateFrame, "Button", nil, parent, "UIPanelCloseButton")
+	if ok and type(button) == "table" then
+		return button
+	end
+	button = CreateFrame("Button", nil, parent)
+	button:SetNormalTexture("Interface\Buttons\UI-StopButton")
+	button:SetHighlightTexture("Interface\Buttons\UI-StopButton", "ADD")
+	return button
+end
+
+-- A small x on the row, so a waypoint can go without first becoming the one
+-- the arrow follows. Menu rows are pooled and handed on to other addons, so
+-- the button hides itself the moment its row does.
+local function AddRemoveButton(row, rec)
+	if type(row) ~= "table" or type(row.AddInitializer) ~= "function" then
+		return false
+	end
+	row:AddInitializer(function(frame)
+		local remove = frame.wayfinderRemove
+		if not remove then
+			remove = CloseButton(frame)
+			remove:SetSize(18, 18)
+			remove:SetPoint("RIGHT", -2, 0)
+			remove:RegisterForClicks("LeftButtonUp")
+			frame:HookScript("OnHide", function() remove:Hide() end)
+			frame.wayfinderRemove = remove
+		end
+		remove:SetScript("OnClick", function()
+			Navigation:RemoveWaypoint(rec)
+			-- Reopened so several can go one after another, but only once the
+			-- old list is gone: two menus at once is worse than none.
+			if CloseMenus() and #list > 0 and arrow and C_Timer then
+				C_Timer.After(0, function() Navigation:OpenWaypointMenu(arrow) end)
+			end
+		end)
+		remove:Show()
+	end)
+	return true
+end
+
+function Navigation:OpenWaypointMenu(owner)
+	if #list == 0 then
+		ns.Print("No waypoints. Middle-click the map, or type /way 42 65, to set one.")
+		return false
+	end
+	if not (MenuUtil and MenuUtil.CreateContextMenu) then
+		-- No menu system: step the arrow along the list rather than do nothing.
+		self:SetActiveWaypoint(list[(IndexOf(current) or #list) % #list + 1])
+		return false
+	end
+	MenuUtil.CreateContextMenu(owner or arrow, function(_, root)
+		root:CreateTitle(#list == 1 and "Waypoint" or (#list .. " waypoints"))
+		for _, rec in ipairs(list) do
+			local row = root:CreateRadio(MenuLabel(rec),
+				function() return rec == current end,
+				function() Navigation:SetActiveWaypoint(rec) end)
+			if not AddRemoveButton(row, rec) then
+				-- Without row initializers, give each one its own removal line.
+				root:CreateButton("      Remove " .. (rec.n or "waypoint"), function()
+					Navigation:RemoveWaypoint(rec)
+				end)
+			end
+		end
+		root:CreateDivider()
+		root:CreateButton("Clear all waypoints", function() Navigation:ClearAllWaypoints() end)
+		if root.SetScrollMode and #list > 12 then
+			root:SetScrollMode(320)
+		end
+	end)
+	return true
 end
 
 ---------------------------------------------------------------------------
@@ -564,7 +809,7 @@ end
 -- Wiring
 ---------------------------------------------------------------------------
 function Navigation:OnLogin()
-	current = ns.db.waypoints[ns:GetCharacterKey()]
+	self:LoadWaypoints()
 	arrow = CreateArrow()
 	self.arrow = arrow
 	self:PlaceArrow()

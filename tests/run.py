@@ -35,6 +35,9 @@ fishing.execute((root / "tests/fishing.lua").read_text(), str(shell).replace("\\
 share = LuaRuntime(unpack_returned_tuples=True)
 share.execute((root / "tests/waypoint_share.lua").read_text(), str(package).replace("\\", "/"))
 
+tomtom = LuaRuntime(unpack_returned_tuples=True)
+tomtom.execute((root / "tests/tomtom.lua").read_text(), str(package).replace("\\", "/"))
+
 sidegrades = LuaRuntime(unpack_returned_tuples=True)
 gearwise = (Path(sys.argv[1]) / "Modules" if len(sys.argv) > 1 else root / "src" / "Modules") / "Gearwise"
 sidegrades.execute((root / "tests/sidegrades.lua").read_text(), str(gearwise).replace("\\", "/"), str(shell).replace("\\", "/"))

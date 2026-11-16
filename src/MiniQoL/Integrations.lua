@@ -91,7 +91,7 @@ wayfinder("nativeMinimapTurnIns", "Live minimap", "Prefer Blizzard's turn-in mar
     "Keep the game's quest turn-in tracking on the corner minimap and hide duplicate fixed turn-in pins.")
 
 wayfinder("showArrow", "Waypoints", "Show the waypoint arrow",
-    "Middle-click the map (or any icon) to set a waypoint; a floating arrow then points the way. Drag the arrow to move it, right-click it to remove the waypoint.")
+    "Middle-click the map (or any icon) to set a waypoint; a floating arrow then points the way. Several can stand at once: type /way 42 65, or let an addon that speaks TomTom's language add them. Drag the arrow to move it, middle-click it to remove the one it is on, right-click it for the whole list.")
 wayfinder("clearOnArrival", "Waypoints", "Remove the waypoint when you arrive")
 wayfinderSlider("arrowScale", "Waypoints", "Arrow size", nil, 0.5, 2, 0.1, Percent)
 

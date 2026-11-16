@@ -352,16 +352,9 @@ local function HandleSlash(input)
 		else
 			ns.Print("Position unavailable here.")
 		end
-	elseif command == "way" then
-		-- /wf way 42.1 65.3 [label], on the zone you are in
-		local x, y, label = rest:match("^([%d%.]+)[,%s]+([%d%.]+)%s*(.*)$")
-		local mapID = C_Map.GetBestMapForUnit("player")
-		x, y = tonumber(x), tonumber(y)
-		if not (x and y and mapID) then
-			ns.Print("Usage: /wf way <x> <y> [label]  (coordinates in the zone you are in)")
-		else
-			ns.Navigation:SetWaypointOnMap(mapID, x / 100, y / 100, label ~= "" and label or nil)
-		end
+	elseif command == "way" or command == "list" then
+		-- Everything /way understands, so the two never disagree about a format.
+		ns.HandleWaypointCommand(command == "list" and "list" or rest)
 	elseif command == "survey" then
 		local subject, args = rest:match("^(%S+)%s*(.*)$")
 		if subject == "transport" then
@@ -376,7 +369,11 @@ local function HandleSlash(input)
 			ns.Print("Usage: /wf add [Wayfinder:map:x:y:label]  (paste the full shared waypoint)")
 		end
 	elseif command == "clear" then
-		ns.Navigation:ClearWaypoint()
+		if rest:lower() == "all" then
+			if not ns.Navigation:ClearAllWaypoints() then ns.Print("No waypoints to remove.") end
+		elseif not ns.Navigation:ClearWaypoint() then
+			ns.Print("No waypoint to remove.")
+		end
 	elseif command == "arrow" then
 		ns:SetSetting("showArrow", not ns:GetSetting("showArrow"))
 		ns.Print("Waypoint arrow " .. (ns:GetSetting("showArrow") and "shown." or "hidden."))
@@ -398,10 +395,13 @@ local function HandleSlash(input)
 		print("   /wf reveal [hide|dim|show]  - how unexplored terrain is drawn")
 		print("   /wf stats  - what has been recorded")
 		print("   /wf survey [transport ...]  - collect independent locations")
-		print("   /wf way <x> <y> [label]  - waypoint in the zone you are in")
+		print("   /way <x> <y> [label]  - a waypoint, also by zone name or #map id")
+		print("   /way reset all  - remove every waypoint")
+		print("   /wayb [label]  - a waypoint right where you stand")
+		print("   /wf list  - what is set")
 		print("   /wf share  - copy the waypoint link to chat")
 		print("   /wf add <shared waypoint>  - add a pasted waypoint")
-		print("   /wf clear  - remove the waypoint")
+		print("   /wf clear [all]  - remove the arrow's waypoint, or all of them")
 		print("   /wf arrow  - show or hide the waypoint arrow")
 		print("   /wf import  - re-read explored areas from the world map")
 		print("   /wf reset pois|exploration|all")

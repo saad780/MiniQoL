@@ -141,8 +141,7 @@ function Compat:RefreshPins(map, add)
 			end
 		end
 	end
-	local waypoint = ns.Navigation:GetWaypoint()
-	if waypoint then Add(waypoint, "waypoint") end
+	for _, waypoint in ipairs(ns.Navigation:GetWaypoints()) do Add(waypoint, "waypoint") end
 	return true
 end
 
