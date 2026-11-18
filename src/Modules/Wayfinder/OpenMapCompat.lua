@@ -3,6 +3,8 @@
 local _, ns = ...
 local Compat = ns:NewModule("OpenMapCompat")
 local CONTINENTS = { 1415, 1414 }
+-- How far past the visible edges icons are placed, as a share of the view.
+local PIN_MARGIN = 0.2
 
 local function Number(value)
 	return ns.Readable(value) and type(value) == "number" and value == value
@@ -114,17 +116,25 @@ function Compat:RefreshPins(map, add)
 	if not api or not api.CanvasFromWorldPos then return false end
 	local view = map.ScrollContainer:GetViewRect()
 	local host = map:GetMapID()
-	local u0, v0 = api.WorldFromMap(host, view.left, view.top)
-	local u1, v1 = api.WorldFromMap(host, view.right, view.bottom)
+	-- Place icons a little beyond the edges, so panning scrolls ready-made pins
+	-- into sight instead of a bare margin waiting on the next rebuild.
+	local padX = (view.right - view.left) * PIN_MARGIN
+	local padY = (view.bottom - view.top) * PIN_MARGIN
+	local left, right = view.left - padX, view.right + padX
+	local top, bottom = view.top - padY, view.bottom + padY
+	local u0, v0 = api.WorldFromMap(host, left, top)
+	local u1, v1 = api.WorldFromMap(host, right, bottom)
 	if not u0 or not u1 then return true end
 	local _, _, zoom = api.GetView()
 	if zoom and zoom < 3 and not ns:GetSetting("showOnContinent") then return true end
+	self.built = { host = host, scale = map.ScrollContainer:GetCanvasScale(),
+		left = left, right = right, top = top, bottom = bottom }
 	local function Add(rec, catID)
 		catID = catID or ns.Categories:GetVisibleCategory(rec)
 		if not catID then return end
 		local x, y = api.CanvasFromWorldPos(rec.c, rec.x, rec.y)
-		if Number(x) and Number(y) and x >= view.left and x <= view.right
-			and y >= view.top and y <= view.bottom then add(rec, catID, x, y) end
+		if Number(x) and Number(y) and x >= left and x <= right
+			and y >= top and y <= bottom then add(rec, catID, x, y) end
 	end
 	for _, mapID in ipairs(CONTINENTS) do
 		local x0, y0 = api.MapFromWorld(mapID, u0, v0)
@@ -145,6 +155,19 @@ function Compat:RefreshPins(map, add)
 	return true
 end
 
+-- Icons ride the canvas and are placed past the edges of the view, so a pan
+-- that stays inside what was built has nothing to rebuild. A zoom always has:
+-- which icons share a pin depends on how far apart they land on screen.
+function Compat:StillBuilt()
+	local built, map = self.built, WorldMapFrame
+	if not built or built.host ~= map:GetMapID() then return false end
+	local sc = map.ScrollContainer
+	if built.scale ~= sc:GetCanvasScale() then return false end
+	local view = sc:GetViewRect()
+	return view.left >= built.left and view.right <= built.right
+		and view.top >= built.top and view.bottom <= built.bottom
+end
+
 function Compat:Install()
 	local api = ns.ContinuousMap.started and ns.ContinuousMap.API or OpenMapAPI
 	if self.installed == api or type(api) ~= "table" or api.major ~= 1 or not WorldMapFrame then return end
@@ -153,7 +176,10 @@ function Compat:Install()
 		local function Refresh()
 			ns.MapPins:Refresh()
 		end
-		api.RegisterCallback(self, "OpenMap_ViewChanged", Refresh)
+		api.RegisterCallback(self, "OpenMap_ViewChanged", function()
+			ns.DetailView:RefreshForZoom()
+			if not self:StillBuilt() then Refresh() end
+		end)
 		api.RegisterCallback(self, "OpenMap_StitchedChanged", function()
 			if ns.DetailView:IsActive() then ns.DetailView:Exit(true) end
 			Refresh()

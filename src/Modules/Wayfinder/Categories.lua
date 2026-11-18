@@ -158,17 +158,27 @@ function Categories:GetVisibleCategory(rec, servicesOnly)
 	if not rec.seed and (rec.a or 0) > 20 and not settings.showApproximate then
 		return nil
 	end
-	local best, bestOrder
+	local best, bestOrder, covered
 	for catID in pairs(rec.cats) do
 		local cat = ns.CategoryByID[catID]
 		local available = catID ~= "quest" or (not servicesOnly and ns.QuestAvailability:HasAvailableQuest(rec))
 		local order = catID == "quest" and 0 or (cat and cat.order)
-		if cat and available and settings.cats[catID] ~= false and (not bestOrder or order < bestOrder) then
+		if cat and available and settings.cats[catID] ~= false then
 			local otherClass = catID == "trainer_class" and rec.cls and rec.cls ~= ns.playerClass
 			if not otherClass or settings.showAllClassTrainers then
-				best, bestOrder = catID, order
+				covered = covered or ns.Seeds:Covers(rec, catID)
+				if not bestOrder or order < bestOrder then
+					best, bestOrder = catID, order
+				end
 			end
 		end
+	end
+	-- A rough sighting gives way, whole, to the built-in location that marks one
+	-- of its services more exactly (Seeds.lua): an innkeeper seen from the door
+	-- is not also drawn as a food vendor beside the inn's own icon. A quest it
+	-- is offering is still worth its marker.
+	if covered and best ~= "quest" then
+		return nil
 	end
 	return best
 end

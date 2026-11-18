@@ -369,6 +369,9 @@ local function Switch(target)
 	if active then
 		local x, y = FromWorld(target, u, v)
 		SetView(ScaleFor(target, zoom), x, y)
+		-- Wayfinder: Blizzard had every provider rebuild inside SetMapID, with the new map
+		-- still showing whole; icons chosen for that view are rebuilt for this one at once
+		if mod.OnSwitched then mod.OnSwitched() end
 	end
 end
 
@@ -552,7 +555,15 @@ viewFrame:SetScript("OnUpdate", Ours("view update", function(self)
 	if mod.OnViewMoved then mod.OnViewMoved() end   -- (API.lua: other addons told, a few times a second at most)
 end))
 local function ApplyView()
-	if active then viewFrame:Show() end
+	if not active then return end
+	-- Wayfinder: its markers and the player's arrow are in the view rather than on the
+	-- canvas. Placed here, on the call that moved it (S.TrackView); the rest next frame
+	if S.TrackView and map:IsShown() then
+		local u, v, zoom = View()
+		local pu, pv = PerPx(zoom)
+		S.TrackView(u, v, sc:GetWidth() / 2 * pu, sc:GetHeight() / 2 * pv)
+	end
+	viewFrame:Show()
 end
 
 local function ApplyZoom()

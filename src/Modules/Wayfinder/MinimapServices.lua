@@ -300,10 +300,6 @@ function Mini:UpdatePositions(cont, wx, wy)
 		else visible = x*x+y*y<=safeRadius*safeRadius end
 		if visible then
 			local px, py = x/radius*halfW+(pin.offsetX or 0), y/radius*halfH+(pin.offsetY or 0)
-			if pin.catID~="quest" and not pin.flightQuest then
-				local dx,dy=ns.ServiceLocations:PlayerOffset(px,py,0,0,24,pin.catID)
-				px,py=px+dx,py+dy
-			end
 			if pin.anchor ~= Minimap or pin.px ~= px or pin.py ~= py then
 				pin:ClearAllPoints()
 				pin:SetPoint("CENTER", Minimap, "CENTER", px, py)
@@ -407,10 +403,9 @@ function Mini:Rebuild()
 		if flightQuest then rec=ns.FlightQuests:DisplayRecord(rec,flightQuest) end
 		for index, prior in ipairs(locations) do
 			if prior == rec or ns.ServiceLocations:Same(rec,prior) then return end
-			if locationCats[index]==cat and (cat=="bank" or cat=="auction" or cat=="flight") then
+			if locationCats[index]==cat then
 				local pixels=ns.Distance(rec.x,rec.y,prior.x,prior.y)*math.max(self.halfW,self.halfH)/self.radius
-				if ns.ServiceLocations:Overlaps({cat=cat,x=rec.x,y=rec.y,c=rec.c},
-					{cat=cat,x=prior.x,y=prior.y,c=prior.c},pixels) then return end
+				if ns.ServiceLocations:Overlaps(rec,prior,pixels,cat) then return end
 			end
 		end
 		locations[#locations+1] = rec

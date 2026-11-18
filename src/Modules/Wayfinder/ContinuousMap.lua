@@ -225,6 +225,7 @@ function Continuous:Start()
 	mod.enabled = true
 	mod.SavedView = function() return self:SavedView() end
 	mod.OnMapHidden = function() self:SaveView() end
+	mod.OnSwitched = function() ns.MapPins:RefreshNow() end
 	mod.OnStitchedChanged = function(on)
 		if not on and ns.DetailView:IsFollowingMap() then ns.DetailView:Exit(true) end
 		Fire("OpenMap_StitchedChanged", on)

@@ -548,6 +548,7 @@ local function AcquirePin()
 		pin:SetScript("OnMouseUp", PinOnMouseUp)
 	end
 	pin.rec, pin.catID, pin.quest, pin.external, pin.marker = nil, nil, nil, nil, nil
+	pin.duplicate = nil
 	pin.mapID = underlayMapID
 	ApplyPassThrough(pin)
 	pin.icon:Show()
@@ -571,18 +572,12 @@ local function ReleasePins(keepTooltip)
 	end
 end
 
+-- Every icon sits on the spot it marks, the one under the player included.
+-- This runs on every frame the view moves, so it does nothing else.
 local function PositionPins()
-	local pc,wx,wy=ns.GetPlayerWorld()
-	local playerX,playerY
-	if pc==cont then playerX,playerY=PlaneToView(ns.WorldToPlane(wx,wy)) end
 	for i = 1, #activePins do
 		local pin = activePins[i]
 		local vx, vy = PlaneToView(pin.px, pin.py)
-		local cat=pin.catID or pin.external and pin.external.service
-		if playerX and cat and ns.Distance(-pin.py,-pin.px,wx,wy)<=15 then
-			local dx,dy=ns.ServiceLocations:PlayerOffset(vx,vy,playerX,playerY,14+pin:GetWidth()/2+3,cat)
-			vx,vy=vx+dx,vy+dy
-		end
 		pin:SetPoint("CENTER", view, "TOPLEFT", vx, -vy)
 	end
 end
@@ -632,7 +627,10 @@ local function SameMarker(a, b)
 	return distance < 2
 end
 
+local resolvedScale -- the zoom the shared pins below were worked out for
+
 local function ResolvePins()
+	resolvedScale = scale
 	local ordered = {}
 	for index, pin in ipairs(activePins) do
 		if pin:IsShown() then
@@ -661,12 +659,31 @@ local function ResolvePins()
 				break
 			end
 		end
-		if duplicate then pin:Hide()
+		if duplicate then
+			pin.duplicate = true
+			pin:Hide()
 		else
 			pin:SetFrameLevel(pinLayer:GetFrameLevel() + pin.marker.rank)
 			kept[#kept + 1] = pin
 		end
 	end
+end
+
+-- Which icons share a pin depends on how far apart they land on screen. The
+-- pins are only gathered again when the view leaves the rectangle they were
+-- gathered for, and zooming in never does, so a counter merged into one icon
+-- from far out stayed one icon however close you came. Called a few times a
+-- second while the view moves: the same pins, shared out again for this zoom.
+function DetailView:RefreshForZoom()
+	if not (active and following) or pinsDirty or not resolvedScale then return end
+	if abs(scale / resolvedScale - 1) < 0.03 then return end
+	for _, pin in ipairs(activePins) do
+		if pin.duplicate then
+			pin.duplicate = nil
+			pin:Show()
+		end
+	end
+	ResolvePins()
 end
 
 local function AddQuestPins(l, r, t, b, size)
@@ -879,12 +896,16 @@ local function ClampCenter()
 	tcy = min(max(tcy, -PLANE_LIMIT), PLANE_LIMIT)
 end
 
-local function ApplyTransform()
-	transformDirty = false
+local function PlacePlane()
 	local w, h = ViewSize()
 	plane:SetScale(scale)
 	plane:ClearAllPoints()
 	plane:SetPoint("TOPLEFT", view, "TOPLEFT", (w / 2 - cx * scale) / scale, -(h / 2 - cy * scale * verticalRatio) / scale)
+end
+
+local function ApplyTransform()
+	transformDirty = false
+	PlacePlane()
 	-- Soft fog edges only where a cell is big enough on screen for them to show.
 	local fuzzy = scale * CELL >= DetailView.FUZZY_MIN_CELL_PIXELS
 	if fuzzy ~= fuzzyBuilt then
@@ -1210,6 +1231,23 @@ function DetailView:FollowMap(continent, wx, wy, pixelsPerYard, alpha, level, qu
 		ns.AddonPins:Refresh()
 	end
 	ApplyTransform()
+end
+
+-- The markers and terrain here sit in the view, not on the map's canvas, so
+-- nothing carries them along when the canvas moves. FollowMap does, but it is
+-- queued for the next frame along with the heavier work; left to that alone,
+-- every icon trails the map art by a frame all through a pan or a zoom and only
+-- settles as the movement eases off. This is the placing alone, done on the
+-- very call that moved the canvas. Tiles and newly exposed icons still wait.
+function DetailView:TrackMap(continent, wx, wy, pixelsPerYard, pixelsPerYardY)
+	if not (active and following) or continent ~= cont then return end
+	if abs(verticalRatio - (pixelsPerYardY or pixelsPerYard) / pixelsPerYard) > 0.00001 then return end
+	local x, y = ns.WorldToPlane(wx, wy)
+	if x == cx and y == cy and pixelsPerYard == scale then return end
+	cx, cy = x, y
+	tcx, tcy, scale, tscale = cx, cy, pixelsPerYard, pixelsPerYard
+	PlacePlane()
+	PositionPins()
 end
 
 -- Opens the view over Blizzard's map showing exactly what the map shows now,

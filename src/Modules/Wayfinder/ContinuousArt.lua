@@ -283,6 +283,24 @@ function S.SetView(u, v, hu, hv, _, stepZoom)
 	end
 	if ns.DetailView:IsFollowingMap() then ns.DetailView:Exit(true) end
 end
+-- The detail layer's markers and the player's arrow are placed in the view,
+-- not on the canvas, so they have to be told where the canvas went. SetView
+-- tells them along with everything else, but a frame later. This is only the
+-- placing, on the call that moved the canvas, so that nothing trails the map.
+function S.TrackView(u, v, hu, hv)
+	if not shown then return end
+	viewU, viewV, halfU, halfV = u, v, hu, hv
+	if player and player:IsShown() then S.SetPlayer(player.u, player.v, player.facing) end
+	if not ns.DetailView:IsFollowingMap() then return end
+	local id = S.ContinentAt(u, v)
+	local rect = id and ns.GetMapRect(id)
+	if not rect then return end
+	local l, r, t, b = S.Rect(id)
+	local sc = WorldMapFrame.ScrollContainer
+	local x, y = (u - l) / (r - l), (v - t) / (b - t)
+	ns.DetailView:TrackMap(rect.cont, rect.top - y * rect.height, rect.left - x * rect.width,
+		sc:GetWidth() / (hu * 2 / (r - l) * rect.width), sc:GetHeight() / (hv * 2 / (b - t) * rect.height))
+end
 function S.RefreshExplored()
 	for _, rec in pairs(maps) do if rec.frame then Overlays(rec) end end
 end

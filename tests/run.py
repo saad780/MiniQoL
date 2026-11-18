@@ -23,6 +23,12 @@ memory.execute((root / "tests/map_memory.lua").read_text(), str(package).replace
 pins = LuaRuntime(unpack_returned_tuples=True)
 pins.execute((root / "tests/map_pins.lua").read_text(), str(package).replace("\\", "/"))
 
+services = LuaRuntime(unpack_returned_tuples=True)
+services.execute((root / "tests/service_pins.lua").read_text(), str(package).replace("\\", "/"))
+
+seeds = LuaRuntime(unpack_returned_tuples=True)
+seeds.execute((root / "tests/seeds.lua").read_text(), str(package).replace("\\", "/"))
+
 cities = LuaRuntime(unpack_returned_tuples=True)
 cities.execute((root / "tests/city_layers.lua").read_text(), str(package).replace("\\", "/"))
 

@@ -30,8 +30,15 @@ function Locations:Same(a,b)
 	if ai and bi then return ai==bi end
 	local shared=a.cat and a.cat==b.cat
 	for cat in pairs(a.cats or {}) do if b.cats and b.cats[cat] then shared=true;break end end
-	-- Built-in service labels identify a counter, rather than an NPC.
+	-- A built-in location is one person at a counter, and Seeds.lua has already
+	-- paired each with the recorded location that stands for it. One still
+	-- showing beside a record, or beside another built-in one, is somebody
+	-- else: three auctioneers are three icons. Only a temporary addon marker,
+	-- which nothing has paired off, is still matched to it by place.
 	if a.seed or b.seed then
+		if a.seed and b.seed then return shared and distance<2 or false end
+		local other=a.seed and b or a
+		if other.kind then return false end
 		if shared then return true end
 	end
 	local named=a.n and b.n and a.n~="Map icon" and b.n~="Map icon"
@@ -40,22 +47,15 @@ function Locations:Same(a,b)
 	return shared and distance<2 or false
 end
 
--- Service observations often share the player's exact position. Keep the
--- clickable service beside the player arrow, preserving its real coordinates.
-function Locations:PlayerOffset(x,y,px,py,clearance,cat)
-	if cat~="bank" and cat~="auction" then return 0,0 end
-	local dx,dy=x-px,y-py
-	local distance=(dx*dx+dy*dy)^.5
-	if distance>=clearance then return 0,0 end
-	local targetX=(cat=="bank" and -1 or 1)*math.sqrt(math.max(0,clearance*clearance-dy*dy))
-	return targetX-dx,0
-end
-
--- Nearby bankers/auctioneers share one readable icon at wider zooms.
-function Locations:Overlaps(a, b, pixels)
-	return a.cat == b.cat and (a.cat == "bank" or a.cat == "auction" or a.cat == "flight")
-		and (not a.c or not b.c or a.c == b.c)
-		and ns.Distance(a.x,a.y,b.x,b.y) <= 60 and pixels < 14
+-- Nearby bankers/auctioneers share one readable icon at wider zooms. So do two
+-- built-in locations of any one kind: each is its own icon once there is room
+-- to draw it, and never a pile of them when there is not. `cat` says what both
+-- are being drawn as, for callers holding records rather than entries.
+function Locations:Overlaps(a, b, pixels, cat)
+	local kind = cat or a.cat
+	if kind ~= (cat or b.cat) or pixels >= 14 then return false end
+	if not (kind == "bank" or kind == "auction" or kind == "flight" or (a.seed and b.seed)) then return false end
+	return (not a.c or not b.c or a.c == b.c) and ns.Distance(a.x,a.y,b.x,b.y) <= 60
 end
 
 function Locations:Select(entries)

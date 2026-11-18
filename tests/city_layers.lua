@@ -62,6 +62,7 @@ C_Map = {
 }
 
 local button, follows, followed, fired = {}, {}, {}, {}
+local tracked
 local ns = { name = "MiniQoL" }
 ns.ContinuousEngine = {
     MapCityZones = { [1453] = 1429, [1454] = 1411, [1455] = 1426, [1456] = 1412, [1457] = 1438, [1458] = 1420 },
@@ -69,7 +70,8 @@ ns.ContinuousEngine = {
 }
 ns.ContinuousMap = { UpdateLayerButton = function(_, city, terrain) button.city, button.terrain = city, terrain end }
 ns.DetailView = {
-    FollowMap = function(_, ...) follows[#follows + 1] = { pinsOnly = select(9, ...) }; ns.following = true end,
+    FollowMap = function(_, ...) follows[#follows + 1] = { pinsOnly = select(9, ...), ... }; ns.following = true end,
+    TrackMap = function(_, ...) tracked = { ... } end,
     IsFollowingMap = function() return ns.following end,
     Exit = function() ns.following = false end,
 }
@@ -129,10 +131,30 @@ assert(Shows(1458) and Last().pinsOnly == true, "its city map, without terrain")
 chain = S.ChainAt(0.65, 0.25)
 assert(chain[#chain] == 1458, "and it is the map the view is on")
 
+-- The markers sit in the view, not on the canvas, so a move of the canvas is
+-- passed on at once: the same place and scale the full update will give them a
+-- frame later, without waiting for it.
+tracked = nil
+S.TrackView(0.651, 0.252, 0.001, 0.001)
+assert(tracked, "the markers are told on the call that moved the canvas")
+S.SetView(0.651, 0.252, 0.001, 0.001, nil, 60)
+local full = Last() -- continent, north, west, pixels per yard, ..., [8] = vertical pixels per yard
+for index, argument in ipairs({ 1, 2, 3, 4, 8 }) do
+    assert(math.abs(tracked[index] - full[argument]) < 1e-9, "told exactly what the full update says: " .. index)
+end
+ns.following = false
+tracked = nil
+S.TrackView(0.652, 0.252, 0.001, 0.001)
+assert(tracked == nil, "nothing to place while the markers are the canvas's own")
+ns.following = true
+
 -- Closing the map hides the button; the choice is kept for the session.
 S.SetShown(false)
 assert(button.city == nil, "no button with the map closed")
 S.SetCityView(true)
 local _, terrain = S.GetCityView()
 assert(terrain == true, "a saved choice comes back")
+tracked = nil
+S.TrackView(0.651, 0.252, 0.001, 0.001)
+assert(tracked == nil, "and a closed map places nothing")
 print("City maps: shown close in, swapped with terrain, Undercity's overworld and the session choice passed")

@@ -168,6 +168,31 @@ map:Open(999); map:Close()
 map:Open(1002); draw()
 expect(0.64, 0.56, 32)
 
+-- Wayfinder's markers and the player's arrow sit in the view rather than on
+-- the canvas. A move of the canvas is passed on within the call that made it;
+-- only the heavier work waits for the queued repaint a frame later.
+local tracked
+S.TrackView = function(u, v, hu, hv) tracked = { u, v, hu, hv } end
+sc.currentScrollX = sc.currentScrollX + 0.01
+for _, provider in ipairs(map.providers) do
+    if provider.OnCanvasPanChanged then provider:OnCanvasPanChanged() end
+end
+assert(tracked, "a pan reaches the markers before the next frame")
+local movedU, movedV = controller.ViewNow()
+near(tracked[1], movedU, "where the canvas now is")
+near(tracked[2], movedV)
+assert(tracked[3] > 0 and tracked[4] > 0, "with how much of the world is in view")
+assert(painter:IsShown(), "and the full update is still queued behind it")
+draw()
+map:Close()
+tracked = nil
+for _, provider in ipairs(map.providers) do
+    if provider.OnCanvasPanChanged then provider:OnCanvasPanChanged() end
+end
+assert(tracked == nil, "a closed map places nothing")
+map:Open(1002); draw()
+S.TrackView = nil
+
 -- A fresh load of the module -- what a reload or a relog gives you -- starts
 -- with no remembered view at all.
 map:Close()
