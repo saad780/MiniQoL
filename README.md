@@ -22,6 +22,13 @@ back to life completes that waypoint, wherever it happens, and the arrow returns
 to the waypoint it was on before. **Point the arrow at your corpse** under
 Waypoints turns this off.
 
+Mini QoL writes down what each of your characters is wearing whenever it
+changes. The **Alts** button on the character sheet (left- or right-click) lists
+your other characters: pick one and their gear takes the place of yours on the
+sheet, with the usual item tooltips, until you pick yourself again or close the
+sheet. A character is added the first time it logs in with Mini QoL on. The
+**Alt gear** page turns this off or forgets characters you no longer play.
+
 Gearwise prompts when you loot an upgrade, and **Space** equips it while that
 prompt is open. When a looted item scores exactly what you are wearing, a small
 badge waits at the edge of the screen instead: hover it to see your character

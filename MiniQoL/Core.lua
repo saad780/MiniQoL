@@ -20,6 +20,8 @@ ns.pages = {
       description = "Keyboard shortcuts for Blizzard's gossip and quest windows." },
     { id = "fishing", label = "Fishing", group = "Mini QoL",
       description = "A louder splash, one-key casting, lures, an outfit swap and a record of your catch." },
+    { id = "alts", label = "Alt gear", group = "Mini QoL",
+      description = "Every character's gear, written down so the others can look at it on the character sheet." },
     { id = "miniqol", label = "Mini QoL", group = "Mini QoL",
       description = "Panel preferences, module switches and source credits." },
 }
@@ -177,6 +179,7 @@ events:SetScript("OnEvent", function(_, event, name)
         ns:RegisterSettings()
         if ns.Dialogue then ns.Dialogue:Initialize() end
         if ns.Fishing then ns.Fishing:Start() end
+        if ns.AltGear then ns.AltGear:Start() end
     end
 end)
 
