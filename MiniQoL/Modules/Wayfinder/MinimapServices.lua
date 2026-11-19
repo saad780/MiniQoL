@@ -221,6 +221,21 @@ local function Acquire(index)
 	if pin:GetParent() ~= Minimap then pin:SetParent(Minimap) end
 	return pin
 end
+-- Whether what was last gathered no longer fits where the player stands or
+-- what the minimap shows. Records, settings, quests, tracking and zoom all say
+-- so themselves when they change; this is the one thing nothing announces.
+-- The safeguard still gathers once a second, in case something was missed.
+local SAFEGUARD_SECONDS = 1
+function Mini:Outdated()
+	if not self.lastUpdate or GetTime() - self.lastUpdate >= SAFEGUARD_SECONDS then return true end
+	if not self.active then return false end
+	local radius = C_Minimap and C_Minimap.GetViewRadius and C_Minimap.GetViewRadius()
+	if Number(radius) and radius > 0 and radius ~= self.scanRadius then return true end
+	local cont, wx, wy = DirectPosition(self.scanCont)
+	if not cont then cont, wx, wy = ns.GetPlayerWorld() end
+	if not cont or cont ~= self.scanCont then return true end
+	return math.abs(wx - self.scanX) > SCAN_MARGIN / 2 or math.abs(wy - self.scanY) > SCAN_MARGIN / 2
+end
 function Mini:RequestUpdate()
 	if self.pending then return end
 	self.pending = true
@@ -455,8 +470,16 @@ function Mini:OnLogin()
 		self:RequestUpdate()
 	end
 	C_Timer.After(0, Update)
-	C_Timer.NewTicker(0.2, Update)
-	for _, message in ipairs({ "POI_UPDATED", "POI_REMOVED", "EXPLORED", "DATA_CHANGED" }) do ns:On(message, Update) end
+	-- This tick used to gather everything again five times a second, moving or
+	-- not, in combat or not: every record and built-in location in range, the
+	-- quests of each map above the player, sorted and shared out. It was the
+	-- addon's largest standing cost. It now only asks whether the player or
+	-- the view has moved on from what was gathered.
+	C_Timer.NewTicker(0.2, function()
+		if not self.settingSelection and self:Outdated() then self:RequestUpdate() end
+	end)
+	for _, message in ipairs({ "POI_UPDATED", "POI_REMOVED", "EXPLORED", "DATA_CHANGED",
+		"QUEST_AVAILABILITY_CHANGED", "QUEST_TURN_INS_CHANGED" }) do ns:On(message, Update) end
 	ns:On("SETTING_CHANGED",function()
 		self.trackingDirty = true
 		if self.settingSelection then return end

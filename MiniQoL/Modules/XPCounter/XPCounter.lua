@@ -226,7 +226,13 @@ local function scanReputation()
                         data.name .. ": " .. standingName(reaction))
                 end
             end
-            reputation[factionID] = { standing = current, reaction = reaction }
+            -- A scan visits every faction you know, on every reputation
+            -- event: update the record rather than replace it.
+            if old then
+                old.standing, old.reaction = current, reaction
+            else
+                reputation[factionID] = { standing = current, reaction = reaction }
+            end
         end
     end
 end

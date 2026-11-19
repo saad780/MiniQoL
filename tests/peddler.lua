@@ -70,4 +70,47 @@ assert(sells(3300) and sells(4540), "its junk and its hand-marked bread are for 
 sells = Login({ ItemsToSell = {}, UnmarkedItems = {}, AutoSellGreyItems = false })
 assert(AutoSellGreyItems == false and not sells(3300), "turning the rule off sticks")
 
-print("Peddler: new characters start unmarked and each keeps its own junk rule passed")
+-- Marking the bags. Each bag that changes raises its own event, and each used
+-- to queue its own pass over every slot; a burst is now one pass, a second
+-- after the last of it.
+local passes, slots, timers = 0, {}, {}
+function ContainerFrameUtil_EnumerateContainerFrames()
+    passes = passes + 1
+    local container = { IsShown = function() return true end }
+    function container:EnumerateValidItems()
+        return ipairs({ {
+            GetBagID = function() return 0 end, GetID = function() return 1 end,
+            CreateTexture = function() return { SetTexture = noop, SetSize = noop, SetPoint = noop, Show = noop } end,
+        } })
+    end
+    return ipairs({ container })
+end
+C_Timer = { After = function(_, fn) timers[#timers + 1] = fn end }
+-- The slot is asked about through one reused location, not a new object.
+local made = 0
+ItemLocation = { CreateEmpty = function()
+    made = made + 1
+    return { SetBagAndSlot = function(self, bag, slot) self.bag, self.slot = bag, slot end }
+end }
+C_Item = {
+    DoesItemExist = function(location) slots[#slots + 1] = location.bag .. ":" .. location.slot; return true end,
+    IsBound = function() return false end,
+}
+C_Container = {
+    GetContainerItemInfo = function() return { itemID = 4540, stackCount = 1 } end,
+    GetContainerItemLink = function() return "|cffffffff|Hitem:4540::::::::|h[Bread]|h|r" end,
+}
+sells = Login({ ItemsToSell = { [4540] = 1 }, UnmarkedItems = {} })
+local listener
+for _, f in ipairs(frames) do if f.handlers.OnEvent then listener = f end end
+passes, slots = 0, {}
+for _ = 1, 5 do listener.handlers.OnEvent(listener, "BAG_UPDATE", 0) end
+assert(passes == 0, "nothing is marked inside the events")
+local due = timers
+timers = {}
+for _, fn in ipairs(due) do fn() end
+assert(passes == 1, "five bag updates are one marking pass: " .. passes)
+assert(#slots == 1 and slots[1] == "0:1", "which asked about the slot it was shown")
+assert(made == 1, "through the one location Peddler keeps: " .. made)
+
+print("Peddler: new characters start unmarked, each keeps its own junk rule, a burst of bag updates is one pass")

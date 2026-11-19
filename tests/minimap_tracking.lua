@@ -120,4 +120,33 @@ C_Minimap.SetTracking(1, false)
 equal(settings.cats.bank, true, "after which Wayfinder doesn't follow the game's tracking")
 assert(not openMenu()[1].isSelected, "and leaves the menu to the game")
 
-print("Minimap tracking: bank and auction survive the game's write-back, the menu works while not drawing, Uncheck All passed")
+-- Gathering the markers again. Nothing announces the player walking, so a
+-- tick asks whether what was gathered still fits; it used to gather anyway.
+local NOW, RADIUS, HERE = 10, 150, { 1, 100, 200 }
+function GetTime() return NOW end
+function C_Minimap.GetViewRadius() return RADIUS end
+function ns.GetPlayerWorld() return HERE[1], HERE[2], HERE[3] end
+Mini.lastUpdate = nil
+assert(Mini:Outdated(), "nothing gathered yet is out of date")
+Mini.active, Mini.lastUpdate = true, NOW
+Mini.scanCont, Mini.scanX, Mini.scanY, Mini.scanRadius = 1, 100, 200, 150
+assert(not Mini:Outdated(), "standing where it was gathered, it is current")
+NOW = 10.8
+assert(not Mini:Outdated(), "and stays current between safeguards")
+HERE = { 1, 120, 215 }
+assert(not Mini:Outdated(), "a short walk stays inside the margin gathered around the player")
+HERE = { 1, 140, 200 }
+assert(Mini:Outdated(), "walking past half the margin asks for more")
+HERE = { 0, 100, 200 }
+assert(Mini:Outdated(), "so does another continent")
+HERE = { 1, 100, 200 }
+RADIUS = 110
+assert(Mini:Outdated(), "and the minimap zooming, or going indoors")
+RADIUS = 150
+NOW = 11.1
+assert(Mini:Outdated(), "and a second having passed, whatever else")
+Mini.active, Mini.lastUpdate = false, NOW
+HERE = { 1, 900, 900 }
+assert(not Mini:Outdated(), "while markers are off only the safeguard looks again")
+
+print("Minimap tracking: bank and auction survive the game's write-back, the menu works while not drawing, Uncheck All; markers are gathered again only when out of date")

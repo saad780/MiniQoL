@@ -48,9 +48,21 @@ peddler:RegisterEvent("PLAYER_ENTERING_WORLD")
 peddler:RegisterEvent("ADDON_LOADED")
 peddler:RegisterEvent("MERCHANT_SHOW")
 
+-- One location, pointed at each slot in turn. Marking the bags asks this of
+-- every slot on every pass, and building a full Item object for each answer
+-- left a table of some forty fields behind per slot.
+local slotProbe = ItemLocation and ItemLocation.CreateEmpty and ItemLocation:CreateEmpty()
+if slotProbe and not slotProbe.SetBagAndSlot then
+  slotProbe = nil
+end
+
 local function getIsItemSoulbound(bagNumber, slotNumber)
-  local item = Item:CreateFromBagAndSlot(bagNumber, slotNumber)
-  local location = item:GetItemLocation()
+  local location = slotProbe
+  if location then
+    location:SetBagAndSlot(bagNumber, slotNumber)
+  else
+    location = Item:CreateFromBagAndSlot(bagNumber, slotNumber):GetItemLocation()
+  end
 
   return C_Item.DoesItemExist(location) and C_Item.IsBound(location)
 end
@@ -680,6 +692,8 @@ local function overrideItemClickFunction()
   end
 end
 
+local markGeneration = 0
+
 local function handleEvent(self, event, addonName)
   if event == "ADDON_LOADED" and addonName == "Peddler" then
     peddler:UnregisterEvent("ADDON_LOADED")
@@ -696,14 +710,29 @@ local function handleEvent(self, event, addonName)
     if IsAddOnLoaded("Baganator") and Baganator and Baganator.CallbackRegistry then
       local function refreshBaganator()
         C_Timer.After(0, markWares)
+        -- Its buttons can be filled in a few frames after the bag opens.
+        C_Timer.After(0.5, markWares)
       end
       Baganator.CallbackRegistry:RegisterCallback("BagShow", refreshBaganator, peddler)
       Baganator.CallbackRegistry:RegisterCallback("BackpackFrameChanged", refreshBaganator, peddler)
+      -- Baganator says when its bags open or lay themselves out again, and
+      -- bag updates cover the rest. The half-second poll only ever stopped
+      -- once a coin had been drawn, so on a character with nothing marked
+      -- in the bags it walked Baganator's whole frame registry for good.
+      peddler:SetScript("OnUpdate", nil)
     end
   elseif event == "PLAYER_ENTERING_WORLD" then
     peddler:RegisterEvent("BAG_UPDATE")
   elseif event == "BAG_UPDATE" then
-    C_Timer.After(1, markWares)
+    -- One pass for a burst of updates, a second after the last of them. Each
+    -- bag that changed used to queue a pass of its own.
+    markGeneration = markGeneration + 1
+    local generation = markGeneration
+    C_Timer.After(1, function()
+      if generation == markGeneration then
+        markWares()
+      end
+    end)
   elseif event == "MERCHANT_SHOW" then
     peddleGoods()
   end
