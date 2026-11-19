@@ -54,7 +54,14 @@ function Fishing:SetupSound()
     events:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_STOP", "player")
     events:RegisterEvent("PLAYER_LOGOUT")
     events:SetScript("OnEvent", function(_, event, _, _, spellID)
-        if event == "PLAYER_LOGOUT" then return end
+        if event == "PLAYER_LOGOUT" then
+            -- The game writes its sound settings down as it closes. Leaving
+            -- with the line out saved them boosted, music and ambience off,
+            -- until the next login with Mini QoL running put them back.
+            if boostTimer then boostTimer:Cancel(); boostTimer = nil end
+            self:RestoreSound()
+            return
+        end
         if not self:IsFishingSpell(spellID) then return end
         if boostTimer then boostTimer:Cancel(); boostTimer = nil end
         if event == "UNIT_SPELLCAST_CHANNEL_START" then

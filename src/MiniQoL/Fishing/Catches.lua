@@ -103,10 +103,13 @@ local function RecordLoot()
     lootRecorded = true
     for slot = 1, GetNumLootItems() do
         local link = GetLootSlotLink(slot) -- money has no link
-        if link then
+        -- A currency has a link but is no item. Filed under no ID it raised
+        -- an error, and the cast that landed it was then counted as empty.
+        local itemID = link and tonumber(link:match("item:(%d+)"))
+        if itemID then
             local icon, _, quantity = GetLootSlotInfo(slot)
             Fishing:RecordCatch({
-                itemID = tonumber(link:match("item:(%d+)")),
+                itemID = itemID,
                 link = link,
                 icon = icon,
                 quantity = quantity or 1,

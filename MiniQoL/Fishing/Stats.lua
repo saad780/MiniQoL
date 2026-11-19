@@ -42,6 +42,15 @@ function Fishing:SessionSummary(includeMissed)
     return total, Rank(entries, total), caught
 end
 
+-- This session's casts: how many landed something, and how many came up empty.
+function Fishing:SessionCasts()
+    local landed, empty = 0, 0
+    for _, cast in ipairs(self.db.casts) do
+        if cast.caught then landed = landed + 1 else empty = empty + 1 end
+    end
+    return landed, empty
+end
+
 local function FromItems(items)
     local total, entries = 0, {}
     for itemID, item in pairs(items) do

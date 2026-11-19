@@ -126,9 +126,12 @@ function Fishing:RefreshBar()
     bar.timers:SetText(table.concat(timers, "   \194\183   "))
 
     -- Lure and food buttons. Attributes can only be set out of combat, so in
-    -- combat the row is simply left as it was.
-    local x, shown = 0, 0
+    -- combat the row is simply left as it was -- and so is everything that
+    -- depends on it. Counting it afresh found no buttons during a fight: the
+    -- label said there were no lures and the session lines moved up over them.
+    local x, shown = 0, bar.lureCount or 0
     if not combat then
+        shown = 0
         for index, lure in ipairs(self:CarriedLures()) do
             local button = LureButton(index)
             button.itemID = lure.itemID
@@ -142,7 +145,9 @@ function Fishing:RefreshBar()
             x, shown = x + ICON + 4, index
         end
         for index = shown + 1, #lureButtons do lureButtons[index]:Hide() end
+        bar.lureCount = shown
         local food = self:BestFood()
+        bar.hasFood = food ~= nil
         if food then
             foodButton.itemID = food
             foodButton:SetAttribute("item", "item:" .. food)
@@ -158,7 +163,7 @@ function Fishing:RefreshBar()
     bar.lureLabel:SetText(shown > 0 and "LURES" or "NO LURES IN YOUR BAGS")
 
     -- The button row only takes space when there is something in it.
-    local hasButtons = shown > 0 or (not combat and self:BestFood() ~= nil)
+    local hasButtons = shown > 0 or bar.hasFood == true
     local y = hasButtons and (104 + ICON + 10) or 112
     bar.rule:ClearAllPoints()
     bar.rule:SetPoint("TOPLEFT", PAD, -y)
@@ -171,7 +176,12 @@ function Fishing:RefreshBar()
     local missed = total - caught
     if includeMissed and missed > 0 then
         session[#session + 1] = ("%d empty"):format(missed)
-        session[#session + 1] = ("%.0f%% hit"):format(caught / total * 100)
+        -- The share of casts, not of fish: one cast can land a stack, and
+        -- counting each fish made three from one cast look like three hits.
+        local landed, empty = self:SessionCasts()
+        if landed + empty > 0 then
+            session[#session + 1] = ("%.0f%% hit"):format(landed / (landed + empty) * 100)
+        end
     end
     if rate then session[#session + 1] = ("%.0f/hr"):format(rate) end
     if self:SessionLength() > 0 then session[#session + 1] = self.Duration(self:SessionLength()) end

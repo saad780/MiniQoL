@@ -52,15 +52,23 @@ function Fishing.TooltipFishingBonus(tooltip)
     return total
 end
 
--- Everything worn.
+-- Everything worn. The fishing window asks every second, for its timers, and
+-- each answer read nineteen tooltips; the sum is kept until what is worn
+-- changes. It is read again every so often regardless, since a tooltip read
+-- while the game was still loading an item has nothing on it.
+local GEAR_KEPT_SECONDS = 10
+local gearBonus, gearReadAt
 local function GearBonus()
+    if gearBonus and GetTime() - gearReadAt < GEAR_KEPT_SECONDS then return gearBonus end
     if not C_TooltipInfo then return 0 end
     local total = 0
     for slot = Fishing.FIRST_SLOT, Fishing.LAST_SLOT do
         total = total + Fishing.TooltipFishingBonus(C_TooltipInfo.GetInventoryItem("player", slot))
     end
+    gearBonus, gearReadAt = total, GetTime()
     return total
 end
+Fishing:On("GEAR_CHANGED", function() gearBonus = nil end)
 
 -- Stricter, so "Uncommon Fishing" and similar are not counted as a skill bonus.
 local function SkillNumber(line)
@@ -89,14 +97,24 @@ local function ScanBuffs()
     return total, expires, others
 end
 
--- Buffs cannot be read in combat, so the last good reading is kept.
+-- Buffs cannot be read in combat, so the last good reading is kept. It is
+-- kept between changes too: every reading is a tooltip per buff you have.
 local lastBonus, lastExpires, lastOthers = 0, nil, {}
+local buffsRead = false
 
 local function BuffBonus()
-    if not (C_UnitAuras and C_TooltipInfo) or InCombatLockdown() then return lastBonus end
+    if buffsRead or not (C_UnitAuras and C_TooltipInfo) or InCombatLockdown() then return lastBonus end
     local ok, bonus, expires, others = pcall(ScanBuffs)
-    if ok then lastBonus, lastExpires, lastOthers = bonus, expires, others end
+    if ok then lastBonus, lastExpires, lastOthers, buffsRead = bonus, expires, others, true end
     return lastBonus
+end
+
+-- Your buffs changing is what makes the next reading a fresh one.
+function Fishing:SetupCharacter()
+    local events = CreateFrame("Frame")
+    events:RegisterUnitEvent("UNIT_AURA", "player")
+    events:RegisterEvent("PLAYER_ENTERING_WORLD")
+    events:SetScript("OnEvent", function() buffsRead = false end)
 end
 
 -- { rank, lure, gear, buffs, total }, or nil when Fishing is not trained.

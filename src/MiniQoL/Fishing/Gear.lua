@@ -74,8 +74,11 @@ function Fishing:ItemFishingBonus(link)
     if not (C_TooltipInfo and C_TooltipInfo.GetHyperlink) then return 0 end
     local ok, tooltip = pcall(C_TooltipInfo.GetHyperlink, link:match("|H(item:[^|]+)|h") or link)
     if not ok or not tooltip or not tooltip.lines then return 0 end
-    bonusCache[link] = self.TooltipFishingBonus(tooltip)
-    return bonusCache[link]
+    local bonus = self.TooltipFishingBonus(tooltip)
+    -- An item the client has not loaded yet has a placeholder for a tooltip;
+    -- only what was read off the real one is remembered.
+    if self.GetItemInfo(link) then bonusCache[link] = bonus end
+    return bonus
 end
 
 local function BagLinks()

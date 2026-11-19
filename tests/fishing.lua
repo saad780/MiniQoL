@@ -583,4 +583,102 @@ EQUIPPED[16] = nil
 F:UpdateBar()
 equal(F.bar:IsShown(), false, "hidden again when the pole is put away")
 
-print("Fishing outfit swap, outfit window, gear finder, catch record, stats, splash, settings page and window passed")
+---------------------------------------------------------------------------
+print("-- the fishing window in a fight --")
+-- The lure and food buttons cannot be touched in combat, so the row is left
+-- as it was. Counting it afresh found nothing: the label said there were no
+-- lures and the lines below moved up over the buttons.
+EQUIPPED[16] = link(777)
+F:UpdateBar()
+local ruleY
+F.bar.rule.SetPoint = function(_, _, _, y) ruleY = y end
+F:RefreshBar()
+local calm = ruleY
+equal(F.bar.lureLabel:GetText(), "LURES", "lures are listed")
+COMBAT = true
+F:RefreshBar()
+equal(F.bar.lureLabel:GetText(), "LURES", "and still are in a fight")
+equal(ruleY, calm, "with the lines below staying below the buttons")
+COMBAT = false
+
+print("-- the share of casts --")
+-- One cast landed a stack of three; one came up empty. That is half the
+-- casts, not three hits in four.
+F:ResetSession()
+F:RecordCast({ time = CLOCK, ended = CLOCK, caught = true, seconds = 10 })
+F:RecordCatch({ itemID = 6303, link = link(6303), quantity = 3, time = CLOCK,
+    zone = "Elwynn Forest", subzone = "Crystal Lake" })
+F:RecordCast({ time = CLOCK, ended = CLOCK, caught = false })
+F:Set("statsIncludeMissed", true)
+F:RefreshBar()
+assert(F.bar.session:GetText():find("3 caught", 1, true), "three fish: " .. F.bar.session:GetText())
+assert(F.bar.session:GetText():find("50% hit", 1, true), "from half the casts: " .. F.bar.session:GetText())
+
+print("-- loot that is not an item --")
+-- A currency in the loot has a link and no item ID. It is not a catch to
+-- file, and the cast that landed it still landed something.
+F:SetupCatches()
+local catchEvents = scripts[#scripts]
+F:ResetSession()
+catchEvents:Fire("UNIT_SPELLCAST_CHANNEL_START", "player", "cast", 7620)
+LOOT = { { link = "|cffffffff|Hcurrency:61|h[Sea Shell]|h|r", quantity = 1 }, { link = link(6303), quantity = 2 } }
+FISHING_LOOT = true
+catchEvents:Fire("LOOT_READY")
+catchEvents:Fire("LOOT_OPENED")
+catchEvents:Fire("LOOT_CLOSED")
+FISHING_LOOT, LOOT = false, {}
+equal(select(3, F:SessionSummary(false)), 2, "the fish beside it are counted once")
+local landed, empty = F:SessionCasts()
+equal(landed, 1, "and the cast landed")
+equal(empty, 0, "rather than coming up empty")
+
+print("-- leaving with the line out --")
+-- The game writes its sound settings down as it closes, so they go back
+-- before it does, not only at the next login.
+F:SetupSound()
+local soundEvents = scripts[#scripts]
+F:BoostSound()
+equal(CVARS.Sound_MusicVolume, "0", "music is off while the line is out")
+soundEvents:Fire("PLAYER_LOGOUT")
+equal(CVARS.Sound_MusicVolume, "0.5", "and back on the way out")
+equal(CVARS.Sound_MasterVolume, "0.3", "with the volume")
+assert(not F:SoundBoosted(), "leaving nothing for the next login to undo")
+
+print("-- the skill breakdown --")
+-- The window asks for the breakdown every second, for its timers. Worn gear
+-- and buffs are read when they change, not on every asking.
+local GEAR_READS, BUFF_READS, POLE_BONUS = 0, 0, 20
+local AURAS = { { auraInstanceID = 1, name = "Well Fed", expirationTime = NOW + 600 } }
+function GetProfessions() return nil, nil, nil, 9 end
+function GetProfessionInfo() return "Fishing", 1, 120, 150, 0, 0, 356, 25 end
+C_TooltipInfo.GetInventoryItem = function(_, slot)
+    GEAR_READS = GEAR_READS + 1
+    if slot == 16 then return { lines = { { leftText = "Equip: Increased Fishing +" .. POLE_BONUS .. "." } } } end
+end
+C_TooltipInfo.GetUnitBuffByAuraInstanceID = function()
+    BUFF_READS = BUFF_READS + 1
+    return { lines = { { leftText = "Fishing skill increased by 10." } } }
+end
+C_UnitAuras = { GetBuffDataByIndex = function(_, index) return AURAS[index] end }
+F:SetupCharacter()
+local auraEvents = scripts[#scripts]
+F:Fire("GEAR_CHANGED")
+auraEvents:Fire("UNIT_AURA", "player")
+local skill = F:Skill()
+equal(skill.total, 120 + 25 + 20 + 10, "trained, lure, gear and food add up")
+local gearReads, buffReads = GEAR_READS, BUFF_READS
+for _ = 1, 5 do F:Skill() end
+equal(GEAR_READS, gearReads, "worn gear is not read again while it is the same gear")
+equal(BUFF_READS, buffReads, "nor the buffs")
+POLE_BONUS = 5
+equal(F:Skill().gear, 20, "a change nobody announced is not seen")
+F:Fire("GEAR_CHANGED")
+equal(F:Skill().gear, 5, "what is worn changing is announced, and read")
+POLE_BONUS = 7
+NOW = NOW + 11
+equal(F:Skill().gear, 7, "and it is looked at again every so often regardless")
+AURAS = {}
+auraEvents:Fire("UNIT_AURA", "player")
+equal(F:Skill().buffs, 0, "and so is a buff ending")
+
+print("Fishing outfit swap, outfit window, gear finder, catch record, stats, splash, settings page, window and skill breakdown passed")
