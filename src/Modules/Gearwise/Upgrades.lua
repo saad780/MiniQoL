@@ -1,5 +1,5 @@
 local _, ns = ...
-local Upgrades = { queue = {}, queued = {} }
+local Upgrades = { queue = {}, queued = {}, locked = {} }
 ns.Upgrades = Upgrades
 
 local function ItemKey(link)
@@ -63,6 +63,39 @@ function Upgrades:Displaced(worn, bags)
 	return displaced
 end
 
+-- Gear you carry before you can wear it: a sword two levels ahead, mail before
+-- level 40, an off-hand weapon before dual wield, a bow before the skill is
+-- trained. It was looked at once, when it was looted, found unusable and never
+-- looked at again, so the level arrived and nothing was offered. Each carried
+-- piece that cannot be worn is remembered, and returned here on the scan that
+-- finds it can.
+--   fresh: the items to look at for the first time (everything at login, new
+--   loot afterwards). Gear that was wearable all along is never returned.
+function Upgrades:Unlocked(bags, fresh)
+	local locked, unlocked = self.locked, {}
+	for key in pairs(fresh) do
+		if locked[key] == nil then locked[key] = false end -- seen, not yet judged
+	end
+	for key, was in pairs(locked) do
+		local location = bags[key]
+		local result = location and ns.Compare:Get(location.link)
+		if not location then
+			locked[key] = nil
+		elseif result.status == "pending" then
+			-- Its data is still loading: judged on a later scan.
+		elseif result.status == "unusable" and not result.limit then
+			locked[key] = true
+		else
+			locked[key] = nil
+			if was and not fresh[key] then
+				location.unlocked = true
+				unlocked[#unlocked + 1] = location
+			end
+		end
+	end
+	return unlocked
+end
+
 function Upgrades:Enqueue(candidate)
 	if self.queued[candidate.key] then return end
 	self.queued[candidate.key] = true
@@ -84,7 +117,7 @@ function Upgrades:Scan(review)
 	local found, loading, similar, worse, unusable = 0, 0, 0, 0, 0
 	-- One pass over the bags serves both prompts: the upgrade queue and the
 	-- equal-value look offers, which must see the same acquisitions.
-	local acquired = {}
+	local acquired, fresh = {}, {}
 	for key, candidate in pairs(bags) do
 		if review then
 			local status = ns.Compare:Get(candidate.link).status
@@ -96,8 +129,13 @@ function Upgrades:Scan(review)
 		end
 		if review or (self.counts and counts[key] > (self.counts[key] or 0)) then
 			acquired[#acquired + 1] = candidate
+			fresh[key] = true
+		elseif not self.counts then
+			fresh[key] = true -- the first scan: what you already carried
 		end
 	end
+	-- Gear that has just become wearable is offered like new loot.
+	for _, candidate in ipairs(self:Unlocked(bags, fresh)) do acquired[#acquired + 1] = candidate end
 	if ns.db.popups then
 		for _, candidate in ipairs(acquired) do self:Enqueue(candidate) end
 		-- Only the upgrade prompt: a piece you just took off is no new look.
@@ -157,22 +195,38 @@ function Upgrades:Advance()
 		if self.frame then self.frame:Hide() end
 		return
 	end
-	local pending = {}
-	if self.current then table.insert(self.queue, 1, self.current); self.current = nil end
-	while #self.queue > 0 do
-		local candidate = table.remove(self.queue, 1)
+	-- The prompt on screen stays while it is still an upgrade. After it the
+	-- biggest gain goes first, so equipping it retires the lesser pieces for
+	-- the same slot instead of asking about each on the way up. Everything
+	-- waiting is weighed again here, and what is no longer an upgrade leaves
+	-- the queue, so the count on the prompt is a count of upgrades.
+	local showing = self.current
+	if showing then table.insert(self.queue, 1, showing); self.current = nil end
+	local pending, ready = {}, {}
+	for index, candidate in ipairs(self.queue) do
 		local location = self.bags and self.bags[candidate.key]
 		local result = location and ns.Compare:Get(location.link)
 		if result and result.status == "pending" then
 			pending[#pending + 1] = candidate
 		elseif result and result.status == "upgrade" and result.slot ~= candidate.from then
-			self.current = location
-			location.from = candidate.from
-			self:Show(result)
-			break
+			ready[#ready + 1] = { candidate = candidate, location = location, result = result,
+				gain = (showing and index == 1) and math.huge or result.delta }
 		else self.queued[candidate.key] = nil end
 	end
+	table.sort(ready, function(a, b)
+		if a.gain == b.gain then return a.candidate.key < b.candidate.key end
+		return a.gain > b.gain
+	end)
+	wipe(self.queue)
+	local first = table.remove(ready, 1)
+	for _, entry in ipairs(ready) do self.queue[#self.queue + 1] = entry.candidate end
 	for _, candidate in ipairs(pending) do self.queue[#self.queue + 1] = candidate end
+	if first then
+		local location, candidate = first.location, first.candidate
+		location.from, location.unlocked = candidate.from, candidate.unlocked or location.unlocked
+		self.current = location
+		self:Show(first.result)
+	end
 	if #pending > 0 then self:Schedule(0.5) end
 	if not self.current and self.frame then self.frame:Hide() end
 	if self.current then self:UpdateQueueBadge() end
@@ -501,7 +555,8 @@ function Upgrades:Show(result)
 	y = y + 15
 	Place(frame.new, y)
 	local from = self.current.from and SLOT_NAMES[self.current.from]
-	Fill(frame.new, self.current.link, from and ("Just swapped out of your " .. from:lower()) or "In your bags")
+	Fill(frame.new, self.current.link, from and ("Just swapped out of your " .. from:lower())
+		or (self.current.unlocked and "In your bags, and you can wear it now") or "In your bags")
 	y = y + ROW_HEIGHT + 12
 
 	Place(frame.rule, y)

@@ -49,6 +49,20 @@ function Compare:CanEquip(item, profile)
 	return true
 end
 
+-- What a point of weapon damage is worth in a slot. The off hand hits for
+-- half; a wand is a caster's whole attack early on and a stat stick later.
+function Compare:DamageWeight(item, slot, profile)
+	if slot == 18 then
+		if profile.wand and item.subclassID == 19 then
+			return profile.level < 20 and 10 or (profile.level < 40 and 5 or 1.5)
+		end
+		return profile.rangedDPS or 0
+	elseif slot == 16 or slot == 17 then
+		return (profile.meleeDPS or 0) * (slot == 17 and 0.5 or 1)
+	end
+	return 0
+end
+
 function Compare:Score(item, slot, profile)
 	if not item then return 0 end
 	local stats, weights, score = item.stats, profile.weights, 0
@@ -68,16 +82,8 @@ function Compare:Score(item, slot, profile)
 	-- aliases for the same aura, so don't blindly add both for hunters.
 	if profile.class == "HUNTER" then score = score + math.max(stats.ap or 0, stats.rap or 0) * (weights.rap or 1)
 	else score = score + (stats.ap or 0) * (weights.ap or 0) end
-	local dpsWeight = 0
-	if slot == 18 then
-		dpsWeight = profile.rangedDPS or 0
-		if profile.wand and item.subclassID == 19 then
-			dpsWeight = profile.level < 20 and 10 or (profile.level < 40 and 5 or 1.5)
-		end
-	elseif slot == 16 or slot == 17 then
-		dpsWeight = (profile.meleeDPS or 0) * (slot == 17 and 0.5 or 1)
-	end
-	score = score + (stats.dps or 0) * dpsWeight + (stats.bonusArmor or 0) * (weights.armor or 0)
+	score = score + (stats.dps or 0) * self:DamageWeight(item, slot, profile)
+		+ (stats.bonusArmor or 0) * (weights.armor or 0)
 	return score
 end
 
@@ -130,6 +136,11 @@ function Compare:Evaluate(link)
 	if profile.shield and item.loc == "INVTYPE_2HWEAPON" then
 		return { status = "unsupported", reason = "This build uses a shield", item = item }
 	end
+	-- A hunter's shots need something that shoots. A throwing axe that hits
+	-- harder than an old bow would otherwise replace it.
+	if profile.shoots and item.classID == 2 and item.subclassID == 16 then
+		return { status = "unsupported", reason = "Shots need a bow, gun or crossbow", item = item }
+	end
 	local targets = hands[item.loc] and { 16, 17 } or slots[item.loc]
 	local equipped = {}
 	for _, slot in ipairs(targets) do
@@ -147,9 +158,14 @@ function Compare:Evaluate(link)
 			end
 		end
 	end
-	local alternatives = {}
+	local alternatives, mainFirst = {}, false
 	if hands[item.loc] then
 		local mh, oh = equipped[16], equipped[17]
+		-- A shield build keeps the off hand for a shield. Weighed against one,
+		-- a second weapon wins on damage alone and a tank is told to drop the
+		-- shield. Only where something else is already held is it compared.
+		local keepsShield = profile.shield and item.loc ~= "INVTYPE_SHIELD"
+			and (not oh or oh.loc == "INVTYPE_SHIELD")
 		if item.loc == "INVTYPE_2HWEAPON" then
 			alternatives[1] = { slot = 16, replaced = { [16] = true, [17] = true }, old = { [16] = mh, [17] = oh } }
 		elseif item.loc == "INVTYPE_SHIELD" or item.loc == "INVTYPE_HOLDABLE" or item.loc == "INVTYPE_WEAPONOFFHAND" then
@@ -159,11 +175,23 @@ function Compare:Evaluate(link)
 			if item.loc == "INVTYPE_WEAPONOFFHAND" and not DualWield(profile) then
 				return { status = "unusable", reason = "Dual wield is not available", item = item }
 			end
+			if keepsShield then
+				return { status = "unsupported", reason = "This build uses a shield", item = item }
+			end
 			alternatives[1] = { slot = 17, replaced = { [17] = true }, old = { [17] = oh } }
 		else
 			alternatives[1] = { slot = 16, replaced = { [16] = true }, old = { [16] = mh } }
-			if item.loc == "INVTYPE_WEAPON" and mh and mh.loc ~= "INVTYPE_2HWEAPON" and DualWield(profile) then
+			if item.loc == "INVTYPE_WEAPON" and mh and mh.loc ~= "INVTYPE_2HWEAPON" and DualWield(profile)
+				and not keepsShield then
 				alternatives[2] = { slot = 17, replaced = { [17] = true }, old = { [17] = oh } }
+				-- The harder-hitting of two weapons belongs in the main hand, where
+				-- it hits for full. Judged one slot at a time, a sword a little
+				-- better than the main hand gains more over the weaker off hand
+				-- and was sent there, leaving the lesser weapon in front. Where
+				-- it improves the main hand it goes there, and the weapon it
+				-- pushes out is offered for the off hand in turn (Upgrades).
+				mainFirst = (profile.meleeDPS or 0) > 0 and mh.loc == "INVTYPE_WEAPON"
+					and (item.stats.dps or 0) > (mh.stats.dps or 0)
 			end
 		end
 	else
@@ -172,7 +200,8 @@ function Compare:Evaluate(link)
 		end
 	end
 	local best
-	for _, alternative in ipairs(alternatives) do
+	for index, alternative in ipairs(alternatives) do
+		if index == 2 and mainFirst and best and best.status == "upgrade" then break end
 		if UniqueAllowed(item, alternative.replaced, equipped) then
 			local oldScore = 0
 			for slot, old in pairs(alternative.old) do oldScore = oldScore + self:Score(old, slot, profile) end
@@ -203,7 +232,7 @@ function Compare:Evaluate(link)
 			end
 		end
 	end
-	best = best or { status = "unusable", reason = "Unique-equipped limit", item = item }
+	best = best or { status = "unusable", reason = "Unique-equipped limit", item = item, limit = true }
 	self.cache[link] = best
 	return best
 end

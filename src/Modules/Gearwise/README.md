@@ -8,9 +8,18 @@ Newly obtained upgrades open a compact, movable comparison window showing the cu
 
 The first login or reload records your existing inventory without prompting for it. Sorting bags or swapping gear does not count as obtaining an item. Use `/gw upgrades` to review upgrades already in your bags.
 
+Gear you carry before you can wear it is remembered: a sword two levels ahead, mail before level 40, an off-hand weapon before dual wield, a bow before the skill is trained. The prompt opens when the level or the skill arrives, and says the item can be worn now. With several upgrades waiting, the biggest gain is offered first, so equipping it retires the lesser pieces for the same slot; the count on the prompt is a count of upgrades.
+
 Small improvements count too: an otherwise identical 10-armor chest upgrades an 8-armor chest. `/gw upgrades` refreshes item data and reports upgrades found, comparisons still loading, or why there are no upgrades.
 
 Profession and utility tools, including fishing poles, mining picks, skinning knives, blacksmith hammers, spanners and chisels, receive no combat gear arrows, red unusable tint, or equip recommendation. Detection uses item categories rather than localized names.
+
+What each build is advised follows how it fights:
+
+- Warriors and rogues weigh a ranged weapon mostly by the stats on it, and a little by its damage, so a plainly better throwing knife, bow or gun is an upgrade. Hunters weigh a melee weapon the same way.
+- Hunters are not offered a throwing weapon for the ranged slot: shots need a bow, gun or crossbow.
+- Shield builds (Protection, Enhancement Tank) keep the off hand for a shield. A second weapon or a held item is not weighed against one.
+- With two weapons, the harder-hitting one is offered for the main hand; the weapon it pushes out is then offered for the off hand.
 
 Leveling caster/healer builds value melee weapon DPS below level 20. Weapon changes use precise API DPS, or calculate DPS from damage and speed when the API value is missing; rounding is applied only to the final displayed change. For example, Worn Mace to Forsaken Maul shows +0.8 Weapon DPS even though the individual tooltips round to 1.1 and 1.8 DPS.
 

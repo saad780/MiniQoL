@@ -23,7 +23,9 @@ function Display:Changes(result, limit, perLine)
 		local duplicateHealing = key == "heal" and math.abs(value - (result.changes.sp or 0)) < 0.01
 		if math.abs(value) >= 0.01 and labels[key] and not duplicateHealing then
 			local weight = ns.profile.weights[key] or 0
-			if key == "dps" then weight = ns.profile.meleeDPS or ns.profile.rangedDPS or (ns.profile.wand and 5) or 0 end
+			if key == "dps" then
+				weight = result.item and result.slot and ns.Compare:DamageWeight(result.item, result.slot, ns.profile) or 0
+			end
 			if key == ns.profile.school then weight = ns.profile.weights.sp or 0 end
 			rows[#rows + 1] = { key = key, value = value, importance = math.abs(value * weight) }
 		end
@@ -242,6 +244,17 @@ function Display:Arrow(button, result)
 	arrow:Show()
 end
 
+-- The reward and bag frames the game names. Discover runs twice a second for
+-- as long as you are logged in, so the names are spelled out once here rather
+-- than built again on every pass.
+local QUEST_BUTTONS, CONTAINER_FRAMES = {}, {}
+for i = 1, 20 do
+	for _, prefix in ipairs({ "QuestInfoRewardsFrameQuestInfoItem", "MapQuestInfoRewardsFrameQuestInfoItem",
+		"QuestInfoItem", "QuestRewardItem", "QuestChoiceItem", "QuestLogItem" }) do
+		QUEST_BUTTONS[#QUEST_BUTTONS + 1] = prefix .. i
+	end
+end
+
 function Display:Discover()
 	local function Add(button) if button then self:Track(button, "quest") end end
 	local function Root(root)
@@ -252,15 +265,13 @@ function Display:Discover()
 	Root(QuestInfoRewardsFrame)
 	Root(MapQuestInfoRewardsFrame)
 	if QuestInfoFrame then Root(QuestInfoFrame.rewardsFrame) end
-	for i = 1, 20 do
-		for _, prefix in ipairs({ "QuestInfoRewardsFrameQuestInfoItem", "MapQuestInfoRewardsFrameQuestInfoItem",
-			"QuestInfoItem", "QuestRewardItem", "QuestChoiceItem", "QuestLogItem" }) do
-			local button = _G[prefix .. i]
-			if button and button:IsShown() then Add(button) end
-		end
+	for _, name in ipairs(QUEST_BUTTONS) do
+		local button = _G[name]
+		if button and button:IsShown() then Add(button) end
 	end
 	for index = 1, (NUM_CONTAINER_FRAMES or 13) do
-		local frame = _G["ContainerFrame" .. index]
+		CONTAINER_FRAMES[index] = CONTAINER_FRAMES[index] or ("ContainerFrame" .. index)
+		local frame = _G[CONTAINER_FRAMES[index]]
 		if frame and frame:IsShown() then
 			if frame.EnumerateValidItems then
 				for _, button in frame:EnumerateValidItems() do self:Track(button) end

@@ -26,18 +26,26 @@ local function Add(class, key, label, base, changes, options)
 	table.insert(Profiles.classes[class], profile)
 end
 
-Add("WARRIOR", "arms", "Arms", melee, nil, { meleeDPS = 14 })
-Add("WARRIOR", "fury", "Fury", melee, { hit = 25 }, { meleeDPS = 14 })
-Add("WARRIOR", "protection", "Protection", tank, nil, { meleeDPS = 9, shield = true })
+-- A weapon the build does not fight with still gets used: a warrior or a rogue
+-- pulls with one throw before a whole fight of swings, and a hunter is caught
+-- in melee. What it is worth to them is the stats on it, but its damage has to
+-- count for something. At nothing, every plain throwing knife scored zero, so
+-- a better one tied with the one in the slot and was never offered.
+local spare = 0.25
+
+Add("WARRIOR", "arms", "Arms", melee, nil, { meleeDPS = 14, rangedDPS = spare })
+Add("WARRIOR", "fury", "Fury", melee, { hit = 25 }, { meleeDPS = 14, rangedDPS = spare })
+Add("WARRIOR", "protection", "Protection", tank, nil, { meleeDPS = 9, rangedDPS = spare, shield = true })
 Add("PALADIN", "holy", "Holy", healer, { spi = 0.6, crit = 22 }, { role = "healer" })
 Add("PALADIN", "protection", "Protection", tank, { sp = 1, int = 0.8 }, { meleeDPS = 8, shield = true })
 Add("PALADIN", "retribution", "Retribution", melee, { sp = 0.7, int = 0.35 }, { meleeDPS = 14 })
-Add("HUNTER", "beast_mastery", "Beast Mastery", melee, { str = 0.3, agi = 2.5, ap = 1, rap = 1, int = 0.35 }, { rangedDPS = 15 })
-Add("HUNTER", "marksmanship", "Marksmanship", melee, { str = 0.3, agi = 2.6, ap = 1, rap = 1, int = 0.5 }, { rangedDPS = 16 })
-Add("HUNTER", "survival", "Survival", melee, { str = 0.4, agi = 2.7, ap = 1, rap = 1, sta = 1, int = 0.35 }, { rangedDPS = 15 })
-Add("ROGUE", "assassination", "Assassination", melee, { str = 1, agi = 2.4, hit = 26 }, { meleeDPS = 15 })
-Add("ROGUE", "combat", "Combat", melee, { str = 1, agi = 2.3, hit = 25 }, { meleeDPS = 15 })
-Add("ROGUE", "subtlety", "Subtlety", melee, { str = 1, agi = 2.5 }, { meleeDPS = 15 })
+-- shoots: the ranged slot has to hold a bow, gun or crossbow (Compare.lua).
+Add("HUNTER", "beast_mastery", "Beast Mastery", melee, { str = 0.3, agi = 2.5, ap = 1, rap = 1, int = 0.35 }, { rangedDPS = 15, meleeDPS = spare, shoots = true })
+Add("HUNTER", "marksmanship", "Marksmanship", melee, { str = 0.3, agi = 2.6, ap = 1, rap = 1, int = 0.5 }, { rangedDPS = 16, meleeDPS = spare, shoots = true })
+Add("HUNTER", "survival", "Survival", melee, { str = 0.4, agi = 2.7, ap = 1, rap = 1, sta = 1, int = 0.35 }, { rangedDPS = 15, meleeDPS = spare, shoots = true })
+Add("ROGUE", "assassination", "Assassination", melee, { str = 1, agi = 2.4, hit = 26 }, { meleeDPS = 15, rangedDPS = spare })
+Add("ROGUE", "combat", "Combat", melee, { str = 1, agi = 2.3, hit = 25 }, { meleeDPS = 15, rangedDPS = spare })
+Add("ROGUE", "subtlety", "Subtlety", melee, { str = 1, agi = 2.5 }, { meleeDPS = 15, rangedDPS = spare })
 Add("PRIEST", "discipline", "Discipline", healer, { int = 2.1 }, { role = "healer", wand = true })
 Add("PRIEST", "holy", "Holy", healer, { spi = 1.9 }, { role = "healer", wand = true })
 Add("PRIEST", "shadow", "Shadow", caster, { sp = 2.9, spi = 0.9 }, { school = "shadow", wand = true })
@@ -96,7 +104,9 @@ function Profiles:Detect()
 	local className, class = UnitClass("player")
 	local options = self.classes[class]
 	if not options then return nil end
-	local level = math.max(1, UnitLevel("player") or 1)
+	-- On the level-up event the game can still report the old level; the level
+	-- the event announced is kept in ns.level (Core.lua).
+	local level = math.max(1, UnitLevel("player") or 1, ns.level or 1)
 	local key, source = ns.db and ns.db.spec or "auto", "Manual"
 	if key == "auto" or not self:Find(class, key) then
 		key, source = nil, "Auto"
@@ -134,10 +144,11 @@ function Profiles:Detect()
 		profile.meleeDPS = 10 -- Before Bear Form, the weapon is used directly.
 		profile.weights.int = 0.6
 	end
-	if profile.leveling and level < 20 and not profile.meleeDPS and not profile.feral then
+	if profile.leveling and level < 20 and not profile.feral then
 		-- Early caster/healer characters still use their melee weapons. A plain
 		-- mace upgrade must not tie just because the eventual build is a caster.
-		profile.meleeDPS = level < 10 and 8 or 2
+		local early = level < 10 and 8 or 2
+		if (profile.meleeDPS or 0) < early then profile.meleeDPS = early end
 	end
 	profile.weights.health = (profile.weights.sta or 0) / 10
 	profile.weights.mana = (profile.weights.int or 0) / 15

@@ -38,6 +38,24 @@ function ns:Invalidate(items)
 	if self.Options.Refresh then self.Options:Refresh() end
 end
 
+-- Game events come in bursts: one swap is several equipment and bag events,
+-- and each used to wipe the caches and read every talent again on the spot.
+-- They now only mark what is stale, and one pass on the next frame does the
+-- work once.
+local staleItems, flushing
+local function Flush()
+	local items = staleItems
+	staleItems, flushing = nil, nil
+	ns:Invalidate(items)
+end
+
+function ns:Stale(items)
+	staleItems = staleItems or items
+	if flushing then return end
+	flushing = true
+	C_Timer.After(0, Flush)
+end
+
 function ns:SetOption(key, value)
 	self.db[key] = value
 	self:Invalidate(false)
@@ -77,8 +95,16 @@ events:SetScript("OnEvent", function(_, event, ...)
 	elseif ns.loggedIn then
 		if event == "QUEST_DETAIL" or event == "QUEST_COMPLETE" or event == "QUEST_LOG_UPDATE" or event == "QUEST_ITEM_UPDATE" then
 			ns.Display:Schedule()
+		elseif event == "GET_ITEM_INFO_RECEIVED" or event == "ITEM_DATA_LOAD_RESULT" then
+			-- These fire for every item any addon loads. Only one Gearwise is
+			-- waiting on changes anything here.
+			if ns.Items:Arrived(...) then ns:Stale(true) end
 		else
-			ns:Invalidate(event ~= "BAG_UPDATE_DELAYED" and event ~= "PLAYER_REGEN_ENABLED")
+			if event == "PLAYER_LEVEL_UP" then
+				local level = ...
+				if ns.Number(level) then ns.level = level end
+			end
+			ns:Stale(event ~= "BAG_UPDATE_DELAYED" and event ~= "PLAYER_REGEN_ENABLED")
 		end
 	end
 end)

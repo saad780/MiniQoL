@@ -1,7 +1,7 @@
 -- Mini QoL packaging adapter; upstream source and credits follow.
 MiniQoLRuntime:Execute("Gearwise", function(...)
 local _, ns = ...
-local Items = { cache = {}, requested = {} }
+local Items = { cache = {}, requested = {}, waiting = {} }
 ns.Items = Items
 
 local professionTools = {
@@ -40,7 +40,7 @@ end
 local names = { strength = "str", agility = "agi", stamina = "sta", intellect = "int", spirit = "spi",
 	["attack power"] = "ap", ["ranged attack power"] = "rap", ["spell power"] = "sp",
 	["spell damage"] = "sp", ["spell damage and healing"] = "sp", healing = "heal",
-	["healing spells"] = "heal", armor = "armor", health = "health", mana = "mana" }
+	["healing spells"] = "heal", armor = "armor", health = "health", mana = "mana", block = "blockValue" }
 for _, school in ipairs({ "fire", "frost", "shadow", "nature", "arcane", "holy" }) do
 	names[school .. " damage"], names[school .. " spell damage"] = school, school
 	names[school .. " resistance"] = school .. "Resist"
@@ -74,10 +74,18 @@ local function ParseLine(text, out, item)
 	end
 	local amount, name = line:match("^%+?([%d%.]+)%s+(.+)$")
 	if amount and names[name] then Add(out, names[name], tonumber(amount)); return end
+	-- "Equip: +30 Attack Power." is the same statement behind a label and a
+	-- full stop, and "Equip: Increased Defense +7." carries its number last.
+	local plain = line:match("^equip:%s*(.-)%.?$")
+	if plain then
+		amount, name = plain:match("^%+([%d%.]+)%s+(.+)$")
+		if amount and names[name] then Add(out, names[name], tonumber(amount)); return end
+	end
 	local all = tonumber(line:match("^%+(%d+) all stats$"))
 	if all then for _, key in ipairs({ "str", "agi", "sta", "int", "spi" }) do Add(out, key, all) end; return end
 	local value = tonumber(line:match("([%d%.]+)%%")) or tonumber(line:match("by up to ([%d%.]+)"))
 		or tonumber(line:match("by ([%d%.]+)")) or tonumber(line:match("^%+([%d%.]+)"))
+		or (plain and (tonumber(plain:match("^%+([%d%.]+)")) or tonumber(plain:match("%+([%d%.]+)$"))))
 	if not value then
 		local regen = tonumber(line:match("restores ([%d%.]+) mana per 5")) or tonumber(line:match("restores ([%d%.]+) mana every 5"))
 		if regen then Add(out, "mp5", regen); return end
@@ -94,6 +102,8 @@ local function ParseLine(text, out, item)
 	elseif line:find("block value", 1, true) or line:find("block value of", 1, true) then Add(out, "blockValue", value)
 	elseif line:find("chance to block", 1, true) or line:find("block rating", 1, true) then Add(out, rating and "blockRating" or "block", value)
 	elseif line:find("defense", 1, true) then Add(out, "defense", value)
+	elseif line:find("haste rating", 1, true) then Add(out, "hasteRating", value)
+	elseif line:find("expertise", 1, true) then Add(out, "expertiseRating", value)
 	elseif line:find("attack power in cat", 1, true) or line:find("feral attack power", 1, true) then Add(out, "feralAP", value)
 	elseif line:find("ranged attack power", 1, true) then Add(out, "rap", value)
 	elseif line:find("attack power", 1, true) then Add(out, "ap", value)
@@ -113,7 +123,8 @@ local function ParseLine(text, out, item)
 			else item.effects = true end
 		elseif school then Add(out, school, value)
 		elseif line:find("damage", 1, true) or line:find("spell power", 1, true) then Add(out, "sp", value)
-		else Add(out, "heal", value) end
+		elseif line:find("healing", 1, true) then Add(out, "heal", value)
+		elseif line:match("^equip:") then item.effects = true end
 	elseif line:match("^equip:") then item.effects = true end
 end
 
@@ -122,12 +133,24 @@ function Items:Clear()
 end
 
 function Items:Request(id)
-	if not id or not C_Item or not C_Item.RequestLoadItemDataByID then return end
+	if not id then return end
+	self.waiting[id] = true
+	if not C_Item or not C_Item.RequestLoadItemDataByID then return end
 	local now = GetTime()
 	if not self.requested[id] or now - self.requested[id] > 5 then
 		self.requested[id] = now
 		C_Item.RequestLoadItemDataByID(id)
 	end
+end
+
+-- Whether item data that just loaded is something Gearwise asked for. Every
+-- addon's requests raise the same events, hundreds a second while a bank or
+-- the auction house fills in.
+function Items:Arrived(id)
+	if not ns.Number(id) then return next(self.waiting) ~= nil end
+	if not self.waiting[id] then return false end
+	self.waiting[id] = nil
+	return true
 end
 
 local function Restriction(text, color, item, requirement)
@@ -136,6 +159,10 @@ local function Restriction(text, color, item, requirement)
 	if color.GetRGB then r, g = color:GetRGB() end
 	if not ns.Number(r) or not ns.Number(g) or r < 0.8 or g > 0.3 then return end
 	local line = Clean(text)
+	-- The level is compared as a number (Compare.lua). Kept as red text it
+	-- can be read a moment before the game repaints it on a level-up, and the
+	-- item then stays locked in the cache at the level that unlocks it.
+	if line:match("^requires level %d+") then return end
 	-- The right side contains weapon/armor proficiency; red names and flavor
 	-- text are not requirements. Requirements can appear on either side.
 	if requirement or line:match("^requires ") or line:match("^classes:") or line:match("^races:") then

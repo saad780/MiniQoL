@@ -51,6 +51,10 @@ sidegrades.execute((root / "tests/sidegrades.lua").read_text(), str(gearwise).re
 upgrades = LuaRuntime(unpack_returned_tuples=True)
 upgrades.execute((root / "tests/upgrades.lua").read_text(), str(gearwise).replace("\\", "/"), str(shell).replace("\\", "/"))
 
+for name in ("builds", "gear_events", "items"):
+    LuaRuntime(unpack_returned_tuples=True).execute(
+        (root / f"tests/{name}.lua").read_text(), str(gearwise).replace("\\", "/"), str(shell).replace("\\", "/"))
+
 peddler = LuaRuntime(unpack_returned_tuples=True)
 peddler.execute((root / "tests/peddler.lua").read_text(), str(gearwise.parent / "Peddler").replace("\\", "/"))
 
