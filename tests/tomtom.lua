@@ -54,6 +54,7 @@ function ns:NewModule(name) self[name] = { name = name }; return self[name] end
 function ns:GetCharacterKey() return "Tester-Realm" end
 function ns:GetSetting(key) return self.db.settings[key] end
 function ns:On() end
+function ns:RegisterEvent() end
 function ns:Fire() end
 local printed = {}
 function ns.Print(message) printed[#printed + 1] = tostring(message) end

@@ -76,6 +76,26 @@ function Compat:ShowPlayer()
 	return true
 end
 
+-- Tracking: keeps the view on the player at the zoom it has. Wayfinder's own
+-- map eases along the way a drag does; OpenMap's API can only glide, which
+-- restarts from rest each time, so it is asked twice a second at most.
+local FOLLOW_GLIDE_EVERY = 0.5
+function Compat:FollowPlayer()
+	local api = self:GetAPI()
+	if not api then return false end
+	local _, _, _, mapID, x, y = ns.GetPlayerWorld()
+	local u, v
+	if mapID then u, v = api.WorldFromMap(mapID, x, y) end
+	if not Number(u) or not Number(v) then return true end
+	if api.FollowWorld then
+		api.FollowWorld(u, v)
+	elseif (u ~= self.followU or v ~= self.followV) and GetTime() - (self.followAt or 0) >= FOLLOW_GLIDE_EVERY then
+		self.followU, self.followV, self.followAt = u, v, GetTime()
+		api.ShowWorld(u, v)
+	end
+	return true
+end
+
 function Compat:RaisePin(pin)
 	local api = self:GetAPI()
 	local top = api and api.ArtTopLevel and api.ArtTopLevel()

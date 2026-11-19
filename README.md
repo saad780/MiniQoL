@@ -13,8 +13,14 @@ minimap icons.
 The continuous map remembers the position, zoom and map layer you left it on for
 the rest of the play session, so closing and reopening returns you to the same
 place. A reload or a relog starts fresh on the map the game itself opens; the
-view is never written to saved variables. Use **Show my location** to return to
-your character.
+view is never written to saved variables. Use **Track my location** to return to
+your character; the map then follows you as you move until you drag it, pick
+another map or click the button again.
+
+When you release your spirit, the waypoint arrow points at your corpse. Coming
+back to life completes that waypoint, wherever it happens, and the arrow returns
+to the waypoint it was on before. **Point the arrow at your corpse** under
+Waypoints turns this off.
 
 Gearwise prompts when you loot an upgrade, and **Space** equips it while that
 prompt is open. When a looted item scores exactly what you are wearing, a small

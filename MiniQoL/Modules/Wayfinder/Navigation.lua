@@ -1,7 +1,7 @@
 -- Mini QoL packaging adapter; upstream source and credits follow.
 MiniQoLRuntime:Execute("Wayfinder", function(...)
--- Getting around: a "show my location" button on the map, middle-click waypoints,
--- and a floating arrow that points the way to the waypoint.
+-- Getting around: a "track my location" button on the map, middle-click waypoints,
+-- a waypoint on your corpse, and a floating arrow that points the way to the waypoint.
 local _, ns = ...
 
 local Navigation = ns:NewModule("Navigation")
@@ -51,6 +51,7 @@ end
 -- until you pick one from the arrow's list.
 local MAX_WAYPOINTS = 50
 local SAME_SPOT_YARDS = 8
+local CORPSE = "corpse" -- the source of the waypoint set on your corpse
 local nextUID = 0
 
 local function NewUID()
@@ -235,6 +236,125 @@ function Navigation:LoadWaypoints()
 	end
 	current = current or list[#list]
 	Save()
+end
+
+---------------------------------------------------------------------------
+-- Your corpse
+---------------------------------------------------------------------------
+-- Releasing your spirit sets a waypoint on your corpse and puts the arrow on
+-- it. Coming back to life completes it, however that happens: at the corpse,
+-- at a spirit healer or from someone's resurrection. Walking up to it does
+-- not, since the body is still needed until you are alive again.
+local CORPSE_LABEL = "Your corpse"
+local CORPSE_TRIES = 10 -- once a second while the game has yet to place the body
+local corpseCheck = 0   -- each new check retires the retries of the one before
+local beforeCorpse      -- the waypoint the arrow was on when the corpse took it
+
+-- The corpse on the player's map, or on a map above it when the spirit was
+-- sent to a graveyard in the next zone over.
+local function CorpseOnMap()
+	if not (C_DeathInfo and C_DeathInfo.GetCorpseMapPosition) then return end
+	local mapID = C_Map.GetBestMapForUnit("player")
+	for _ = 1, 12 do
+		if not mapID or mapID == 0 then return end
+		local ok, position = pcall(C_DeathInfo.GetCorpseMapPosition, mapID)
+		if ok and type(position) == "table" and position.GetXY then
+			local x, y = position:GetXY()
+			if ns.Readable(x) and ns.Readable(y) and type(x) == "number" and type(y) == "number"
+				and (x ~= 0 or y ~= 0) then
+				return mapID, x, y
+			end
+		end
+		local info = C_Map.GetMapInfo(mapID)
+		mapID = info and info.parentMapID
+	end
+end
+
+function Navigation:GetCorpseWaypoint()
+	for _, rec in ipairs(list) do
+		if rec.source == CORPSE then
+			return rec
+		end
+	end
+end
+
+-- Sets the corpse waypoint; false while the game can't yet say where it is.
+function Navigation:MarkCorpse()
+	local mapID, x, y = CorpseOnMap()
+	local cont, wx, wy
+	if mapID then
+		cont, wx, wy = ns.MapToWorld(mapID, x, y)
+	end
+	if not cont then
+		return false
+	end
+	local old = self:GetCorpseWaypoint()
+	if old and old.c == cont and ns.Distance(old.x, old.y, wx, wy) <= SAME_SPOT_YARDS then
+		-- Already marked: a reload or a loading screen as a ghost. The arrow
+		-- stays wherever the player has since put it.
+		return true
+	end
+	if old then
+		-- Left over from a death that ended while Wayfinder wasn't watching.
+		table.remove(list, IndexOf(old))
+		if current == old then
+			current = nil
+		end
+	end
+	if current then
+		beforeCorpse = current
+	end
+	self:AddWaypoint(cont, wx, wy, CORPSE_LABEL, mapID, { source = CORPSE })
+	return true
+end
+
+-- Alive again: the corpse waypoint is done, and the arrow goes back to what it
+-- was following before.
+function Navigation:ClearCorpse()
+	local rec = self:GetCorpseWaypoint()
+	local before = beforeCorpse
+	beforeCorpse = nil
+	if not rec then
+		return false
+	end
+	if current == rec and before and IndexOf(before) then
+		current = before
+	end
+	return self:RemoveWaypoint(rec)
+end
+
+-- Run on every change between alive, dead and ghost. The game can take a
+-- moment after the release, or a loading screen, to place the body, so a ghost
+-- with no corpse found yet is checked again for a few seconds.
+function Navigation:CheckCorpse(attempt)
+	if not attempt then
+		corpseCheck = corpseCheck + 1
+		attempt = 1
+	end
+	if not (UnitIsDeadOrGhost and UnitIsGhost) then
+		return
+	end
+	if not UnitIsDeadOrGhost("player") then
+		self:ClearCorpse()
+		return
+	end
+	if not ns:GetSetting("corpseWaypoint") then
+		return
+	end
+	local ghost = UnitIsGhost("player")
+	if ghost and self:MarkCorpse() then
+		return
+	end
+	if attempt < CORPSE_TRIES and C_Timer then
+		local check = corpseCheck
+		C_Timer.After(1, function()
+			if check == corpseCheck then
+				self:CheckCorpse(attempt + 1)
+			end
+		end)
+	elseif ghost then
+		ns.Print("Your corpse isn't on a map Wayfinder can read, so the arrow can't point to it.")
+	end
 end
 
 ---------------------------------------------------------------------------
@@ -478,7 +598,8 @@ function Navigation:UpdateArrow()
 	end
 	local dx, dy = current.x - wx, current.y - wy -- yards north, yards west
 	local distance = sqrt(dx * dx + dy * dy)
-	if distance <= ARRIVE_YARDS and ns:GetSetting("clearOnArrival") then
+	-- Standing at your corpse is not the end of that one: coming back to life is.
+	if distance <= ARRIVE_YARDS and current.source ~= CORPSE and ns:GetSetting("clearOnArrival") then
 		ns.Print("Arrived at " .. current.n .. ".")
 		Sound("MAP_PING")
 		self:ClearWaypoint()
@@ -693,8 +814,40 @@ function Navigation:OpenWaypointMenu(owner)
 end
 
 ---------------------------------------------------------------------------
--- The world map: middle-click and "show my location"
+-- The world map: middle-click and "track my location"
 ---------------------------------------------------------------------------
+-- Tracking keeps the map on you as you move, until you click the button
+-- again or take the map yourself: press on it to drag or click, right-click
+-- it, or pick another map. Zooming keeps tracking. It lasts the session, so
+-- the map opens on you again until it is turned off.
+local FOLLOW_EVERY = 0.05 -- seconds between moves; the map eases in between
+local tracking = false
+
+local function PlayerMap()
+	return (MapUtil and MapUtil.GetDisplayableMapForPlayer and MapUtil.GetDisplayableMapForPlayer())
+		or C_Map.GetBestMapForUnit("player")
+end
+
+-- Whether the left button is held on the map: the canvas's own record, which
+-- also catches presses that reach it through a map icon.
+local function MapButtonDown()
+	local container = WorldMapFrame and WorldMapFrame.ScrollContainer
+	local info = container and container.mouseButtonInfo
+	local left = info and info.LeftButton
+	return (left and left.down == true) or ns.DetailView:IsDragging() == true
+end
+
+-- Already on your map: if zoomed in, slide over to you.
+local function PanToPlayer(mapID)
+	local position = C_Map.GetPlayerMapPosition(mapID, "player")
+	if position and not WorldMapFrame:IsAtMinZoom() then
+		local x, y = position:GetXY()
+		local container = WorldMapFrame.ScrollContainer
+		local minX, maxX, minY, maxY = container:CalculateScrollExtentsAtScale(container:GetCanvasScale())
+		WorldMapFrame:PanTo(min(max(x, minX), maxX), min(max(y, minY), maxY))
+	end
+end
+
 function Navigation:ShowPlayerOnMap()
 	if ns.DetailView:IsActive() then
 		if ns.DetailView:CenterOnPlayer() then
@@ -703,8 +856,7 @@ function Navigation:ShowPlayerOnMap()
 		ns.DetailView:Exit(true)
 	end
 	if ns.OpenMapCompat:ShowPlayer() then return end
-	local mapID = (MapUtil and MapUtil.GetDisplayableMapForPlayer and MapUtil.GetDisplayableMapForPlayer())
-		or C_Map.GetBestMapForUnit("player")
+	local mapID = PlayerMap()
 	if not mapID then
 		return
 	end
@@ -712,13 +864,113 @@ function Navigation:ShowPlayerOnMap()
 		WorldMapFrame:SetMapID(mapID)
 		return
 	end
-	-- Already on your map: if zoomed in, slide over to you.
-	local position = C_Map.GetPlayerMapPosition(mapID, "player")
-	if position and not WorldMapFrame:IsAtMinZoom() then
-		local x, y = position:GetXY()
-		local container = WorldMapFrame.ScrollContainer
-		local minX, maxX, minY, maxY = container:CalculateScrollExtentsAtScale(container:GetCanvasScale())
-		WorldMapFrame:PanTo(min(max(x, minX), maxX), min(max(y, minY), maxY))
+	PanToPlayer(mapID)
+end
+
+-- One step of tracking: the same moves as showing the player, made gently
+-- enough to repeat while you walk.
+function Navigation:FollowPlayer()
+	if ns.DetailView:IsActive() then
+		if ns.DetailView:CenterOnPlayer() then
+			return
+		end
+		ns.DetailView:Exit(true)
+	end
+	if ns.OpenMapCompat:FollowPlayer() then return end
+	local mapID = PlayerMap()
+	if not mapID then
+		return
+	end
+	if WorldMapFrame:GetMapID() ~= mapID then
+		-- Over the border into the next zone. Not mid-fight: the map is the
+		-- game's, and changing it from here then is asking for blocked actions.
+		if not InCombatLockdown() then
+			WorldMapFrame:SetMapID(mapID)
+		end
+		return
+	end
+	PanToPlayer(mapID)
+end
+
+function Navigation:IsTracking()
+	return tracking
+end
+
+function Navigation:SetTracking(on)
+	on = on == true
+	if tracking == on then
+		return
+	end
+	tracking = on
+	self.trackingHeld = MapButtonDown()
+	self.followElapsed = 0
+	if on then
+		self:ShowPlayerOnMap()
+	end
+	self:RefreshLocateButton()
+end
+
+-- Runs while the map is open: the button that owns it is the map's child.
+function Navigation:OnTrackingUpdate(elapsed)
+	if not tracking then
+		return
+	end
+	-- A press the map is carrying is the player taking it over.
+	local held = MapButtonDown()
+	if held and not self.trackingHeld then
+		self:SetTracking(false)
+		return
+	end
+	self.trackingHeld = held
+	self.followElapsed = (self.followElapsed or 0) + elapsed
+	if self.followElapsed >= FOLLOW_EVERY then
+		self.followElapsed = 0
+		self:FollowPlayer()
+	end
+end
+
+-- Another map, picked by the player rather than reached by following them.
+function Navigation:OnTrackedMapChanged()
+	if not tracking or not WorldMapFrame:IsShown() then
+		return
+	end
+	local stitch = ns.ContinuousEngine and ns.ContinuousEngine.MapStitch
+	if stitch and stitch.Switching and stitch.Switching() then
+		return -- the continuous map changing what lies underneath its own view
+	end
+	if WorldMapFrame:GetMapID() ~= PlayerMap() then
+		self:SetTracking(false)
+	end
+end
+
+function Navigation:ShowLocateTooltip(button)
+	GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
+	if tracking then
+		GameTooltip:SetText("Tracking my location")
+		GameTooltip:AddLine("The map follows you as you move. Click again, or drag the map, to stop.", 1, 1, 1, true)
+	else
+		GameTooltip:SetText("Track my location")
+		GameTooltip:AddLine("Moves the map to you and follows you as you move. Click again, or drag the map, to stop.", 1, 1, 1, true)
+	end
+	GameTooltip:AddLine("Middle-click anywhere on the map to set a waypoint.", 0.8, 0.8, 0.8, true)
+	GameTooltip:Show()
+end
+
+-- Lit and blue while tracking, the plain gold crosshair otherwise.
+function Navigation:RefreshLocateButton()
+	local button = self.locateButton
+	if not button then
+		return
+	end
+	button.lit:SetShown(tracking)
+	button.icon:SetDesaturated(tracking)
+	if tracking then
+		button.icon:SetVertexColor(0.45, 0.85, 1)
+	else
+		button.icon:SetVertexColor(1, 1, 1)
+	end
+	if GameTooltip.IsOwned and GameTooltip:IsOwned(button) then
+		self:ShowLocateTooltip(button)
 	end
 end
 
@@ -747,6 +999,13 @@ function Navigation:CreateLocateButton()
 	border:SetSize(54, 54)
 	border:SetPoint("TOPLEFT")
 	button:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight", "ADD")
+	-- The hover glow, kept on while tracking.
+	local lit = button:CreateTexture(nil, "OVERLAY", nil, 1)
+	lit:SetTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
+	lit:SetBlendMode("ADD")
+	lit:SetAllPoints()
+	lit:Hide()
+	button.icon, button.lit = icon, lit
 
 	button:SetScript("OnMouseDown", function()
 		icon:SetPoint("TOPLEFT", 8, -7)
@@ -755,16 +1014,27 @@ function Navigation:CreateLocateButton()
 		icon:SetPoint("TOPLEFT", 7, -6)
 	end)
 	button:SetScript("OnClick", function()
-		Navigation:ShowPlayerOnMap()
+		Navigation:SetTracking(not tracking)
 	end)
 	button:SetScript("OnEnter", function(self)
-		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-		GameTooltip:SetText("Show my location")
-		GameTooltip:AddLine("Middle-click anywhere on the map to set a waypoint.", 0.8, 0.8, 0.8, true)
-		GameTooltip:Show()
+		Navigation:ShowLocateTooltip(self)
 	end)
 	button:SetScript("OnLeave", GameTooltip_Hide)
+	button:SetScript("OnUpdate", function(_, elapsed)
+		Navigation:OnTrackingUpdate(elapsed)
+	end)
 	self.locateButton = button
+
+	-- Taking the map: caught as the press lands, before a drag can move it.
+	WorldMapFrame.ScrollContainer:HookScript("OnMouseDown", function(_, mouseButton)
+		if tracking and (mouseButton == "LeftButton" or mouseButton == "RightButton") then
+			Navigation:SetTracking(false)
+		end
+	end)
+	hooksecurefunc(WorldMapFrame, "OnMapChanged", function()
+		Navigation:OnTrackedMapChanged()
+	end)
+	self:RefreshLocateButton()
 end
 
 -- Shift-clicking the game's own map pin puts its link in chat and copies a
@@ -850,8 +1120,21 @@ function Navigation:OnLogin()
 			arrow:SetScale(ns:GetSetting("arrowScale") or 1)
 		elseif key == "showArrow" then
 			self:RefreshArrow()
+		elseif key == "corpseWaypoint" then
+			if ns:GetSetting("corpseWaypoint") then
+				self:CheckCorpse()
+			else
+				self:ClearCorpse()
+			end
 		end
 	end)
+	-- Releasing your spirit (PLAYER_ALIVE as a ghost), coming back to life
+	-- (PLAYER_UNGHOST, or PLAYER_ALIVE from a resurrection taken before
+	-- releasing), and arriving in the world as a ghost.
+	local function Check() self:CheckCorpse() end
+	ns:RegisterEvent("PLAYER_ALIVE", Check)
+	ns:RegisterEvent("PLAYER_UNGHOST", Check)
+	ns:RegisterEvent("PLAYER_ENTERING_WORLD", Check)
 	EventUtil.ContinueOnAddOnLoaded("Blizzard_WorldMap", function()
 		self:HookWorldMap()
 	end)

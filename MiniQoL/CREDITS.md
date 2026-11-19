@@ -134,7 +134,7 @@ Licences: LICENSE.txt
 
 Author: saad780
 
-Version: 1.5.2
+Version: 1.6.0
 
 Manifest: Modules/Wayfinder/Wayfinder.toc
 

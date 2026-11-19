@@ -1008,6 +1008,11 @@ function DetailView:CenterOnPlayer()
 	return true
 end
 
+-- Held down on the view: a drag, or a click about to be one.
+function DetailView:IsDragging()
+	return active and not following and dragging
+end
+
 function DetailView:BeginDrag()
 	dragging, dragMoved = true, false
 	dragX, dragY = CursorInView()

@@ -45,6 +45,12 @@ share.execute((root / "tests/waypoint_share.lua").read_text(), str(package).repl
 tomtom = LuaRuntime(unpack_returned_tuples=True)
 tomtom.execute((root / "tests/tomtom.lua").read_text(), str(package).replace("\\", "/"))
 
+corpse = LuaRuntime(unpack_returned_tuples=True)
+corpse.execute((root / "tests/corpse.lua").read_text(), str(package).replace("\\", "/"))
+
+map_tracking = LuaRuntime(unpack_returned_tuples=True)
+map_tracking.execute((root / "tests/map_tracking.lua").read_text(), str(package).replace("\\", "/"))
+
 sidegrades = LuaRuntime(unpack_returned_tuples=True)
 sidegrades.execute((root / "tests/sidegrades.lua").read_text(), str(gearwise).replace("\\", "/"), str(shell).replace("\\", "/"))
 

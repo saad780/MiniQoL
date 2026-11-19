@@ -142,6 +142,7 @@ ns.defaults = {
 	showArrow = true,            -- floating arrow pointing at the waypoint
 	arrowScale = 1.0,
 	clearOnArrival = true,       -- remove the waypoint once you reach it
+	corpseWaypoint = true,       -- releasing your spirit points the arrow at your corpse
 	debug = false,
 }
 

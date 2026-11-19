@@ -1018,6 +1018,15 @@ function mod.PanTo(u, v)
 	sc.targetScrollX = Clamp(x, sc.scrollXExtentsMin, sc.scrollXExtentsMax)
 	sc.targetScrollY = Clamp(y, sc.scrollYExtentsMin, sc.scrollYExtentsMax)
 end
+-- Wayfinder: tracking the player eases the view along at the zoom it has, the way a drag
+-- moves it, and counts as moving it so the map underneath catches up once the view rests.
+-- A zoom or glide of ours keeps the view until it is done.
+function mod.FollowTo(u, v)
+	if not active or anim then return false end
+	mod.PanTo(u, v)
+	userMoved = true
+	return true
+end
 function mod.Animating() return anim ~= nil end
 function mod.FitZoom(mapID) return FitZoom(mapID) end
 -- the deepest zoom (the menu's slider and the options): the zoom levels are rebuilt for it

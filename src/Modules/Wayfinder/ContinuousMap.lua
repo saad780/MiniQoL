@@ -62,6 +62,11 @@ function api.ShowWorld(u, v, zoom)
 	Controller().Glide(u, v, zoom or now)
 	return true
 end
+-- Eases toward a world point at the current zoom, for following the player.
+function api.FollowWorld(u, v)
+	if not api.IsStitched() then return false end
+	return Controller().FollowTo(u, v)
+end
 function api.ArtTopLevel() return engine.MapStitch.artTop end
 function api.CanvasFromWorldPos(cont, wx, wy)
 	if not api.IsStitched() then return end
