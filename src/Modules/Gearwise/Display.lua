@@ -85,7 +85,8 @@ function Display:Tooltip(tooltip, data)
 	elseif result.status == "pending" then verdict = "Loading item data..."
 	elseif result.status == "unusable" or result.status == "unsupported" then verdict = result.reason or "Cannot compare" end
 	tooltip:AddDoubleLine("|cff8bc5e8Gearwise|r", color .. verdict .. "|r")
-	tooltip:AddLine(ns.profile.label .. " " .. ns.profile.className .. (ns.profile.leveling and "  /  Leveling" or ""), 0.65, 0.69, 0.74)
+	tooltip:AddLine(ns.profile.label .. " " .. ns.profile.className .. (ns.profile.leveling and "  /  Leveling" or "")
+		.. (ns.profile.custom and "  /  Your values" or ""), 0.65, 0.69, 0.74)
 	if verdict ~= "Equipped" then
 		if result.oldLinks and #result.oldLinks > 0 then
 			local slotLabel = result.slot == 17 and "Off hand" or (result.slot == 16 and "Main hand" or "Replaces")

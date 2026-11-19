@@ -1,4 +1,4 @@
-local root = ...
+local root, gearwise = ...
 local objects = {}
 local methods = {}
 function methods:SetScript(key, value) self.scripts[key] = value end
@@ -75,7 +75,8 @@ Minimap:SetSize(200, 200)
 UISpecialFrames, SlashCmdList = {}, {}
 function UnitName() return "Testplayer" end
 function InCombatLockdown() return false end
-C_AddOns = { GetAddOnMetadata = function() return "test" end, IsAddOnLoaded = function() return false end,
+LOADED = {}
+C_AddOns = { GetAddOnMetadata = function() return "test" end, IsAddOnLoaded = function(name) return LOADED[name] == true end,
     GetNumAddOns = function() return 0 end }
 Settings = { RegisterCanvasLayoutCategory = function() return {} end, RegisterAddOnCategory = function() end }
 GameTooltip = { SetOwner = function() end, SetText = function() end, AddLine = function(_, text) tip = text end,
@@ -85,6 +86,20 @@ function ReloadUI() reloaded = true end
 -- module itself stays unloaded, so the rows render disabled, which is exactly
 -- the state the panel has to lay out correctly.
 Wayfinder = { CategoryList = { { id = "bank", label = "Bankers" }, { id = "inn", label = "Innkeepers" } } }
+-- Gearwise's stat values are declared from its own list, so the real Core and
+-- Profiles are loaded. It stays switched off (no saved data) until the end.
+local gear = {}
+function UnitClass() return CLASS_NAME or "Rogue", CLASS or "ROGUE" end
+function UnitLevel() return 60 end
+if gearwise then
+    MiniQoLRuntime = { order = {}, modules = {}, namespaces = {},
+        Execute = function(_, name, chunk) return chunk(name, gear) end }
+    for _, file in ipairs({ "Core.lua", "Profiles.lua" }) do
+        assert(loadfile(gearwise .. "/" .. file))("Gearwise", gear)
+    end
+    gear.Compare, gear.Display, gear.Options = { Clear = function() end }, { Schedule = function() end }, {}
+    gear.Print = function(text) GEAR_SAID = text end
+end
 local ns = {}
 assert(loadfile(root .. "/Core.lua"))("MiniQoL", ns)
 assert(loadfile(root .. "/Theme.lua"))("MiniQoL", ns)
@@ -148,6 +163,51 @@ assert(ns.rows["feature.test.plain"].label.width == 307 - 25 - 18 - 100 - 6, "pl
 local count = #objects
 for i = 1, 20 do ns:Render() end
 assert(#objects == count, "refresh reuses UI widgets")
+-- Stat values: what one point of each stat is worth to the build in use, one
+-- row per stat that build weighs.
+if gearwise then
+    assert(not ns.rows["feature.gearwise.value.agi"] or not ns.rows["feature.gearwise.value.agi"]:IsShown(),
+        "no stat values while the module is off")
+    LOADED.Gearwise = true
+    gear.db = { spec = "auto", mode = "standard" }
+    gear.profile = gear.Profiles:Detect()
+    ns:ShowPage("bags")
+    local function Row(id) local row = ns.rows["feature.gearwise." .. id]; return row and row:IsShown() and row or nil end
+    local agi = Row("value.agi")
+    assert(agi, "a rogue can set what Agility is worth")
+    assert(Row("value.meleeDPS") and Row("value.rangedDPS"), "and weapon damage, both kinds")
+    assert(not Row("value.sp") and not Row("value.defense") and not Row("value.heal"), "but not stats a rogue has no use for")
+    assert(Row("values.about").label:GetText():find("Combat Rogue", 1, true), "the list says whose it is")
+    assert(agi.label:GetText() == "Agility" and agi.value:GetText() == "2.30", "it starts on the build's own value")
+    assert(Row("value.armor").value:GetText() == "0.015", "small values keep their decimals")
+    assert(Row("value.meleeDPS").value:GetText() == "15.00", "and quarter steps theirs")
+    local reset = Row("values.reset")
+    assert(reset.control.enabled == false, "with nothing changed there is nothing to reset")
+    -- Dragging the slider sets the value; the row then names the default.
+    agi.control.slider:SetValue(3.0000001)
+    assert(gear.db.custom.combat.agi == 3, "a dragged value is kept: " .. tostring(gear.db.custom.combat.agi))
+    assert(gear.profile.weights.agi == 3 and gear.profile.custom, "and scores with at once")
+    assert(agi.label:GetText():find("(default 2.3)", 1, true), "the row shows what it replaced: " .. agi.label:GetText())
+    assert(agi.value:GetText() == "3.00", "beside the new value")
+    assert(ns.rows["feature.gearwise.status"].label:GetText():find("your values", 1, true), "the build line says the values are yours")
+    assert(reset.control.enabled == true and reset.label:GetText() == "1 of Combat's values is yours", "and reset counts them")
+    reset.control.scripts.OnClick()
+    assert(gear.db.custom.combat == nil and gear.profile.weights.agi == 2.3, "reset puts the build's own back")
+    assert(agi.label:GetText() == "Agility" and agi.value:GetText() == "2.30", "on the page as well")
+    assert(GEAR_SAID == "Combat is back on its own values.", "and says so")
+    -- Another class has another list.
+    CLASS_NAME, CLASS = "Priest", "PRIEST"
+    gear.profile = gear.Profiles:Detect()
+    ns:Render()
+    assert(Row("value.sp") and Row("value.int") and Row("value.mp5"), "a priest sets spell power, intellect and mana")
+    assert(not Row("value.agi") and not Row("value.meleeDPS"), "and is not asked about agility or melee damage")
+    -- A pinned value follows the same rule on the Overview.
+    ns.db.favorites["gearwise.value.agi"], ns.db.favorites["gearwise.value.sp"] = true, true
+    ns:ShowPage("home")
+    assert(Row("value.sp") and not Row("value.agi"), "a pinned value only shows for a build that has it")
+    ns.db.favorites["gearwise.value.agi"], ns.db.favorites["gearwise.value.sp"] = nil, nil
+end
+
 ns:Toggle()
 assert(not ns.panel:IsShown(), "panel closes")
-print("Panel navigation, search, favorites and minimap controls passed")
+print("Panel navigation, search, favorites, minimap controls and stat values passed")

@@ -261,6 +261,15 @@ local function LabelText(feature)
     return feature.label
 end
 
+-- A setting can step aside altogether where it does not apply: the stat
+-- values a build has no use for, say. Unlike an unavailable setting, which
+-- stays on the page greyed out with its reason, it is simply not listed.
+local function Hidden(feature)
+    if not feature.hidden then return false end
+    local ok, hidden = pcall(feature.hidden)
+    return not ok or hidden == true
+end
+
 local function Options(feature)
     if feature.options then
         local ok, list = pcall(feature.options)
@@ -583,7 +592,7 @@ function ns:Render()
 
     local features = {}
     for _, feature in ipairs(self.features) do
-        local relevant = searching or feature.page == page.id
+        local relevant = (searching or feature.page == page.id) and not Hidden(feature)
         if relevant and self:Matches(query, feature.label, feature.addon or "Mini QoL", feature.page, feature.tooltip or "") then
             features[#features + 1] = feature
         end
@@ -595,7 +604,7 @@ function ns:Render()
         y = self:ModuleTiles(addons, y)
         local pinned = {}
         for _, feature in ipairs(self.features) do
-            if self.db.favorites[feature.id] then pinned[#pinned + 1] = feature end
+            if self.db.favorites[feature.id] and not Hidden(feature) then pinned[#pinned + 1] = feature end
         end
         local usingDefaults = #pinned == 0
         if usingDefaults then

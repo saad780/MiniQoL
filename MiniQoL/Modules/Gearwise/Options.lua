@@ -57,6 +57,14 @@ function Options:Init()
 			else
 				ns.Sidegrades:Review()
 			end
+		elseif command == "values" then
+			local p = ns.profile
+			if argument == "reset" and p then
+				local count = ns.Profiles:Changed(p.class, p.key)
+				ns.Profiles:Reset(p.key)
+				ns:Invalidate(false)
+				ns.Print(("%s is back on its own values (%d changed)."):format(p.label, count))
+			else self:Open() end
 		elseif command == "upgrades" then
 			if ns.db.popups then ns.Upgrades:Review() else ns.Print("Enable upgrade popups with /gw popups on.") end
 		elseif command == "debug" then

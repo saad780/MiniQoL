@@ -78,6 +78,117 @@ function Profiles:Find(class, key)
 	for _, profile in ipairs(self.classes[class] or {}) do if profile.key == key then return profile end end
 end
 
+---------------------------------------------------------------------------
+-- Values set by hand
+---------------------------------------------------------------------------
+-- Every number above is a judgement, and a player may judge differently. Any
+-- of a build's values can be replaced, per character and per build. The
+-- defaults are never written over: a value set back to its default, or
+-- cleared, is simply the build's own again.
+--   max and step size the control the panel draws; hint is its tooltip.
+local PER_POINT = "What one point is worth. "
+Profiles.STATS = {
+	{ key = "str", label = "Strength", max = 5, step = 0.05, hint = PER_POINT .. "Strength adds attack power for melee builds." },
+	{ key = "agi", label = "Agility", max = 5, step = 0.05, hint = PER_POINT .. "Agility adds crit, dodge and armor, and attack power for rogues, hunters and cats." },
+	{ key = "sta", label = "Stamina", max = 5, step = 0.05, hint = PER_POINT .. "Stamina is health. Leveling priorities add their own bonus on top of this." },
+	{ key = "int", label = "Intellect", max = 5, step = 0.05, hint = PER_POINT .. "Intellect is mana and spell crit." },
+	{ key = "spi", label = "Spirit", max = 5, step = 0.05, hint = PER_POINT .. "Spirit is regeneration. Leveling priorities add their own bonus on top of this." },
+	{ key = "ap", label = "Attack power", max = 3, step = 0.05, hint = PER_POINT .. "Attack power written on the item itself." },
+	{ key = "rap", label = "Ranged attack power", max = 3, step = 0.05, hint = PER_POINT .. "Attack power that only counts for ranged attacks." },
+	{ key = "feralAP", label = "Feral attack power", max = 3, step = 0.05, hint = PER_POINT .. "Attack power that only counts in cat and bear form." },
+	{ key = "sp", label = "Spell power", max = 6, step = 0.05, hint = PER_POINT .. "Damage added to spells. Damage for the build's own school counts the same." },
+	{ key = "heal", label = "Healing", max = 4, step = 0.05, hint = PER_POINT .. "Healing added to spells." },
+	{ key = "mp5", label = "Mana per 5 seconds", max = 10, step = 0.1, hint = PER_POINT .. "Mana restored every five seconds." },
+	{ key = "crit", label = "Crit chance", max = 50, step = 0.5, hint = "What each 1% chance to crit is worth." },
+	{ key = "hit", label = "Hit chance", max = 50, step = 0.5, hint = "What each 1% chance to hit is worth." },
+	{ key = "critRating", label = "Crit rating", max = 3, step = 0.05, hint = PER_POINT .. "Rating is the small-number form of crit chance." },
+	{ key = "hitRating", label = "Hit rating", max = 3, step = 0.05, hint = PER_POINT .. "Rating is the small-number form of hit chance." },
+	{ key = "hasteRating", label = "Haste rating", max = 3, step = 0.05, hint = PER_POINT .. "Haste speeds up attacks and casts." },
+	{ key = "expertiseRating", label = "Expertise rating", max = 3, step = 0.05, hint = PER_POINT .. "Expertise stops attacks being dodged and parried." },
+	{ key = "armor", label = "Armor", max = 0.5, step = 0.005, hint = PER_POINT .. "Small on purpose: armor comes in tens and hundreds." },
+	{ key = "defense", label = "Defense", max = 6, step = 0.1, hint = PER_POINT .. "Defense makes a tank harder to hit and to crit." },
+	{ key = "dodge", label = "Dodge chance", max = 50, step = 0.5, hint = "What each 1% chance to dodge is worth." },
+	{ key = "parry", label = "Parry chance", max = 50, step = 0.5, hint = "What each 1% chance to parry is worth." },
+	{ key = "block", label = "Block chance", max = 50, step = 0.5, hint = "What each 1% chance to block is worth." },
+	{ key = "blockValue", label = "Block value", max = 3, step = 0.05, hint = PER_POINT .. "How much damage each block stops." },
+	{ key = "dodgeRating", label = "Dodge rating", max = 3, step = 0.05, hint = PER_POINT .. "Rating is the small-number form of dodge chance." },
+	{ key = "parryRating", label = "Parry rating", max = 3, step = 0.05, hint = PER_POINT .. "Rating is the small-number form of parry chance." },
+	{ key = "blockRating", label = "Block rating", max = 3, step = 0.05, hint = PER_POINT .. "Rating is the small-number form of block chance." },
+	{ key = "meleeDPS", label = "Melee weapon damage", max = 30, step = 0.25, hint = "What each point of damage per second on a melee weapon is worth. The off hand counts for half." },
+	{ key = "rangedDPS", label = "Ranged weapon damage", max = 30, step = 0.25, hint = "What each point of damage per second on a bow, gun, crossbow or thrown weapon is worth." },
+}
+local statByKey = {}
+for _, stat in ipairs(Profiles.STATS) do statByKey[stat.key] = stat end
+-- Weapon damage is kept on the build itself, not among its stat weights.
+local DAMAGE = { meleeDPS = true, rangedDPS = true }
+
+-- The build's own value for a stat, or nil where the build has no use for it:
+-- only what a build weighs can be set, so the list is short and is the
+-- build's own.
+function Profiles:Default(class, key, stat)
+	local base = self:Find(class, key)
+	if not base or not statByKey[stat] then return nil end
+	if DAMAGE[stat] then return base[stat] end
+	return base.weights[stat]
+end
+
+local function Saved(key, create)
+	local db = ns.db
+	if not db or not key then return nil end
+	if type(db.custom) ~= "table" then
+		if not create then return nil end
+		db.custom = {}
+	end
+	if type(db.custom[key]) ~= "table" then
+		if not create then return nil end
+		db.custom[key] = {}
+	end
+	return db.custom[key]
+end
+
+-- The value in use and the default it stands in for.
+function Profiles:Value(class, key, stat)
+	local default = self:Default(class, key, stat)
+	if default == nil then return nil end
+	local saved = Saved(key)
+	local value = saved and saved[stat]
+	return ns.Number(value) and value or default, default
+end
+
+function Profiles:SetValue(class, key, stat, value)
+	local default = self:Default(class, key, stat)
+	if default == nil then return false end
+	local info = statByKey[stat]
+	if ns.Number(value) then
+		-- Sliders hand back floats a hair off the step.
+		value = math.max(0, math.min(info.max, math.floor(value / info.step + 0.5) * info.step))
+		value = tonumber(("%.4f"):format(value))
+	end
+	if not ns.Number(value) or math.abs(value - default) < info.step / 2 then
+		local saved = Saved(key)
+		if saved then
+			saved[stat] = nil
+			if next(saved) == nil then ns.db.custom[key] = nil end
+		end
+	else
+		Saved(key, true)[stat] = value
+	end
+	return true
+end
+
+-- How many of a build's values differ from its own.
+function Profiles:Changed(class, key)
+	local count = 0
+	for stat, value in pairs(Saved(key) or {}) do
+		if ns.Number(value) and self:Default(class, key, stat) ~= nil then count = count + 1 end
+	end
+	return count
+end
+
+function Profiles:Reset(key)
+	if ns.db and type(ns.db.custom) == "table" then ns.db.custom[key] = nil end
+end
+
 local function TalentPoints(tab)
 	-- Classic-style talents expose the purchased rank as the fifth result.
 	-- Sum ranks rather than guessing which numeric tab field contains points.
@@ -134,6 +245,13 @@ function Profiles:Detect()
 	for k, v in pairs(base) do if k ~= "weights" then profile[k] = v end end
 	profile.weights = {}
 	for k, v in pairs(base.weights) do profile.weights[k] = v end
+	-- Values set by hand stand in for the build's own.
+	for stat, value in pairs(Saved(key) or {}) do
+		if ns.Number(value) and self:Default(class, key, stat) ~= nil then
+			if DAMAGE[stat] then profile[stat] = value else profile.weights[stat] = value end
+			profile.custom = true
+		end
+	end
 	profile.level, profile.className, profile.source = level, className, source
 	profile.leveling = ns.db and (ns.db.mode == "leveling" or (ns.db.mode == "auto" and level < 60))
 	if profile.leveling then

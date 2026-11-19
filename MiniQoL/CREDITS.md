@@ -114,7 +114,7 @@ by Blizzard or the other projects credited here.
 
 Author: saad780
 
-Version: 1.3.0
+Version: 1.4.0
 
 Manifest: Modules/Gearwise/Gearwise.toc
 

@@ -23,8 +23,11 @@ What each build is advised follows how it fights:
 
 Leveling caster/healer builds value melee weapon DPS below level 20. Weapon changes use precise API DPS, or calculate DPS from damage and speed when the API value is missing; rounding is applied only to the final displayed change. For example, Worn Mace to Forsaken Maul shows +0.8 Weapon DPS even though the individual tooltips round to 1.1 and 1.8 DPS.
 
+The values behind the advice can be changed. The Gear advice page lists what one point of each stat is worth to your build, one row per stat the build weighs, so the list differs by class and build. Drag a value to say how much you care about it; it applies to that build on that character only, and the build's own value is shown beside it. Setting a value back, **Reset**, or `/gw values reset` restores the defaults, which are never overwritten. Tooltips say "Your values" while any are changed.
+
 - `/gw` opens settings.
 - `/gw spec <build>` or `/gw spec auto` chooses a build.
+- `/gw values` opens the stat values; `/gw values reset` puts the current build back on its own.
 - `/gw arrows on|off` controls bag and quest arrows.
 - `/gw unusable on|off` controls red equipment shading.
 - `/gw popups on|off` controls upgrade prompts.

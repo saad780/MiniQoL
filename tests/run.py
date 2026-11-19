@@ -8,8 +8,9 @@ from scope import check_scope
 check_scope(root, Path(sys.argv[1]) if len(sys.argv) > 1 else None)
 runtime = LuaRuntime(unpack_returned_tuples=True)
 runtime.execute((root / "tests/runtime.lua").read_text(), str(shell).replace("\\", "/"))
+gearwise = (Path(sys.argv[1]) / "Modules" if len(sys.argv) > 1 else root / "src" / "Modules") / "Gearwise"
 ui = LuaRuntime(unpack_returned_tuples=True)
-ui.execute((root / "tests/ui.lua").read_text(), str(shell).replace("\\", "/"))
+ui.execute((root / "tests/ui.lua").read_text(), str(shell).replace("\\", "/"), str(gearwise).replace("\\", "/"))
 dialogue = LuaRuntime(unpack_returned_tuples=True)
 dialogue.execute((root / "tests/dialogue.lua").read_text(), str(shell).replace("\\", "/"))
 
@@ -45,7 +46,6 @@ tomtom = LuaRuntime(unpack_returned_tuples=True)
 tomtom.execute((root / "tests/tomtom.lua").read_text(), str(package).replace("\\", "/"))
 
 sidegrades = LuaRuntime(unpack_returned_tuples=True)
-gearwise = (Path(sys.argv[1]) / "Modules" if len(sys.argv) > 1 else root / "src" / "Modules") / "Gearwise"
 sidegrades.execute((root / "tests/sidegrades.lua").read_text(), str(gearwise).replace("\\", "/"), str(shell).replace("\\", "/"))
 
 upgrades = LuaRuntime(unpack_returned_tuples=True)

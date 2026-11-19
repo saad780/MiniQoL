@@ -95,6 +95,9 @@ local ITEMS = {
     [9205] = { name = "Kite Shield", loc = "INVTYPE_SHIELD", classID = ARMOR, subclassID = 6,
         stats = { armor = 600, blockValue = 14 } },
     [9206] = { name = "Orb of Vigor", loc = "INVTYPE_HOLDABLE", classID = ARMOR, subclassID = 0, stats = { sta = 30 } },
+    -- Two rings a player might weigh differently from the build.
+    [9301] = { name = "Band of Might", loc = "INVTYPE_FINGER", classID = ARMOR, subclassID = 0, stats = { str = 5 } },
+    [9302] = { name = "Band of Grace", loc = "INVTYPE_FINGER", classID = ARMOR, subclassID = 0, stats = { agi = 3 } },
 }
 local PAIRS = { { 2947, 3107 }, { 2504, 2506 }, { 2508, 2509 }, { 15807, 15808 }, { 5069, 5347 } }
 local function Link(id) return "|cffffffff|Hitem:" .. id .. "::::|h[" .. ITEMS[id].name .. "]|h|r" end
@@ -347,6 +350,80 @@ assert(First("ROGUE", 30):find("Agility", 1, true), "a rogue reads the agility f
 assert(First("HUNTER", 30):find("Weapon DPS", 1, true), "a hunter reads the damage first: " .. First("HUNTER", 30))
 
 ---------------------------------------------------------------------------
+-- Values set by hand
+---------------------------------------------------------------------------
+-- 11. A build's values are a judgement, and can be replaced: per character,
+--     per build, and only for the stats that build weighs. The defaults are
+--     never written over.
+local P = ns.Profiles
+local function Close(a, b) return math.abs(a - b) < 0.0001 end
+Become("ROGUE", 60)
+local key = ns.profile.key
+assert(key == "combat", "a rogue with no talents yet is scored as combat")
+assert(P:Default("ROGUE", key, "agi") == 2.3 and P:Default("ROGUE", key, "meleeDPS") == 15, "the build's own values")
+assert(P:Default("ROGUE", key, "sp") == nil and P:Default("ROGUE", key, "defense") == nil,
+    "what a rogue does not weigh is not his to set")
+assert(not ns.profile.custom, "nothing is changed to begin with")
+--     By the build's own values three agility beats five strength.
+Wear(11, 9302)
+Wear(12, 9302)
+Is(9301, "downgrade", "the strength ring loses to agility by default")
+--     A player who values strength more says so, and the advice follows.
+assert(P:SetValue("ROGUE", key, "str", 3), "strength can be set")
+Become("ROGUE", 60)
+assert(ns.profile.weights.str == 3 and ns.profile.custom, "the build takes the value")
+Is(9301, "upgrade", "and now the strength ring wins")
+assert(ns.db.custom.combat.str == 3, "it is kept with the character, under the build")
+assert(P:Changed("ROGUE", key) == 1, "and counted")
+--     Another build is untouched.
+assert(Become("ROGUE", 60, "subtlety").weights.str == 1 and not ns.profile.custom, "subtlety keeps its own strength")
+--     Values land on the control's steps, stay inside its range, and a value
+--     set back to the default is simply the default again.
+P:SetValue("ROGUE", key, "agi", 1.2300001)
+assert(Close(ns.db.custom.combat.agi, 1.25), "values snap to the step: " .. tostring(ns.db.custom.combat.agi))
+P:SetValue("ROGUE", key, "agi", 99)
+assert(ns.db.custom.combat.agi == 5, "and stop at the top of the range")
+P:SetValue("ROGUE", key, "agi", 2.2999999)
+assert(ns.db.custom.combat.agi == nil, "the default again is no change at all")
+assert(not P:SetValue("ROGUE", key, "sp", 2) and ns.db.custom.combat.sp == nil, "spell power is refused for a rogue")
+--     Weapon damage is set the same way.
+P:SetValue("ROGUE", key, "rangedDPS", 5)
+assert(Become("ROGUE", 60).rangedDPS == 5, "ranged weapon damage follows")
+--     Leveling adds its bonus on top of whatever stamina is worth.
+P:SetValue("ROGUE", key, "sta", 2)
+assert(Close(Become("ROGUE", 60).weights.sta, 2), "stamina as set at 60")
+assert(Close(Become("ROGUE", 30).weights.sta, 2 * 1.35), "and with the leveling bonus below it")
+--     Reset brings every default back.
+P:Reset(key)
+Become("ROGUE", 60)
+assert(ns.profile.weights.str == 1 and ns.profile.rangedDPS < 1 and not ns.profile.custom, "reset is the build's own again")
+assert(P:Changed("ROGUE", key) == 0 and ns.db.custom.combat == nil, "with nothing left behind")
+Is(9301, "downgrade", "and the advice is the default advice")
+--     Every build offers something, and only stats it has a value for.
+for class, builds in pairs(P.classes) do
+    for _, build in ipairs(builds) do
+        local offered = 0
+        for _, stat in ipairs(P.STATS) do
+            local default = P:Default(class, build.key, stat.key)
+            if default ~= nil then
+                offered = offered + 1
+                assert(default >= 0 and default <= stat.max,
+                    ("%s %s: %s's own value %s is outside its control"):format(class, build.key, stat.key, default))
+                local steps = default / stat.step
+                assert(Close(steps, math.floor(steps + 0.5)),
+                    ("%s %s: %s's own value %s is not on a step"):format(class, build.key, stat.key, default))
+            end
+        end
+        assert(offered >= 8, class .. " " .. build.key .. " offers too little to set: " .. offered)
+        for stat in pairs(build.weights) do
+            assert(P:Default(class, build.key, stat) ~= nil, class .. " " .. build.key .. " weighs " .. stat .. " but cannot set it")
+        end
+    end
+end
+Wear(11, nil)
+Wear(12, nil)
+
+---------------------------------------------------------------------------
 -- And the prompt itself, from loot to the slot
 ---------------------------------------------------------------------------
 Become("ROGUE", 16)
@@ -372,4 +449,4 @@ Changed()
 assert(EQUIPPED[18] == Link(3107) and ID(BAG[1]) == 2947, "equipping it swaps the knives")
 assert(not Prompt(), "and the old knife is not offered back")
 
-print("Builds: melee builds weigh ranged damage, hunters keep a bow, tanks keep the shield, the better weapon leads")
+print("Builds: ranged damage, hunters' bows, tanks' shields, the better weapon in front, values set by hand")

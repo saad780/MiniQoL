@@ -160,8 +160,9 @@ feature({ id = "gearwise.status", page = "bags", group = "Build", label = "Readi
     get = function()
         local p = Gearwise.profile
         if not p then return "Class data unavailable." end
-        return ("Scoring for %s %s  \194\183  %s  \194\183  %s  \194\183  level %d")
-            :format(p.label, p.className, p.source, p.leveling and "Leveling" or "Standard", p.level)
+        return ("Scoring for %s %s  \194\183  %s  \194\183  %s  \194\183  level %d%s")
+            :format(p.label, p.className, p.source, p.leveling and "Leveling" or "Standard", p.level,
+                p.custom and "  \194\183  your values" or "")
     end })
 feature({ id = "gearwise.spec", page = "bags", group = "Build", label = "Build", addon = "Gearwise",
     kind = "select", available = gearReady,
@@ -219,6 +220,87 @@ feature({ id = "gearwise.forgetStyles", page = "bags", group = "Bag review", lab
         local count = Gearwise.Sidegrades:ClearDeclined()
         Gearwise.Print(("Forgot %d declined item%s."):format(count, count == 1 and "" or "s"))
     end, tooltip = "Lets items you turned down ask again next time you loot one." })
+
+-- Stat values: what one point of each stat is worth to the build in use. One
+-- row per stat Gearwise knows; a row steps aside where the build does not
+-- weigh that stat, so a rogue and a priest see different lists. The rows are
+-- only declared when the module is loaded, since the stat list is its own.
+if Gearwise and Gearwise.Profiles and Gearwise.Profiles.STATS then
+    local Profiles = Gearwise.Profiles
+    local function Build()
+        local p = gearReady() and Gearwise.profile
+        if p then return p.class, p.key, p end
+    end
+    -- As many decimals as the step needs: 0.5 is one, 0.25 two, 0.005 three.
+    local function Places(step)
+        for places = 0, 3 do
+            local scaled = step * 10 ^ places
+            if math.abs(scaled - math.floor(scaled + 0.5)) < 0.0001 then return "%." .. places .. "f" end
+        end
+        return "%.3f"
+    end
+    local function Plain(value, step)
+        -- "2" rather than "2.00", "0.015" rather than "0.0150".
+        return (Places(step):format(value):gsub("(%..-)0+$", "%1"):gsub("%.$", ""))
+    end
+
+    feature({ id = "gearwise.values.about", page = "bags", group = "Stat values", label = "Stat values",
+        addon = "Gearwise", kind = "info", available = gearReady,
+        hidden = function() return Build() == nil end,
+        get = function()
+            local _, _, p = Build()
+            return ("%s %s: what one point of each stat is worth when two items are compared.")
+                :format(p.label, p.className)
+        end })
+    for _, stat in ipairs(Profiles.STATS) do
+        feature({ id = "gearwise.value." .. stat.key, page = "bags", group = "Stat values", label = stat.label,
+            addon = "Gearwise", kind = "slider", min = 0, max = stat.max, step = stat.step, available = gearReady,
+            -- Only what the build weighs is listed.
+            hidden = function()
+                local class, key = Build()
+                return not key or Profiles:Default(class, key, stat.key) == nil
+            end,
+            -- A changed value names the default it replaced.
+            text = function()
+                local class, key = Build()
+                local value, default = Profiles:Value(class, key, stat.key)
+                if value == default then return stat.label end
+                return ("%s  |cff9d9d9d(default %s)|r"):format(stat.label, Plain(default, stat.step))
+            end,
+            format = function(value) return Places(stat.step):format(value) end,
+            get = function()
+                local class, key = Build()
+                return (Profiles:Value(class, key, stat.key))
+            end,
+            set = function(value)
+                local class, key = Build()
+                Profiles:SetValue(class, key, stat.key, value)
+                Gearwise:Invalidate(false)
+            end,
+            tooltip = stat.hint .. "\n\nGearwise adds these up to compare two items, so a higher number makes this stat count for more. "
+                .. "It applies to this build on this character; the build's own value comes back when you set it back or reset." })
+    end
+    feature({ id = "gearwise.values.reset", page = "bags", group = "Stat values", label = "Reset stat values",
+        addon = "Gearwise", kind = "action", button = "Reset", wide = true,
+        hidden = function() return Build() == nil end,
+        available = function()
+            local class, key = Build()
+            return key ~= nil and Profiles:Changed(class, key) > 0
+        end,
+        unavailable = "Every value is the build's own.",
+        text = function()
+            local class, key, p = Build()
+            local count = Profiles:Changed(class, key)
+            return ("%d of %s's values %s yours"):format(count, p.label, count == 1 and "is" or "are")
+        end,
+        run = function()
+            local _, key, p = Build()
+            Profiles:Reset(key)
+            Gearwise:Invalidate(false)
+            Gearwise.Print(p.label .. " is back on its own values.")
+        end,
+        tooltip = "Puts every value for this build back to Gearwise's own. Other builds keep what you set for them." })
+end
 
 ---------------------------------------------------------------------------
 -- Peddler
