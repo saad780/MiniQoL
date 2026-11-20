@@ -38,6 +38,7 @@ ContinuousArt.lua
 Vendor\OpenMap\WorldMap.lua
 OpenMapCompat.lua
 MapPins.lua
+PinGuard.lua
 Pins.xml
 AddonPins.lua
 MapLoading.lua

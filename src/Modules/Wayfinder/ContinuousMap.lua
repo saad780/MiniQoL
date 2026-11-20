@@ -225,6 +225,9 @@ function Continuous:Start()
 	local fl = map and map.GetPinFrameLevelsManager and map:GetPinFrameLevelsManager()
 	if not sc or not sc.CreateZoomLevels or not fl or not fl.InsertFrameLevelAbove then return end
 	self.started = true
+	-- From here on Wayfinder puts maps up itself, which the game's pins must
+	-- not pay for with a blocked call in combat (PinGuard.lua).
+	ns.PinGuard:Arm()
 	self:SuspendOpenMap()
 	local mod = Controller()
 	mod.enabled = true

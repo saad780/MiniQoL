@@ -55,6 +55,7 @@ Modules\Wayfinder\ContinuousArt.lua
 Modules\Wayfinder\Vendor\OpenMap\WorldMap.lua
 Modules\Wayfinder\OpenMapCompat.lua
 Modules\Wayfinder\MapPins.lua
+Modules\Wayfinder\PinGuard.lua
 Modules\Wayfinder\Pins.xml
 Modules\Wayfinder\AddonPins.lua
 Modules\Wayfinder\MapLoading.lua

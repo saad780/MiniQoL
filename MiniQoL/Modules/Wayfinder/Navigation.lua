@@ -1010,6 +1010,16 @@ local function MapButtonDown()
 	return (left and left.down == true) or ns.DetailView:IsDragging() == true
 end
 
+-- Puts another map up. The game keeps what that sets in the addon's name, and
+-- its own pins would pay for it with a blocked call in the next fight, so
+-- they are guarded from the first time this happens (PinGuard.lua).
+local function ShowMap(mapID)
+	if ns.PinGuard then
+		ns.PinGuard:Arm()
+	end
+	WorldMapFrame:SetMapID(mapID)
+end
+
 -- Already on your map: if zoomed in, slide over to you.
 local function PanToPlayer(mapID)
 	local position = C_Map.GetPlayerMapPosition(mapID, "player")
@@ -1034,7 +1044,7 @@ function Navigation:ShowPlayerOnMap()
 		return
 	end
 	if WorldMapFrame:GetMapID() ~= mapID then
-		WorldMapFrame:SetMapID(mapID)
+		ShowMap(mapID)
 		return
 	end
 	PanToPlayer(mapID)
@@ -1058,7 +1068,7 @@ function Navigation:FollowPlayer()
 		-- Over the border into the next zone. Not mid-fight: the map is the
 		-- game's, and changing it from here then is asking for blocked actions.
 		if not InCombatLockdown() then
-			WorldMapFrame:SetMapID(mapID)
+			ShowMap(mapID)
 		end
 		return
 	end

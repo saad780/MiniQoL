@@ -88,8 +88,11 @@ function map:Close()
 end
 
 local events, character = {}, "First-Realm"
+-- Starting the continuous map is Wayfinder putting maps up itself: the game's
+-- pins are guarded from then on (PinGuard.lua, tests/pin_guard.lua).
+local armed = 0
 local ns = { db = {}, DetailView = { IsFollowingMap = function() return false end },
-    OpenMapCompat = { Install = noop } }
+    OpenMapCompat = { Install = noop }, PinGuard = { Arm = function() armed = armed + 1 end } }
 function ns:NewModule(name) self[name] = {}; return self[name] end
 function ns:RegisterEvent(event, fn) events[event] = fn end
 function ns:GetCharacterKey() return character end
@@ -114,6 +117,9 @@ assert(loadfile(base .. "Vendor/OpenMap/WorldMap.lua"))("Wayfinder", ns)
 local painter = frames[#frames]
 local continuous, controller = ns.ContinuousMap, ns.ContinuousEngine:GetModule("worldmap")
 continuous:Start()
+assert(armed == 1, "the continuous map arms the pin guard when it starts")
+continuous:Start()
+assert(armed == 1, "and only when it starts")
 local function draw()
     if painter:IsShown() then painter.scripts.OnUpdate(painter) end
 end
