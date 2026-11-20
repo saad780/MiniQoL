@@ -11,6 +11,10 @@ local buckets = {}
 local GRID = 250
 -- Questie can add/remove entries while a discovery job is suspended. Restart
 -- safely if rehashing invalidates next's cursor, without processing names twice.
+-- The iterator itself never yields: Lua 5.1 calls a for loop's iterator across
+-- a C boundary, and a yield there fails ("attempt to yield across
+-- metamethod/C-call boundary"). Passing the keys already seen after a restart
+-- is one quick walk; the jobs yield between entries, in their own loop bodies.
 local function Entries(tbl)
 	local key, seen = nil, {}
 	return function()
@@ -20,10 +24,10 @@ local function Entries(tbl)
 			key = k
 			if k == nil then return end
 			if not seen[k] then seen[k] = true; return k, value end
-			coroutine.yield()
 		end
 	end
 end
+Mini.Entries = Entries
 local function Number(v)
 	return ns.Readable(v) and type(v) == "number" and v == v and math.abs(v) < math.huge
 end
