@@ -7,6 +7,7 @@ local Navigation = ns:NewModule("Navigation")
 local MEDIA = "Interface\\AddOns\\Wayfinder\\Media\\"
 local NEAR_YARDS = 40      -- arrow turns green inside this distance
 local ARRIVE_YARDS = 10    -- close enough to count as arrived
+local LABEL_WIDTH = 200    -- the waypoint's name under the arrow wraps at this width
 local CYAN = { 0.35, 0.84, 1 }
 local GREEN = { 0.45, 0.92, 0.45 }
 
@@ -14,6 +15,7 @@ local sqrt, atan2, min, max = math.sqrt, math.atan2, math.min, math.max
 
 local current -- the waypoint the arrow follows: one of the records in list
 local list = {} -- every waypoint set: { waypoint, c, x, y, m, n, where, cats, uid }
+local beforeCorpse -- the waypoint the arrow was on when your corpse took it
 
 local function Sound(name)
 	if SOUNDKIT and SOUNDKIT[name] then
@@ -119,6 +121,23 @@ function Navigation:SetActiveWaypoint(rec)
 	return true
 end
 
+-- `kept`: never cleared on arrival, since whoever set it says when it is done
+-- (a guide's goal). `goal` and `note` are extra lines for the arrow's tooltip.
+local function NewRecord(cont, wx, wy, label, mapID, options)
+	local where, zone = ns.DescribeLocation(cont, wx, wy, mapID)
+	return { waypoint = true, c = cont, x = wx, y = wy, m = zone, n = label or where,
+		where = where, cats = {}, uid = NewUID(), source = options.source,
+		kept = options.kept and true or nil, goal = options.goal, note = options.note }
+end
+
+-- Keep the oldest from piling up forever when an addon feeds them in.
+local function Append(rec)
+	list[#list + 1] = rec
+	while #list > MAX_WAYPOINTS do
+		table.remove(list, list[1] == current and 2 or 1)
+	end
+end
+
 -- Every waypoint arrives here. Adding rather than replacing is what lets a
 -- guide's five coordinates, or a quest's several objectives, all stand at once.
 function Navigation:AddWaypoint(cont, wx, wy, label, mapID, options)
@@ -130,14 +149,8 @@ function Navigation:AddWaypoint(cont, wx, wy, label, mapID, options)
 		end
 		return existing
 	end
-	local where, zone = ns.DescribeLocation(cont, wx, wy, mapID)
-	local rec = { waypoint = true, c = cont, x = wx, y = wy, m = zone, n = label or where,
-		where = where, cats = {}, uid = NewUID(), source = options.source }
-	list[#list + 1] = rec
-	-- Keep the oldest from piling up forever when an addon feeds them in.
-	while #list > MAX_WAYPOINTS do
-		table.remove(list, list[1] == current and 2 or 1)
-	end
+	local rec = NewRecord(cont, wx, wy, label, mapID, options)
+	Append(rec)
 	if options.focus ~= false or not current then
 		current = rec
 	end
@@ -171,7 +184,57 @@ function Navigation:SetWaypointTo(rec, catID)
 	return self:AddWaypoint(rec.c, rec.x, rec.y, rec.n or (cat and cat.label), rec.m)
 end
 
-function Navigation:RemoveWaypoint(rec)
+-- The one waypoint a source keeps for itself, such as a guide's goal.
+function Navigation:GetSourceWaypoint(source)
+	for _, rec in ipairs(list) do
+		if rec.source == source then
+			return rec
+		end
+	end
+end
+
+-- Puts a source's one waypoint somewhere new: a guide moving on has a single
+-- waypoint that moves along, not a trail of old goals. The moved waypoint is a
+-- new record in the old one's place, so nothing worked out about where the old
+-- one lay (the map its pin belongs on) carries over. `focus` takes the arrow;
+-- without it the arrow stays where it is, unless it has nowhere else to be.
+-- Not deduplicated against other waypoints: the record is always the source's own.
+function Navigation:PlaceSourceWaypoint(source, cont, wx, wy, label, mapID, options)
+	options = options or {}
+	local old = self:GetSourceWaypoint(source)
+	local rec = NewRecord(cont, wx, wy, label, mapID, options)
+	rec.source = source
+	if old and old.c == rec.c and ns.Distance(old.x, old.y, rec.x, rec.y) < 1 and old.n == rec.n
+		and old.goal == rec.goal and old.note == rec.note and old.kept == rec.kept then
+		-- Told again of the same place: at most the arrow moves to it.
+		if options.focus then
+			self:SetActiveWaypoint(old)
+		end
+		return old
+	end
+	if old then
+		list[IndexOf(old)] = rec
+		if current == old then
+			current = rec
+		end
+		if beforeCorpse == old then
+			beforeCorpse = rec
+		end
+	else
+		Append(rec)
+	end
+	if options.focus or not current then
+		current = rec
+	end
+	Save()
+	ns:Fire("WAYPOINT_CHANGED", current)
+	self:RefreshArrow()
+	return rec
+end
+
+-- `quiet`: taken away by the addon that set it, not by the player, so no sound.
+-- WAYPOINT_REMOVED tells whoever set it that it is gone.
+function Navigation:RemoveWaypoint(rec, quiet)
 	local index = rec and IndexOf(rec)
 	if not index then
 		return false
@@ -181,8 +244,11 @@ function Navigation:RemoveWaypoint(rec)
 		current = self:ClosestWaypoint()
 	end
 	Save()
-	Sound("UI_MAP_WAYPOINT_REMOVE")
+	if not quiet then
+		Sound("UI_MAP_WAYPOINT_REMOVE")
+	end
 	ns:Fire("WAYPOINT_CHANGED", current)
+	ns:Fire("WAYPOINT_REMOVED", rec)
 	self:RefreshArrow()
 	return true
 end
@@ -196,13 +262,18 @@ function Navigation:ClearAllWaypoints()
 	if #list == 0 then
 		return false
 	end
+	local removed = {}
 	for index = #list, 1, -1 do
+		removed[#removed + 1] = list[index]
 		list[index] = nil
 	end
 	current = nil
 	Save()
 	Sound("UI_MAP_WAYPOINT_REMOVE")
 	ns:Fire("WAYPOINT_CHANGED", nil)
+	for _, rec in ipairs(removed) do
+		ns:Fire("WAYPOINT_REMOVED", rec)
+	end
 	self:RefreshArrow()
 	return true
 end
@@ -246,7 +317,6 @@ end
 local CORPSE_LABEL = "Your corpse"
 local CORPSE_TRIES = 10 -- once a second while the game has yet to place the body
 local corpseCheck = 0   -- each new check retires the retries of the one before
-local beforeCorpse      -- the waypoint the arrow was on when the corpse took it
 
 -- The corpse on the player's map, or on a map above it when the spirit was
 -- sent to a graveyard in the next zone over.
@@ -574,30 +644,47 @@ local function Tint(colour)
 	arrow.distance:SetTextColor(colour[1], colour[2], colour[3])
 end
 
+-- The waypoint's whole name under the arrow, on as many lines as it takes, and
+-- on a guide's route the goal it leads to. Set only when it changes, since
+-- this runs every few frames.
+local function ShowNames(name, goal)
+	if arrow.shownName ~= name then
+		arrow.shownName = name
+		arrow.label:SetText(name)
+	end
+	goal = goal and ("On the way to " .. goal) or ""
+	if arrow.shownGoal ~= goal then
+		arrow.shownGoal = goal
+		arrow.goal:SetText(goal)
+	end
+end
+
 -- Points the arrow from the player toward the waypoint.
 function Navigation:UpdateArrow()
 	if not current then
 		return
 	end
-	arrow.label:SetText(current.n)
 	local cont, wx, wy = ns.GetPlayerWorld()
+	local away = cont and cont ~= current.c
+	ShowNames(away and (current.n .. " (another continent)") or current.n, current.goal)
 	if not cont then
 		arrow.head:Hide()
 		arrow.distance:SetText("?")
 		Tint(CYAN)
 		return
 	end
-	if cont ~= current.c then
+	if away then
 		arrow.head:Hide()
 		arrow.distance:SetText("Far away")
-		arrow.label:SetText(current.n .. " (another continent)")
 		Tint(CYAN)
 		return
 	end
 	local dx, dy = current.x - wx, current.y - wy -- yards north, yards west
 	local distance = sqrt(dx * dx + dy * dy)
 	-- Standing at your corpse is not the end of that one: coming back to life is.
-	if distance <= ARRIVE_YARDS and current.source ~= CORPSE and ns:GetSetting("clearOnArrival") then
+	-- Nor is reaching a guide's goal: the guide moves it on when it is done.
+	if distance <= ARRIVE_YARDS and current.source ~= CORPSE and not current.kept
+		and ns:GetSetting("clearOnArrival") then
 		ns.Print("Arrived at " .. current.n .. ".")
 		Sound("MAP_PING")
 		self:ClearWaypoint()
@@ -640,6 +727,12 @@ local function CreateArrow()
 		if current and current.where and current.where ~= current.n then
 			GameTooltip:AddLine(current.where, 0.8, 0.8, 0.8)
 		end
+		if current and current.goal then
+			GameTooltip:AddLine("On the way to " .. current.goal, 0.8, 0.8, 0.8, true)
+		end
+		if current and current.note then
+			GameTooltip:AddLine(current.note, 0.6, 0.85, 1, true)
+		end
 		if #list > 1 then
 			GameTooltip:AddLine(("%d waypoints set."):format(#list), 0.6, 0.85, 1)
 		end
@@ -671,12 +764,23 @@ local function CreateArrow()
 	f.distance:SetPoint("TOP", hub, "BOTTOM", 0, -1)
 	f.distance:SetShadowColor(0, 0, 0, 1)
 	f.distance:SetShadowOffset(1, -1)
-	f.label = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	f.label:SetPoint("TOP", f.distance, "BOTTOM", 0, -1)
-	f.label:SetWidth(110)
-	f.label:SetWordWrap(false)
-	f.label:SetShadowColor(0, 0, 0, 1)
-	f.label:SetShadowOffset(1, -1)
+	-- Wider than the arrow, and wrapped rather than cut off: a guide's step
+	-- ("Accept ...", "Learn the flight path at ..., then fly to ...") is read
+	-- off the arrow, and only the start of it said nothing.
+	local function Line(template, anchor)
+		local text = f:CreateFontString(nil, "OVERLAY", template)
+		text:SetPoint("TOP", anchor, "BOTTOM", 0, -1)
+		text:SetWidth(LABEL_WIDTH)
+		text:SetJustifyH("CENTER")
+		text:SetWordWrap(true)
+		text:SetNonSpaceWrap(true)
+		text:SetShadowColor(0, 0, 0, 1)
+		text:SetShadowOffset(1, -1)
+		return text
+	end
+	f.label = Line("GameFontHighlightSmall", f.distance)
+	f.goal = Line("GameFontHighlightSmall", f.label)
+	f.goal:SetTextColor(0.75, 0.75, 0.75)
 
 	local elapsedSince = 0
 	f:SetScript("OnUpdate", function(_, elapsed)

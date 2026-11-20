@@ -95,6 +95,22 @@ wayfinder("showArrow", "Waypoints", "Show the waypoint arrow",
 wayfinder("clearOnArrival", "Waypoints", "Remove the waypoint when you arrive")
 wayfinder("corpseWaypoint", "Waypoints", "Point the arrow at your corpse",
     "When you release your spirit, a waypoint is set on your corpse and the arrow points to it. Coming back to life completes it, wherever that happens, and the arrow returns to the waypoint it was on before.")
+wayfinder("questMiddleClick", "Waypoints", "Middle-click a quest to follow it",
+    "Middle-click a quest in the quest log, the objective tracker (its title, lines or quest icon) or Questie's tracker. The arrow then points at the nearest place still to do for it or, once it is complete, at where to hand it in. The waypoint moves on as objectives are done and goes when the quest is handed in. Middle-click the same quest again to stop. Uses Questie's quest data when Questie is loaded, otherwise the game's quest markers.")
+-- Only listed with Polestar installed: there is nothing to follow without it.
+local function polestar()
+    return mapReady() and Wayfinder.PolestarFollow ~= nil and Wayfinder.PolestarFollow:Available()
+end
+feature({ id = "wayfinder.followPolestar", page = "maps", group = "Waypoints", addon = "Wayfinder",
+    kind = "check", label = "Show Polestar's guide on this arrow",
+    get = function() return Wayfinder:GetSetting("followPolestar") end,
+    set = function(value) Wayfinder:SetSetting("followPolestar", value) end,
+    available = mapReady, hidden = function() return not polestar() end,
+    tooltip = "Polestar's next goal becomes a waypoint on this arrow and moves along as the guide does: to the end of the leg you are on (the flight master to walk to, the boat to catch), then the goal itself. Polestar moves it on when a goal is done, so it isn't removed when you arrive. Removing it lets that goal go in Polestar too, until the guide moves on.\n\nTo hide Polestar's own arrow, turn on \"Let a following addon show the way\" in Polestar's options, under Guide, Arrow & routes, Other waypoints." })
+feature({ id = "wayfinder.polestarArrow", page = "maps", group = "Waypoints", addon = "Wayfinder",
+    kind = "info", label = "Polestar's own arrow", available = mapReady,
+    hidden = function() return not (polestar() and Wayfinder:GetSetting("followPolestar")) end,
+    get = function() return Wayfinder.PolestarFollow:Status() end })
 wayfinderSlider("arrowScale", "Waypoints", "Arrow size", nil, 0.5, 2, 0.1, Percent)
 
 wayfinder("showOnWorldMap", "World map", "Show icons on the world map")

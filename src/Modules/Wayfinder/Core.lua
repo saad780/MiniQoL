@@ -141,6 +141,8 @@ ns.defaults = {
 	arrowScale = 1.0,
 	clearOnArrival = true,       -- remove the waypoint once you reach it
 	corpseWaypoint = true,       -- releasing your spirit points the arrow at your corpse
+	followPolestar = false,      -- Polestar's guide on the arrow (Polestar.lua)
+	questMiddleClick = true,     -- middle-click a quest to follow it (QuestWaypoints.lua)
 	debug = false,
 }
 

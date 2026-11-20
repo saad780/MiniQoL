@@ -51,6 +51,12 @@ tomtom.execute((root / "tests/tomtom.lua").read_text(), str(package).replace("\\
 corpse = LuaRuntime(unpack_returned_tuples=True)
 corpse.execute((root / "tests/corpse.lua").read_text(), str(package).replace("\\", "/"))
 
+polestar = LuaRuntime(unpack_returned_tuples=True)
+polestar.execute((root / "tests/polestar.lua").read_text(), str(package).replace("\\", "/"))
+
+quest_waypoints = LuaRuntime(unpack_returned_tuples=True)
+quest_waypoints.execute((root / "tests/quest_waypoints.lua").read_text(), str(package).replace("\\", "/"))
+
 map_tracking = LuaRuntime(unpack_returned_tuples=True)
 map_tracking.execute((root / "tests/map_tracking.lua").read_text(), str(package).replace("\\", "/"))
 

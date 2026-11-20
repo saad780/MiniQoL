@@ -22,6 +22,22 @@ back to life completes that waypoint, wherever it happens, and the arrow returns
 to the waypoint it was on before. **Point the arrow at your corpse** under
 Waypoints turns this off.
 
+Middle-click a quest in the quest log, the objective tracker (its title, lines
+or quest icon) or Questie's tracker, and the waypoint arrow points at the nearest
+place still to do for it, or at where to hand it in once it is complete. The
+waypoint follows the quest: it moves as objectives are finished and goes when the
+quest is handed in or abandoned. Middle-click the same quest again to stop. With
+Questie loaded its quest data picks the spot; otherwise the game's quest markers
+do. **Middle-click a quest to follow it** under Waypoints turns this off.
+
+With the Polestar leveling guide installed, **Show Polestar's guide on this
+arrow** under Waypoints puts the guide's next goal on the waypoint arrow and
+moves it along as the guide does: to the flight master or boat on the way, then
+the goal itself. Turn on Polestar's own **Let a following addon show the way**
+(Guide, Arrow & routes, Other waypoints) and Polestar's arrow steps aside while
+this one shows the way. Polestar moves the waypoint on when a goal is done;
+removing it yourself lets that goal go in Polestar too, until the guide moves on.
+
 Mini QoL writes down what each of your characters is wearing whenever it
 changes. The **Alts** button on the character sheet, at the bottom right of the
 character beside the lower trinket slot (left- or right-click), lists

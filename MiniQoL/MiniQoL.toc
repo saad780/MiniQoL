@@ -62,6 +62,8 @@ Modules\Wayfinder\DetailView.lua
 Modules\Wayfinder\WorldFog.lua
 Modules\Wayfinder\Navigation.lua
 Modules\Wayfinder\TomTom.lua
+Modules\Wayfinder\Polestar.lua
+Modules\Wayfinder\QuestWaypoints.lua
 Modules\Wayfinder\MinimapServices.lua
 Modules\Wayfinder\Options.lua
 Modules\Wayfinder\_MiniQoLComplete.lua
