@@ -241,7 +241,9 @@ function Database:RecordObject(info)
 		return nil
 	end
 	if info.source then ns.Observations:Capture(info, info.source) end
-	local rec = self:FindNearest(info.cont, info.wx, info.wy, SAME_OBJECT_YARDS, function(r)
+	-- `within`: how far apart two sightings of the same thing can be, for things
+	-- noted from somewhere near them rather than at them.
+	local rec = self:FindNearest(info.cont, info.wx, info.wy, info.within or SAME_OBJECT_YARDS, function(r)
 		return r.kind == "obj" and r.cats[info.cat]
 	end)
 	local isNew = not rec

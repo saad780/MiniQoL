@@ -28,6 +28,12 @@ ns.CategoryList = {
 	{ id = "food", label = "Food & Drink", filter = "VenderFood", path = TRACKING .. "Food" },
 	{ id = "vendor", label = "Other Vendors", path = "Interface\\GossipFrame\\VendorGossipIcon", media = "Vendor" },
 	{ id = "spirit", label = "Spirit Healers", atlas = "poi-soulspiritghost", path = "Interface\\Icons\\Spell_Holy_GuardianSpirit", media = "Spirit" },
+	-- Where a Skyborne's Skysight gives its longer boon, recorded as they are
+	-- come across (Convergences.lua). `race`:
+	-- shown to that race only; `spell`: drawn with that spell's icon; `hint`: a
+	-- line for the icon's tooltip.
+	{ id = "convergence", label = "Elemental Convergences", race = "Skyborne", spell = 1259686,
+		path = "Interface\\Icons\\Spell_Nature_Cyclone", hint = "Cast Skysight here for its longer boon." },
 }
 
 ns.CategoryByID = {}
@@ -60,6 +66,14 @@ local function AtlasExists(atlas)
 	return atlas and C_Texture.GetAtlasInfo(atlas) ~= nil
 end
 
+-- A spell's own icon, when the client knows the spell.
+local function SpellIcon(spellID)
+	local get = (C_Spell and C_Spell.GetSpellTexture) or GetSpellTexture
+	if not spellID or type(get) ~= "function" then return nil end
+	local ok, icon = pcall(get, spellID)
+	if ok and ns.Readable(icon) and (type(icon) == "number" or type(icon) == "string") then return icon end
+end
+
 function Categories:ResolveIcons()
 	-- The minimap tracking menu's own icons, keyed by tracking filter.
 	local trackingTextures = {}
@@ -78,6 +92,8 @@ function Categories:ResolveIcons()
 		local filterID = cat.filter and Enum.MinimapTrackingFilter and Enum.MinimapTrackingFilter[cat.filter]
 		if filterID and trackingTextures[filterID] then
 			icon = { texture = trackingTextures[filterID] }
+		elseif SpellIcon(cat.spell) then
+			icon = { texture = SpellIcon(cat.spell) }
 		elseif cat.atlas and AtlasExists(cat.atlas) then
 			icon = { atlas = cat.atlas }
 		elseif cat.path and PathExists(cat.path) then
@@ -149,7 +165,8 @@ end
 ---------------------------------------------------------------------------
 -- Returns the category whose icon a location should show, or nil if it should be
 -- hidden: none of its categories enabled, hostile faction, a trainer for another
--- class, or only seen from a distance when approximate locations are off.
+-- class, something only another race can use, or only seen from a distance when
+-- approximate locations are off.
 function Categories:GetVisibleCategory(rec, servicesOnly)
 	local settings = ns.db.settings
 	local faction = rec.f
@@ -165,7 +182,8 @@ function Categories:GetVisibleCategory(rec, servicesOnly)
 		local cat = ns.CategoryByID[catID]
 		local available = catID ~= "quest" or (not servicesOnly and ns.QuestAvailability:HasAvailableQuest(rec))
 		local order = catID == "quest" and 0 or (cat and cat.order)
-		if cat and available and settings.cats[catID] ~= false then
+		local otherRace = cat and cat.race and cat.race ~= ns.playerRace
+		if cat and available and not otherRace and settings.cats[catID] ~= false then
 			local otherClass = catID == "trainer_class" and rec.cls and rec.cls ~= ns.playerClass
 			if not otherClass or settings.showAllClassTrainers then
 				covered = covered or ns.Seeds:Covers(rec, catID)

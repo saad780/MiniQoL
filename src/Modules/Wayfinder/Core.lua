@@ -274,6 +274,7 @@ ns:RegisterEvent("PLAYER_LOGIN", function()
 	ns:GetCharacterKey()
 	ns.playerFaction = ns:GetPlayerFaction()
 	ns.playerClass = select(2, UnitClass("player"))
+	ns.playerRace = select(2, UnitRace("player"))
 	for _, module in ipairs(modules) do
 		if module.OnLogin then
 			securecallfunction(module.OnLogin, module)
@@ -363,6 +364,8 @@ local function HandleSlash(input)
 		else
 			ns.Print(("%d independent observations collected. /wf survey transport records a dock or portal."):format(CountTable(ns.db.observations)))
 		end
+	elseif command == "convergence" then
+		ns.Convergences:MarkHere()
 	elseif command == "share" then
 		ns.Navigation:CopyWaypoint()
 	elseif command == "add" then
@@ -396,6 +399,7 @@ local function HandleSlash(input)
 		print("   /wf reveal [hide|dim|show]  - how unexplored terrain is drawn")
 		print("   /wf stats  - what has been recorded")
 		print("   /wf survey [transport ...]  - collect independent locations")
+		print("   /wf convergence  - mark an Elemental Convergence where you stand (Skyborne)")
 		print("   /way <x> <y> [label]  - a waypoint, also by zone name or #map id")
 		print("   /way reset all  - remove every waypoint")
 		print("   /wayb [label]  - a waypoint right where you stand")

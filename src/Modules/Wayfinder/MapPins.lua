@@ -40,6 +40,9 @@ function Tooltip:Show(owner, rec, catID)
 	if #services > 1 or (rec.n and #services == 1) then
 		GameTooltip:AddLine(table.concat(services, ", "), 0.6, 0.85, 1, true)
 	end
+	if cat and cat.hint then
+		GameTooltip:AddLine(cat.hint, 0.8, 0.8, 0.8, true)
+	end
 	if rec.seed then
 		GameTooltip:AddLine("Built-in location, revealed by exploring", 0.5, 0.5, 0.5)
 	elseif (rec.a or 0) > APPROXIMATE_YARDS then

@@ -4,7 +4,8 @@ MiniQoLRuntime:Execute("Wayfinder", function(...)
 local _, ns = ...
 local Observations = ns:NewModule("Observations")
 local methods = { talk = true, sight = true, guard = true, mailbox = true,
-	taxi_api = true, transport_manual = true }
+	taxi_api = true, transport_manual = true, skysight = true, vignette = true, interact = true,
+	minimap = true }
 
 local function Number(v)
 	return ns.Readable(v) and type(v) == "number" and v == v and math.abs(v) < math.huge

@@ -30,6 +30,18 @@ quest is handed in or abandoned. Middle-click the same quest again to stop. With
 Questie loaded its quest data picks the spot; otherwise the game's quest markers
 do. **Middle-click a quest to follow it** under Waypoints turns this off.
 
+On a Skyborne character, Wayfinder puts each Elemental Convergence on the map
+and minimap as you come across it, so you can find your way back to cast
+Skysight there and be Charged for the hour. Nothing has to be cast: a
+convergence is added, where it actually is, once the game shows its marker on
+your minimap. Wayfinder reads that marker itself; if one shows and isn't added,
+hold the mouse over it on the minimap. Casting Skysight within reach of one (25
+yards) adds it too, marked as approximate until its marker places it. Seeing
+one in the distance adds nothing, because that doesn't say where it is.
+`/wf convergence` marks one by hand where you stand, Shift-click removes an
+icon, and **Elemental Convergences** under Icons turns them off. Other races
+are not shown them.
+
 With the Polestar leveling guide installed, **Show Polestar's guide on this
 arrow** under Waypoints puts the guide's next goal on the waypoint arrow and
 moves it along as the guide does: to the flight master or boat on the way, then

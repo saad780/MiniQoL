@@ -49,6 +49,7 @@ Modules\Wayfinder\MinimapTurnIns.lua
 Modules\Wayfinder\Exploration.lua
 Modules\Wayfinder\Seeds.lua
 Modules\Wayfinder\Recorder.lua
+Modules\Wayfinder\Convergences.lua
 Modules\Wayfinder\MapArt.lua
 Modules\Wayfinder\ContinuousMap.lua
 Modules\Wayfinder\ContinuousArt.lua

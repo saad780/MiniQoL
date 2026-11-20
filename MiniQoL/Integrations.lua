@@ -135,10 +135,14 @@ feature({ id = "wayfinder.cats.none", page = "maps", group = "Icons", label = "N
 if Wayfinder and Wayfinder.CategoryList then
     for _, cat in ipairs(Wayfinder.CategoryList) do
         local id = cat.id
-        checkbox("wayfinder.cat." .. id, "maps", "Icons", cat.label, "Wayfinder",
-            function() return Wayfinder:IsCategoryEnabled(id) end,
-            function(value) Wayfinder:SetCategoryEnabled(id, value) end,
-            "Show " .. cat.label:lower() .. " on the map and minimap.", false, mapReady)
+        -- A category only one race can use is listed for that race alone.
+        feature({ id = "wayfinder.cat." .. id, page = "maps", group = "Icons", label = cat.label,
+            addon = "Wayfinder", kind = "check",
+            get = function() return Wayfinder:IsCategoryEnabled(id) end,
+            set = function(value) Wayfinder:SetCategoryEnabled(id, value) end,
+            tooltip = "Show " .. cat.label:lower() .. " on the map and minimap." .. (cat.hint and (" " .. cat.hint) or ""),
+            reload = false, available = mapReady,
+            hidden = cat.race and function() return Wayfinder.playerRace ~= cat.race end or nil })
     end
 end
 

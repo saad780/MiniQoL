@@ -63,6 +63,9 @@ background_jobs.execute((root / "tests/background_jobs.lua").read_text(), str(pa
 pin_guard = LuaRuntime(unpack_returned_tuples=True)
 pin_guard.execute((root / "tests/pin_guard.lua").read_text(), str(package).replace("\\", "/"))
 
+convergences = LuaRuntime(unpack_returned_tuples=True)
+convergences.execute((root / "tests/convergences.lua").read_text(), str(package).replace("\\", "/"))
+
 map_tracking = LuaRuntime(unpack_returned_tuples=True)
 map_tracking.execute((root / "tests/map_tracking.lua").read_text(), str(package).replace("\\", "/"))
 
