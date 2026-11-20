@@ -23,7 +23,8 @@ to the waypoint it was on before. **Point the arrow at your corpse** under
 Waypoints turns this off.
 
 Mini QoL writes down what each of your characters is wearing whenever it
-changes. The **Alts** button on the character sheet (left- or right-click) lists
+changes. The **Alts** button on the character sheet, at the bottom right of the
+character beside the lower trinket slot (left- or right-click), lists
 your other characters: pick one and their gear takes the place of yours on the
 sheet, with the usual item tooltips, until you pick yourself again or close the
 sheet. A character is added the first time it logs in with Mini QoL on. The

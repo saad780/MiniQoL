@@ -269,8 +269,13 @@ local function Describe(count)
     return count == 1 and "1 piece" or (count .. " pieces")
 end
 
+-- The realm without its spaces and hyphens, worked out from its own name as
+-- alt gear does: the game's ready-made short form can stop answering, and the
+-- full name in its place would be a different character's record.
 local function CharacterKey()
-    local realm = (GetNormalizedRealmName and GetNormalizedRealmName()) or (GetRealmName and GetRealmName()) or ""
+    local realm = GetRealmName and GetRealmName()
+    realm = type(realm) == "string" and realm:gsub("[%s%-]", "") or ""
+    if realm == "" then realm = (GetNormalizedRealmName and GetNormalizedRealmName()) or "" end
     return (UnitName("player") or "?") .. "-" .. realm
 end
 

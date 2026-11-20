@@ -330,6 +330,21 @@ fire(B, "PLAYER_ENTERING_WORLD")
 assert(Record("Uther-ArgentDawn"), "each character has its own entry")
 equal(Record("Uther-ArgentDawn").realm, "Argent Dawn", "under its realm")
 
+-- Logging out. The game stops giving the realm's short name, and stops
+-- answering about equipment: every slot reads bare. This was saved as a
+-- second Uther, under "Argent Dawn", with nothing worn and item level 0.
+local crown = uther.items[1]
+local normalized = GetNormalizedRealmName
+GetNormalizedRealmName = function() return nil end
+uther.items, GetAverageItemLevel = {}, function() return 0, 0 end
+CLOCK = CLOCK + 60
+fire(B, "PLAYER_LOGOUT")
+equal(MiniQoLDB.altGear.characters["Uther-Argent Dawn"], nil, "no second Uther under the realm's full name")
+equal(Record("Uther-ArgentDawn").items[1], crown, "and the one Uther keeps his crown")
+equal(Record("Uther-ArgentDawn").itemLevel, 70, "and his item level")
+GetNormalizedRealmName = normalized
+uther.items = { [1] = crown }
+
 ---------------------------------------------------------------------------
 -- 4. Jaina looks at the others
 ---------------------------------------------------------------------------
@@ -338,8 +353,22 @@ NewSheet("RangedSlot") -- this sheet has no ranged slot
 local jaina = { name = "Jaina", realm = "Realm", class = "MAGE", className = "Mage", race = "Human",
     level = 42, faction = "Alliance", loading = {},
     items = { [1] = link(50, "Hat", 2), [16] = link(60, "Staff", 3) } }
+-- Entries a logout already filed under a realm's full name: an empty one
+-- newer than Uther's own, and a Thrall with gear newer than his.
+local characters = MiniQoLDB.altGear.characters
+characters["Uther-Argent Dawn"] = { name = "Uther", realm = "Argent Dawn", class = "PALADIN", level = 70,
+    itemLevel = 0, items = {}, saved = CLOCK }
+local newerThrall = { name = "Thrall", realm = "Realm", class = "SHAMAN", level = 61, itemLevel = 59,
+    items = { [1] = link(202, "Helm of the Newer Save", 4) }, saved = CLOCK }
+characters["Thrall-Realm "] = newerThrall
+local thrallBefore = characters["Thrall-Realm"]
 local C = Session(jaina)
 fire(C, "PLAYER_ENTERING_WORLD")
+equal(characters["Uther-Argent Dawn"], nil, "the empty Uther is folded away")
+equal(Record("Uther-ArgentDawn").items[1], crown, "keeping the one with his gear")
+equal(characters["Thrall-Realm "], nil, "the second Thrall too")
+equal(Record("Thrall-Realm"), newerThrall, "the newer of two with gear is kept")
+characters["Thrall-Realm"] = thrallBefore
 -- With no item level from the game, it is worked out the game's way: the
 -- staff fills both hands, out of the sixteen slots this sheet counts.
 near(Record("Jaina-Realm").itemLevel, (50 + 60 + 60) / 16, "an item level of her own")
@@ -440,6 +469,15 @@ MenuUtil = Menus
 ---------------------------------------------------------------------------
 -- 5. The settings page
 ---------------------------------------------------------------------------
+-- Where the button is, with the key that opens the sheet as it is bound.
+local where = features["altGear.where"].get()
+assert(where:find("character sheet", 1, true) and where:find("Alts", 1, true), "the page says where the button is: " .. where)
+assert(where:find("bottom right", 1, true), "whereabouts on the sheet")
+assert(not where:find("()", 1, true), "with no key it names none")
+function GetBindingKey(action) return action == "TOGGLECHARACTER0" and "C" or nil end
+function GetBindingText(key) return key end
+assert(features["altGear.where"].get():find("character sheet (C)", 1, true), "and the key that opens it")
+GetBindingKey, GetBindingText = nil, nil
 local summary = features["altGear.known"].get()
 assert(summary:find("^3 characters: Jaina %(you%)"), summary)
 assert(Strip(summary):find("Thrall 61", 1, true), summary)
@@ -462,6 +500,7 @@ equal(#Radios(), 2, "the menu is down to you and Thrall")
 C:View("Thrall-Realm")
 features["altGear.enabled"].set(false)
 equal(features["altGear.enabled"].get(), false, "turned off")
+assert(features["altGear.where"].get():find("^Turn this on"), "the page says how to get the button back")
 assert(not button.shown, "the button goes")
 assert(not overlay.shown, "and your own gear is back")
 local before = Record("Jaina-Realm").saved

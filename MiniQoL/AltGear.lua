@@ -62,12 +62,26 @@ local function HomeRealm()
     return (GetRealmName and GetRealmName()) or ""
 end
 
--- Same "Name-Realm" as the fishing outfit uses.
+-- "Name-Realm", the realm without its spaces and hyphens. It is worked out
+-- from the realm's own name every time: the game's ready-made short form
+-- stops answering as it logs out, and the full name in its place filed the
+-- save on the way out under a second key, as a second character. The fishing
+-- outfit keys its records the same way.
+local function ShortRealm(realm)
+    return type(realm) == "string" and (realm:gsub("[%s%-]", "")) or ""
+end
+
 local function CharacterKey()
-    local realm = (GetNormalizedRealmName and GetNormalizedRealmName()) or HomeRealm()
-    return (UnitName("player") or "?") .. "-" .. realm
+    local name, realm = UnitName("player"), ShortRealm(HomeRealm())
+    if realm == "" and GetNormalizedRealmName then realm = GetNormalizedRealmName() or "" end
+    if not name or name == "" or name == UNKNOWNOBJECT or realm == "" then return nil end
+    return name .. "-" .. realm
 end
 AltGear.CharacterKey = CharacterKey
+
+local function HasGear(record)
+    return type(record.items) == "table" and next(record.items) ~= nil
+end
 
 local function Hex(color)
     return ("|cff%02x%02x%02x"):format(color[1] * 255, color[2] * 255, color[3] * 255)
@@ -155,8 +169,31 @@ function AltGear:Initialize()
     self.db = db.altGear
     if type(self.db.characters) ~= "table" then self.db.characters = {} end
     if self.db.enabled == nil then self.db.enabled = true end
+    self:Tidy()
     self.retries = 0
     return self
+end
+
+-- Saves on the way out were filed under the realm's full name, beside the
+-- character's own entry and mostly with nothing worn. Each is folded back into
+-- that entry: the one with gear written down is kept, else the newer.
+function AltGear:Tidy()
+    local characters, strays = self.db.characters, {}
+    for key, record in pairs(characters) do
+        if type(record) == "table" and record.name and record.realm then
+            local own = record.name .. "-" .. ShortRealm(record.realm)
+            if own ~= key then strays[#strays + 1] = { key = key, own = own } end
+        end
+    end
+    for _, stray in ipairs(strays) do
+        local record, kept = characters[stray.key], characters[stray.own]
+        characters[stray.key] = nil
+        if type(kept) ~= "table" or (HasGear(record) and not HasGear(kept))
+            or (HasGear(record) == HasGear(kept) and (record.saved or 0) > (kept.saved or 0)) then
+            characters[stray.own] = record
+        end
+    end
+    return #strays
 end
 
 function AltGear:Enabled()
@@ -226,8 +263,13 @@ end
 function AltGear:Save(level)
     if not self:Enabled() then return false end
     local key = CharacterKey()
+    if not key then return false end
     local old = self:Record(key)
     local items, incomplete = self:ReadWorn(old and old.items)
+    -- As the game logs out it can stop answering about equipment, and every
+    -- slot reads bare. That is not news about the character: gear written
+    -- down is never replaced by a read that found nothing worn at all.
+    if not next(items) and old and HasGear(old) then return false end
     local className, class = UnitClass("player")
     local race = UnitRace("player")
     self.db.characters[key] = {
@@ -586,13 +628,26 @@ end
 ---------------------------------------------------------------------------
 -- Settings and start-up
 ---------------------------------------------------------------------------
+-- Where the button is, for the settings page, with the key that opens the
+-- character sheet as the player has it bound.
+function AltGear:Where()
+    if not self:Enabled() then return "Turn this on for an Alts button on your character sheet." end
+    local key = GetBindingKey and GetBindingKey("TOGGLECHARACTER0")
+    local text = key and GetBindingText and GetBindingText(key) or key
+    return ("Open your character sheet%s and click Alts, at the bottom right of your character by the lower trinket.")
+        :format(text and text ~= "" and (" (" .. text .. ")") or "")
+end
+
 function AltGear:RegisterPage()
     local function ready() return self.db ~= nil end
     ns:RegisterFeature({ id = "altGear.enabled", page = "alts", group = "Character sheet", kind = "check",
         label = "Remember every character's gear", available = ready,
         get = function() return self:Enabled() end,
         set = function(value) self:SetEnabled(value) end,
-        tooltip = "Writes down what each character wears whenever it changes, and puts an Alts button on the character sheet for looking at the others. Click it, with either button, and pick a character. Each one is added the first time it logs in with Mini QoL on." })
+        tooltip = "Writes down what each character wears whenever it changes, and puts an Alts button on the character sheet for looking at the others: at the bottom right of your character, beside the lower trinket slot. Click it, with either button, and pick a character. Each one is added the first time it logs in with Mini QoL on." })
+    ns:RegisterFeature({ id = "altGear.where", page = "alts", group = "Character sheet", kind = "info",
+        label = "Open your character sheet and click Alts.", available = ready,
+        get = function() return self:Where() end })
     ns:RegisterFeature({ id = "altGear.known", page = "alts", group = "Remembered characters", kind = "info",
         label = "No characters remembered yet.", available = ready,
         get = function() return self:Summary() end })
