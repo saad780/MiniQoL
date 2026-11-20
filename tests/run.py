@@ -60,6 +60,9 @@ quest_waypoints.execute((root / "tests/quest_waypoints.lua").read_text(), str(pa
 map_tracking = LuaRuntime(unpack_returned_tuples=True)
 map_tracking.execute((root / "tests/map_tracking.lua").read_text(), str(package).replace("\\", "/"))
 
+arrow_snap = LuaRuntime(unpack_returned_tuples=True)
+arrow_snap.execute((root / "tests/arrow_snap.lua").read_text(), str(package).replace("\\", "/"))
+
 sidegrades = LuaRuntime(unpack_returned_tuples=True)
 sidegrades.execute((root / "tests/sidegrades.lua").read_text(), str(gearwise).replace("\\", "/"), str(shell).replace("\\", "/"))
 

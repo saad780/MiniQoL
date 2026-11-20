@@ -699,6 +699,78 @@ function Navigation:UpdateArrow()
 	Tint(distance <= NEAR_YARDS and GREEN or CYAN)
 end
 
+---------------------------------------------------------------------------
+-- Moving the arrow: while it is dragged, a line runs down the middle of the
+-- screen, and the arrow snaps onto it when it comes close.
+---------------------------------------------------------------------------
+local SNAP_DISTANCE = 16 -- screen units either side of the middle
+local GUIDE_FAINT, GUIDE_SNAPPED = 0.35, 0.9
+local guide
+
+local function Guide(f)
+	if guide then return guide end
+	guide = CreateFrame("Frame", nil, UIParent)
+	guide:SetFrameStrata(f:GetFrameStrata())
+	guide:SetFrameLevel(math.max(0, f:GetFrameLevel() - 1)) -- behind the arrow
+	guide:SetWidth(2)
+	guide:SetPoint("TOP", UIParent, "TOP", 0, 0)
+	guide:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, 0)
+	guide.line = guide:CreateTexture(nil, "ARTWORK")
+	guide.line:SetAllPoints()
+	guide:Hide()
+	return guide
+end
+
+-- The arrow has a scale of its own, so everything is measured in its units.
+local function CursorFor(f)
+	local x, y = GetCursorPosition()
+	local scale = f:GetEffectiveScale()
+	return x / scale, y / scale
+end
+
+-- The middle of the screen, and how many of the arrow's units make one of
+-- the screen's.
+local function MiddleFor(f)
+	local x, y = UIParent:GetCenter()
+	local ratio = UIParent:GetEffectiveScale() / f:GetEffectiveScale()
+	return x * ratio, y * ratio, ratio
+end
+
+-- Puts the arrow under the cursor, where it was picked up, snapping it to the
+-- middle when near. Returns its offset from the middle of the screen.
+function Navigation:FollowCursor(f)
+	local x, y = CursorFor(f)
+	local middleX, middleY, ratio = MiddleFor(f)
+	local dx, dy = x - f.grab[1] - middleX, y - f.grab[2] - middleY
+	local snapped = math.abs(dx) <= SNAP_DISTANCE * ratio
+	if snapped then dx = 0 end
+	f:ClearAllPoints()
+	f:SetPoint("CENTER", UIParent, "CENTER", dx, dy)
+	local line = Guide(f)
+	local color = snapped and CYAN or { 1, 1, 1 }
+	line.line:SetColorTexture(color[1], color[2], color[3], snapped and GUIDE_SNAPPED or GUIDE_FAINT)
+	line:Show()
+	return dx, dy
+end
+
+function Navigation:StartDrag(f)
+	local cx, cy = f:GetCenter()
+	if not cx then return end
+	local x, y = CursorFor(f)
+	f.grab = { x - cx, y - cy }
+	self:FollowCursor(f)
+end
+
+-- Kept as an offset from the middle of the screen, so an arrow snapped there
+-- stays in the middle at any resolution.
+function Navigation:StopDrag(f)
+	if not f.grab then return end
+	local dx, dy = self:FollowCursor(f)
+	f.grab = nil
+	guide:Hide()
+	ns.db.arrowPosition = { "CENTER", "CENTER", dx, dy }
+end
+
 local function CreateArrow()
 	local f = CreateFrame("Button", "WayfinderArrow", UIParent)
 	f:SetSize(110, 94)
@@ -708,14 +780,10 @@ local function CreateArrow()
 	f:EnableMouse(true)
 	f:RegisterForDrag("LeftButton")
 	f:RegisterForClicks("RightButtonUp", "MiddleButtonUp")
-	f:SetScript("OnDragStart", f.StartMoving)
-	f:SetScript("OnDragStop", function(self)
-		self:StopMovingOrSizing()
-		local point, _, relativePoint, x, y = self:GetPoint()
-		if point then
-			ns.db.arrowPosition = { point, relativePoint, x, y }
-		end
-	end)
+	-- Moved by hand rather than by the game, so it can snap while dragged.
+	f:SetScript("OnDragStart", function(self) Navigation:StartDrag(self) end)
+	f:SetScript("OnDragStop", function(self) Navigation:StopDrag(self) end)
+	f:SetScript("OnHide", function(self) Navigation:StopDrag(self) end)
 	f:SetScript("OnClick", function(self, button)
 		if button == "MiddleButton" then
 			Navigation:ClearWaypoint()
@@ -738,7 +806,7 @@ local function CreateArrow()
 		if #list > 1 then
 			GameTooltip:AddLine(("%d waypoints set."):format(#list), 0.6, 0.85, 1)
 		end
-		GameTooltip:AddLine("Drag to move. Middle-click to remove this waypoint.", 1, 1, 1, true)
+		GameTooltip:AddLine("Drag to move; it snaps to the middle of the screen. Middle-click to remove this waypoint.", 1, 1, 1, true)
 		GameTooltip:AddLine("Right-click for the whole list.", 1, 1, 1, true)
 		GameTooltip:Show()
 	end)
@@ -785,7 +853,8 @@ local function CreateArrow()
 	f.goal:SetTextColor(0.75, 0.75, 0.75)
 
 	local elapsedSince = 0
-	f:SetScript("OnUpdate", function(_, elapsed)
+	f:SetScript("OnUpdate", function(self, elapsed)
+		if self.grab then Navigation:FollowCursor(self) end
 		elapsedSince = elapsedSince + elapsed
 		if elapsedSince >= 0.03 then
 			elapsedSince = 0
