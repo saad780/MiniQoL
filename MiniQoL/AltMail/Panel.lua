@@ -1,8 +1,9 @@
 local _, ns = ...
 local addon = ns.AltMail
+local groupPanelHeight, categoryPanelHeight = 433, 351
 
 local panel = CreateFrame("Frame", "MiniQoLAltMailPanel", UIParent, "BasicFrameTemplateWithInset")
-panel:SetSize(425, 351)
+panel:SetSize(425, groupPanelHeight)
 panel:SetPoint("CENTER")
 panel:SetFrameStrata("DIALOG")
 panel:SetClampedToScreen(true)
@@ -69,6 +70,12 @@ local status = Label("", 17, -269, "GameFontHighlightSmall")
 status:SetWidth(386)
 status:SetJustifyV("TOP")
 status:SetMaxLines(4)
+
+local helpHeading = Label("How marking works", 17, -310, "GameFontNormalSmall")
+local help = Label("", 17, -328, "GameFontHighlightSmall")
+help:SetWidth(386)
+help:SetJustifyV("TOP")
+help:SetSpacing(3)
 
 local selectedID = addon.GetGroup(1).id
 local selectedProfile
@@ -141,7 +148,14 @@ function addon.RefreshMailControls()
     and (not isGroup or label ~= ""))
   unlink:SetEnabled(not busy and route ~= nil)
   send:SetEnabled(not busy and usable and saved and addon.IsMailboxOpen() == true)
+  local shortcut
   if isGroup then
+    local shortcuts = { addon.GetMarkShortcut(1), addon.GetMarkShortcut(2) }
+    shortcut = shortcuts[category.slot]
+    help:SetText(("Group 1  %s    Group 2  %s\n"):format(shortcuts[1] or "Unbound", shortcuts[2] or "Unbound")
+      .. "Hover a stack and press its group shortcut. The numbered envelope marks just that stack. "
+      .. "Press the same shortcut again to clear it, or the other to move it.\n"
+      .. "Click Send Now at a mailbox, or enable auto-send before opening one. Hold Shift when opening to skip auto-send.")
     UpdateMarkButton(category)
   end
   if busy then
@@ -153,11 +167,10 @@ function addon.RefreshMailControls()
   elseif route and not saved then
     status:SetText("Save your changes before sending.")
   elseif isGroup and route then
-    local key = addon.GetMarkShortcut and addon.GetMarkShortcut(category.slot)
-    if key then
-      status:SetText(("Hover over a stack and press %s to mark it. Press it again to remove the mark."):format(key))
-    else
+    if not shortcut then
       status:SetText(("Choose a shortcut in Options > Keybindings > Mini QoL Alt Mail > Mark for Mail Group %d."):format(category.slot))
+    else
+      status:SetText("")
     end
   elseif isGroup then
     status:SetText("Enter your alt's name and save to start marking items.")
@@ -174,8 +187,11 @@ local function LoadCategory()
   local category, name = CurrentCategory()
   local route = category and addon.GetRoute(name, category)
   local isGroup = category ~= nil and category.slot ~= nil
+  panel:SetHeight(isGroup and groupPanelHeight or categoryPanelHeight)
   nameLabel:SetShown(isGroup)
   groupName:SetShown(isGroup)
+  helpHeading:SetShown(isGroup)
+  help:SetShown(isGroup)
   groupName:SetText(isGroup and category.name or "")
   recipient:SetText(route and route.recipient or "")
   automatic:SetChecked(route and route.automatic or false)
