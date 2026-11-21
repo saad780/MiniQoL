@@ -614,6 +614,110 @@ F:RefreshBar()
 assert(F.bar.session:GetText():find("3 caught", 1, true), "three fish: " .. F.bar.session:GetText())
 assert(F.bar.session:GetText():find("50% hit", 1, true), "from half the casts: " .. F.bar.session:GetText())
 
+print("-- what the session has landed --")
+-- The window lists everything caught this session, most caught first, under
+-- the one thing landed last. It used to show the last four casts and no more.
+local function shown(row) return row ~= nil and row.name:IsShown() end
+local function land(itemID, quantity, secondsAgo, itemLink, icon)
+    F:RecordCast({ time = CLOCK, ended = CLOCK, caught = true, seconds = 10 })
+    F:RecordCatch({ itemID = itemID, link = itemLink or link(itemID), icon = icon, quantity = quantity,
+        time = CLOCK - (secondsAgo or 0), zone = "Elwynn Forest", subzone = "Crystal Lake" })
+end
+local height
+F.bar.SetHeight = function(_, value) height = value end
+F:ResetSession()
+F:RefreshBar()
+equal(F.bar.empty:IsShown(), true, "an empty session says so")
+equal(F.bar.empty:GetText(), "Nothing yet this session.", "in so many words")
+equal(F.bar.lastLabel:IsShown(), false, "with no last catch")
+equal(F.bar.lastAgo:IsShown(), false, "nor how long ago")
+equal(F.bar.tallyLabel:IsShown(), false, "and no list")
+equal(shown(F.bar.last), false, "the last session's catch is put away")
+assert(F.bar.rows[1] and not shown(F.bar.rows[1]), "and so is its list")
+local bare = height
+
+land(6303, 3, 90)
+land(6289, 1, 60)
+land(6303, 2, 40)
+land(6291, 2, 12)
+F:RefreshBar()
+equal(F.bar.empty:IsShown(), false, "a catch takes the empty line away")
+equal(F.bar.lastLabel:IsShown(), true, "for the last catch")
+equal(F.bar.tallyLabel:IsShown(), true, "and the list")
+equal(F.bar.last.name:GetText(), "Item6291", "the last thing landed")
+equal(F.bar.last.number:GetText(), "x2", "with how many came up")
+equal(F.bar.lastAgo:GetText(), "12s ago", "and how long ago")
+equal(F.bar.rows[1].name:GetText(), "Item6303", "the most caught heads the list")
+equal(F.bar.rows[1].number:GetText(), 5, "with every cast of it added up")
+equal(F.bar.rows[2].name:GetText(), "Item6291", "then the next")
+equal(F.bar.rows[2].number:GetText(), 2, "by its count")
+equal(F.bar.rows[3].name:GetText(), "Item6289", "down to the single fish")
+equal(F.bar.rows[3].number:GetText(), 1, "which is one")
+equal(F.bar.rows[3].icon:IsShown(), true, "each beside its icon")
+assert(not shown(F.bar.rows[4]), "and nothing after it")
+assert(height > bare, "the window grows to hold the list")
+local three = height
+
+-- An empty cast is neither the last catch nor a row, whatever the session
+-- line counts.
+F:RecordCast({ time = CLOCK, ended = CLOCK, caught = false })
+F:Set("statsIncludeMissed", true)
+F:RefreshBar()
+equal(F.bar.last.name:GetText(), "Item6291", "an empty cast is not the last catch")
+assert(shown(F.bar.rows[3]) and not shown(F.bar.rows[4]), "nor a row in the list")
+equal(height, three, "so the window stays as it was")
+
+local lastIcon
+F.bar.last.icon.SetTexture = function(_, value) lastIcon = value end
+land(6289, 1, 5, nil, 133)
+F:RefreshBar()
+equal(F.bar.last.name:GetText(), "Item6289", "a newer catch takes its place")
+equal(F.bar.last.number:GetText(), "", "with no count beside a single fish")
+equal(F.bar.lastAgo:GetText(), "5s ago", "and its own time")
+equal(lastIcon, 133, "under the icon it was looted with")
+equal(F.bar.rows[2].name:GetText(), "Item6289", "and it moves up the list")
+equal(F.bar.rows[2].number:GetText(), 2, "as its count does")
+
+-- Names take the colour of the item, in whichever form the link carries it.
+local painted
+F.bar.last.name.SetTextColor = function(_, r, g, b) painted = { r, g, b } end
+land(6400, 1, 0, "|cff1eff00|Hitem:6400|h[Item6400]|h|r")
+F:RefreshBar()
+equal(math.floor(painted[1] * 255 + 0.5), 30, "an uncommon catch is green: red")
+equal(math.floor(painted[2] * 255 + 0.5), 255, "green")
+equal(math.floor(painted[3] * 255 + 0.5), 0, "and blue")
+ITEM_QUALITY_COLORS = { [3] = { r = 0, g = 0.44, b = 0.87 } }
+land(6401, 1, 0, "|cnIQ3:|Hitem:6401|h[Item6401]|h|r")
+F:RefreshBar()
+equal(F.bar.last.name:GetText(), "Item6401", "the newer form of link is read")
+equal(painted[3], 0.87, "and coloured by its quality")
+ITEM_QUALITY_COLORS = nil
+
+-- More kinds than the window lists: the rarest share the last row.
+F:ResetSession()
+for itemID = 7001, 7010 do land(itemID, itemID - 7000) end
+F:RefreshBar()
+equal(F.bar.rows[1].name:GetText(), "Item7010", "the most caught first")
+equal(F.bar.rows[7].name:GetText(), "Item7004", "seven kinds are named")
+equal(F.bar.rows[8].name:GetText(), "3 others", "and the rest share a row")
+equal(F.bar.rows[8].number:GetText(), 6, "with their catch added up")
+equal(F.bar.rows[8].icon:IsShown(), false, "under no icon")
+assert(not F.bar.rows[9], "so the list stops at eight rows")
+F:ResetSession()
+for itemID = 7001, 7008 do land(itemID, itemID - 7000) end
+F:RefreshBar()
+equal(F.bar.rows[8].name:GetText(), "Item7001", "eight kinds fit as they are")
+equal(F.bar.rows[8].number:GetText(), 1, "each with its own count")
+equal(F.bar.rows[8].icon:IsShown(), true, "and icon")
+
+F:ResetSession()
+land(6303, 1)
+F:RefreshBar()
+assert(shown(F.bar.rows[1]) and not shown(F.bar.rows[2]), "a shorter list puts the spare rows away")
+assert(not F.bar.rows[2].icon:IsShown() and not F.bar.rows[2].number:IsShown(), "icon and count with them")
+assert(height < three, "and the window shrinks back")
+F.bar.SetHeight = nil
+
 print("-- loot that is not an item --")
 -- A currency in the loot has a link and no item ID. It is not a catch to
 -- file, and the cast that landed it still landed something.

@@ -87,7 +87,7 @@ function Fishing:RegisterPage()
     -- The window and the record
     ---------------------------------------------------------------------
     checkbox("bar", "Fishing window", "Show it while holding a pole",
-        "A small window with your lures, fishing food, skill breakdown and latest catches. It appears on its own when you equip a pole; /mqol fish show opens it anywhere.")
+        "A small window with your lures, fishing food, skill breakdown, your last catch and everything caught this session. It appears on its own when you equip a pole; /mqol fish show opens it anywhere.")
     checkbox("statsIncludeMissed", "Fishing window", "Count empty casts",
         "Adds the casts that caught nothing to the window's session line, along with the share of casts that caught something.")
     feature({ id = "fishing.resetSession", group = "Catch record", label = "This session",

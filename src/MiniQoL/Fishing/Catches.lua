@@ -123,24 +123,9 @@ local function RecordLoot()
     Fishing:Fire("CATCHES_CHANGED")
 end
 
--- The newest catches and misses together, newest first.
-function Fishing:RecentCatches(limit)
-    local catches, casts = self.db.catches, self.db.casts
-    local c, m, recent = #catches, #casts, {}
-    while #recent < limit do
-        while m > 0 and casts[m].caught do m = m - 1 end
-        local catch, miss = catches[c], casts[m]
-        if not catch and not miss then break end
-        local missTime = miss and (miss.ended or miss.time)
-        if miss and (not catch or missTime > catch.time) then
-            table.insert(recent, { missed = true, time = missTime })
-            m = m - 1
-        else
-            table.insert(recent, catch)
-            c = c - 1
-        end
-    end
-    return recent
+-- The last thing landed this session; nil until something is.
+function Fishing:LastCatch()
+    return self.db.catches[#self.db.catches]
 end
 
 -- Forget this session's casts and catches; the all-time totals stay.

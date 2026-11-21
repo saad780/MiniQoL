@@ -30,7 +30,7 @@ Fishing.BOOST_DELAY = 0.5      -- skip the sound of the cast itself
 Fishing.LOOT_GRACE = 1         -- before a cast counts as a miss
 Fishing.RECAST_WINDOW = 0.3    -- a restart this soon is a recast, not a miss
 Fishing.DOUBLE_CLICK_TIME = 0.4
-Fishing.RECENT_CATCHES = 8
+Fishing.SESSION_ROWS = 8       -- kinds of catch the window lists; the rest share a row
 
 local DEFAULTS = {
     sound = true,

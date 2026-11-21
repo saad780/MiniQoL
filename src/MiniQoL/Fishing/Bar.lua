@@ -1,14 +1,65 @@
 local _, ns = ...
 -- The small window that appears while you are holding a pole: lures, fishing
--- food, what your skill is made of, and what you have been pulling up.
+-- food, what your skill is made of, the last thing you landed and everything
+-- the session has given so far.
 local Fishing = ns.Fishing
 local T = ns.Theme
 
 local WIDTH, PAD = 232, 12
 local ICON = 30
+local ROW, ROW_ICON, ROW_NUMBER = 16, 14, 40
 local QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
 
 local bar, lureButtons, foodButton
+
+-- The colour written into an item's link, in either of the game's two forms.
+local function QualityColor(link)
+    local quality = link and tonumber(link:match("|cnIQ(%d+):"))
+    local color = quality and ITEM_QUALITY_COLORS and ITEM_QUALITY_COLORS[quality]
+    if color and color.r then return { color.r, color.g, color.b, 1 } end
+    return T:QualityColor(link)
+end
+
+-- One line of the catch list: an icon, a name that is cut short rather than
+-- wrapped, and a number at the right edge.
+local function CatchRow()
+    local row = {}
+    row.icon = bar:CreateTexture(nil, "ARTWORK")
+    row.icon:SetSize(ROW_ICON, ROW_ICON)
+    row.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    row.name = T:Text(bar, "", "GameFontHighlightSmall", WIDTH - PAD * 2 - ROW_ICON - 4 - ROW_NUMBER, T.TEXT)
+    row.name:SetWordWrap(false)
+    row.number = T:Text(bar, "", "GameFontHighlightSmall", ROW_NUMBER, T.TEXT)
+    row.number:SetJustifyH("RIGHT")
+    return row
+end
+
+-- Without an icon the name still starts where the others do.
+local function ShowRow(row, y, icon, name, color, number)
+    row.icon:ClearAllPoints()
+    row.icon:SetPoint("TOPLEFT", PAD, -y)
+    row.icon:SetTexture(icon)
+    row.icon:SetShown(icon ~= nil)
+    row.name:ClearAllPoints()
+    row.name:SetPoint("TOPLEFT", PAD + ROW_ICON + 4, -(y + 2))
+    row.name:SetText(name)
+    row.name:SetTextColor(T.Color(color))
+    row.name:Show()
+    row.number:ClearAllPoints()
+    row.number:SetPoint("TOPRIGHT", -PAD, -(y + 2))
+    row.number:SetText(number)
+    row.number:Show()
+end
+
+local function HideRow(row)
+    row.icon:Hide()
+    row.name:Hide()
+    row.number:Hide()
+end
+
+local function CatchIcon(catch)
+    return catch.icon or Fishing.GetItemIcon(catch.itemID) or QUESTION
+end
 
 local function Secure(parent, name)
     -- BackdropTemplate as well as the secure one: Chrome below needs SetBackdrop.
@@ -82,7 +133,13 @@ function Fishing:CreateBar()
     bar.rule = T:Rule(bar)
     bar.rule:SetWidth(WIDTH - PAD * 2)
     bar.session = T:Text(bar, "", "GameFontHighlightSmall", WIDTH - PAD * 2, T.TEXT)
-    bar.recent = T:Text(bar, "", "GameFontDisableSmall", WIDTH - PAD * 2, T.MUTED)
+    bar.empty = T:Text(bar, "Nothing yet this session.", "GameFontDisableSmall", WIDTH - PAD * 2, T.MUTED)
+    bar.lastLabel = T:Text(bar, "LAST CATCH", "GameFontDisableSmall", 110, T.GOLD_SOFT)
+    bar.lastAgo = T:Text(bar, "", "GameFontDisableSmall", 90, T.MUTED)
+    bar.lastAgo:SetJustifyH("RIGHT")
+    bar.last = CatchRow()
+    bar.tallyLabel = T:Text(bar, "CAUGHT THIS SESSION", "GameFontDisableSmall", WIDTH - PAD * 2, T.GOLD_SOFT)
+    bar.rows = {}
     return bar
 end
 
@@ -169,19 +226,15 @@ function Fishing:RefreshBar()
     bar.rule:SetPoint("TOPLEFT", PAD, -y)
     y = y + 8
 
-    local includeMissed = self:Get("statsIncludeMissed")
-    local total, _, caught = self:SessionSummary(includeMissed)
+    local _, kinds, caught = self:SessionSummary(false)
+    local landed, empty = self:SessionCasts()
     local rate = self:SessionRate()
     local session = { ("%d caught"):format(caught) }
-    local missed = total - caught
-    if includeMissed and missed > 0 then
-        session[#session + 1] = ("%d empty"):format(missed)
+    if self:Get("statsIncludeMissed") and empty > 0 then
+        session[#session + 1] = ("%d empty"):format(empty)
         -- The share of casts, not of fish: one cast can land a stack, and
         -- counting each fish made three from one cast look like three hits.
-        local landed, empty = self:SessionCasts()
-        if landed + empty > 0 then
-            session[#session + 1] = ("%.0f%% hit"):format(landed / (landed + empty) * 100)
-        end
+        session[#session + 1] = ("%.0f%% hit"):format(landed / (landed + empty) * 100)
     end
     if rate then session[#session + 1] = ("%.0f/hr"):format(rate) end
     if self:SessionLength() > 0 then session[#session + 1] = self.Duration(self:SessionLength()) end
@@ -191,20 +244,56 @@ function Fishing:RefreshBar()
     -- Empty casts can push the line onto a second row.
     y = y + math.max(12, bar.session:GetStringHeight()) + 4
 
-    local lines = {}
-    for _, entry in ipairs(self:RecentCatches(4)) do
-        if entry.missed then
-            lines[#lines + 1] = "|cff9d9d9dnothing|r  " .. self.Since(entry.time)
-        else
-            lines[#lines + 1] = (self.LinkName(entry.link) or "?")
-                .. ((entry.quantity or 1) > 1 and (" x" .. entry.quantity) or "")
-                .. "  " .. self.Since(entry.time)
+    -- The last thing landed, then the session's whole catch, most caught
+    -- first. Empty casts are on the line above and nowhere below it.
+    local last = self:LastCatch()
+    bar.empty:SetShown(not last)
+    bar.lastLabel:SetShown(last ~= nil)
+    bar.lastAgo:SetShown(last ~= nil)
+    bar.tallyLabel:SetShown(last ~= nil)
+    local used = 0
+    if last then
+        y = y + 2
+        bar.lastLabel:ClearAllPoints()
+        bar.lastLabel:SetPoint("TOPLEFT", PAD, -y)
+        bar.lastAgo:ClearAllPoints()
+        bar.lastAgo:SetPoint("TOPRIGHT", -PAD, -y)
+        bar.lastAgo:SetText(self.Since(last.time))
+        y = y + 14
+        local quantity = last.quantity or 1
+        ShowRow(bar.last, y, CatchIcon(last), self.LinkName(last.link) or "?", QualityColor(last.link),
+            quantity > 1 and ("x" .. quantity) or "")
+        y = y + ROW + 6
+
+        bar.tallyLabel:ClearAllPoints()
+        bar.tallyLabel:SetPoint("TOPLEFT", PAD, -y)
+        y = y + 14
+        -- A long session lands more kinds than the window has room for: the
+        -- rarest share the last row.
+        local limit = self.SESSION_ROWS
+        local listed = #kinds > limit and limit - 1 or #kinds
+        for index = 1, listed do
+            local kind = kinds[index]
+            bar.rows[index] = bar.rows[index] or CatchRow()
+            ShowRow(bar.rows[index], y, CatchIcon(kind), kind.name or "?", QualityColor(kind.link), kind.count)
+            y = y + ROW
         end
+        used = listed
+        if #kinds > listed then
+            local others = 0
+            for index = listed + 1, #kinds do others = others + kinds[index].count end
+            used = listed + 1
+            bar.rows[used] = bar.rows[used] or CatchRow()
+            ShowRow(bar.rows[used], y, nil, ("%d others"):format(#kinds - listed), T.MUTED, others)
+            y = y + ROW
+        end
+    else
+        HideRow(bar.last)
+        bar.empty:ClearAllPoints()
+        bar.empty:SetPoint("TOPLEFT", PAD, -y)
+        y = y + 14
     end
-    bar.recent:ClearAllPoints()
-    bar.recent:SetPoint("TOPLEFT", PAD, -y)
-    bar.recent:SetText(#lines > 0 and table.concat(lines, "\n") or "Nothing yet this session.")
-    y = y + math.max(14, bar.recent:GetStringHeight())
+    for index = used + 1, #bar.rows do HideRow(bar.rows[index]) end
 
     bar:SetHeight(y + PAD)
 end
