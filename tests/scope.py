@@ -46,4 +46,17 @@ def check_scope(root, package=None):
         flags.write_text("MiniQoL: disabled\n" + retired)
         _, states = migration(account, modules)
         assert states["TestCharacter"] == dict.fromkeys(EXPECTED, False), "First install lost standalone preferences"
+        legacy = flags.parent / "SavedVariables" / "BaganatorAltMail.lua"
+        legacy.parent.mkdir()
+        legacy.write_text("BaganatorAltMailGroups = { settings = { [1] = { recipient = 'Test Alt' } } }")
+        snapshot, _ = migration(account, modules)
+        from lupa.lua51 import LuaRuntime
+        client = LuaRuntime()
+        client.execute("UnitName = function() return 'TestCharacter' end; strlower = string.lower")
+        client.execute("GetRealmName = function() return 'Different Realm' end")
+        client.execute(snapshot)
+        assert client.globals().BaganatorAltMailGroups is None
+        client.execute("GetRealmName = function() return 'Test Realm' end")
+        client.execute(snapshot)
+        assert client.globals().BaganatorAltMailGroups.settings[1].recipient == "Test Alt"
     print("Exact four-component scope and rejection of unrelated addons passed")

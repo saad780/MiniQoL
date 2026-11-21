@@ -45,6 +45,7 @@ end
 ROOT = Path(__file__).resolve().parents[1]
 SHELL = ROOT / "src" / "MiniQoL"
 COMPONENTS = frozenset({"Peddler", "Gearwise", "Wayfinder", "XPCounter"})
+ALT_MAIL_SAVED = ("BaganatorAltMailGroups", "BaganatorAltMailRoutes")
 DEFAULT_ADDONS = ROOT / "src" / "Modules"
 DEFAULT_ACCOUNT = ROOT / "build" / "no-user-settings"
 
@@ -184,6 +185,14 @@ def migration(account, modules):
             for name, module in modules.items():
                 text.append(migrate_file(addon_list.parent / "SavedVariables" / f"{name}.lua", names(module["metadata"].get("SavedVariablesPerCharacter")), name, True))
             text.append("end\n")
+        for path in sorted(account.glob("*/*/SavedVariables/BaganatorAltMail.lua")):
+            char = path.parents[1].name
+            realm = re.sub(r"[\s-]+", "", path.parents[2].name).lower()
+            aliases = sorted({char, char.replace("-", " "), char.replace("-", "")})
+            matches = " or ".join(f"UnitName('player') == {lua(alias)}" for alias in aliases)
+            text.append(f"if ({matches}) and strlower((GetRealmName() or ''):gsub('[%s%-]', '')) == {lua(realm)} then\n")
+            text.append(migrate_file(path, ALT_MAIL_SAVED, "BaganatorAltMail", True))
+            text.append("end\n")
     return "".join(text), states
 
 
@@ -295,7 +304,7 @@ def build(addons, account, destination, refresh=False):
     manifest = {"modules": modules, "order": order}
     (output / "Manifest.lua").write_text("MiniQoLRuntime:Install(" + lua(manifest) + ", MiniQoLCharacterStates)\nMiniQoLCharacterStates = nil\nMiniQoL:Initialize()\n", encoding="utf-8")
     entries = ["Core.lua", "Theme.lua", "Runtime.lua", "LegacyProfiles.lua", "CharacterStates.lua", "Manifest.lua"]
-    bindings = []
+    bindings = list(ET.parse(SHELL / "Bindings.xml").getroot())
     credits = [(ROOT / "THIRD_PARTY.md").read_text(encoding="utf-8"),
                "\n## Bundled component versions\n"]
     for notice in ("LICENSE", "COPYRIGHT", "THIRD_PARTY.md"):
@@ -359,15 +368,20 @@ def build(addons, account, destination, refresh=False):
         credits.append(f"\n## {name}\n\nAuthor: {meta.get('Author', 'See retained source headers')}\n\nVersion: {meta.get('Version', 'unknown')}\n\nManifest: Modules/{name}/{toc.name}\n\nLicences: {', '.join(licence_files) or 'See retained source headers; no root licence supplied'}\n")
     entries += ["Fishing\\Core.lua", "Fishing\\Catches.lua", "Fishing\\Sound.lua", "Fishing\\Character.lua", "Fishing\\Lures.lua", "Fishing\\Stats.lua", "Fishing\\EasyCast.lua", "Fishing\\Gear.lua", "Fishing\\Outfit.lua", "Fishing\\Page.lua", "Fishing\\Bar.lua"]
     entries += ["AltGear.lua", "Mail.lua", "Dialogue.lua", "Integrations.lua", "Panel.lua", "Minimap.lua"]
-    saved, per_char = {"MiniQoLDB"}, set()
+    entries += ["AltMail\\Categories.lua", "AltMail\\Mail.lua", "AltMail\\Panel.lua", "AltMail\\Backpack.lua"]
+    saved, per_char = {"MiniQoLDB"}, set(ALT_MAIL_SAVED)
     for m in modules.values():
         saved.update(names(m["metadata"].get("SavedVariables")))
         per_char.update(names(m["metadata"].get("SavedVariablesPerCharacter")))
     if saved & per_char:
         raise ValueError(f"Saved variable scope collision: {saved & per_char}")
-    external_dependencies = sorted({dependency for m in modules.values() for dependency in m["dependencies"] + m["optional"] if dependency not in modules})
+    shell_metadata, _ = read_toc(SHELL / "MiniQoL.toc")
+    external_dependencies = set(names(shell_metadata.get("OptionalDeps")))
+    external_dependencies.update(dependency for m in modules.values()
+                                 for dependency in m["dependencies"] + m["optional"] if dependency not in modules)
+    external_dependencies = sorted(external_dependencies)
     dependency_line = "## OptionalDeps: " + ", ".join(external_dependencies) + "\n" if external_dependencies else ""
-    shell_version = read_toc(SHELL / "MiniQoL.toc")[0]["Version"]
+    shell_version = shell_metadata["Version"]
     toc_text = ("## Interface: 16001\n## Title: Mini QoL\n## Author: saad780 and credited module authors\n"
                 f"## Version: {shell_version}\n## X-License: GPL-3.0-only\n## Notes: Standalone consolidation for WoW Forever.\n"
                 "## LoadSavedVariablesFirst: 1\n## IconTexture: Interface\\Icons\\INV_Misc_Gear_01\n"

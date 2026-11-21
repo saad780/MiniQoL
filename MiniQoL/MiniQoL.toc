@@ -1,14 +1,14 @@
 ## Interface: 16001
 ## Title: Mini QoL
 ## Author: saad780 and credited module authors
-## Version: 1.1.0
+## Version: 1.2.0
 ## X-License: GPL-3.0-only
 ## Notes: Standalone consolidation for WoW Forever.
 ## LoadSavedVariablesFirst: 1
 ## IconTexture: Interface\Icons\INV_Misc_Gear_01
-## OptionalDeps: Baganator, OpenMap, Questie
+## OptionalDeps: Baganator, Bagnon, OpenMap, Questie
 ## SavedVariables: IconPlacement, MiniQoLDB, ModifierKey, SellLimit, SilenceSaleSummary, Silent, WayfinderDB, XPCounterDB
-## SavedVariablesPerCharacter: AutoSellBlueItems, AutoSellGreenItems, AutoSellGreyItems, AutoSellPurpleItems, AutoSellUnwantedItems, AutoSellWhiteItems, GearwiseDB, ItemsToSell, SoulboundOnly, UnmarkedItems
+## SavedVariablesPerCharacter: AutoSellBlueItems, AutoSellGreenItems, AutoSellGreyItems, AutoSellPurpleItems, AutoSellUnwantedItems, AutoSellWhiteItems, BaganatorAltMailGroups, BaganatorAltMailRoutes, GearwiseDB, ItemsToSell, SoulboundOnly, UnmarkedItems
 
 Core.lua
 Theme.lua
@@ -89,3 +89,7 @@ Dialogue.lua
 Integrations.lua
 Panel.lua
 Minimap.lua
+AltMail\Categories.lua
+AltMail\Mail.lua
+AltMail\Panel.lua
+AltMail\Backpack.lua

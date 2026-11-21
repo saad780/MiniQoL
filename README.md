@@ -70,6 +70,12 @@ drag the box by its title to move it. Your characters are added as they log in,
 or straight away if Syndicator knows them. The **Mail** page turns either part
 off.
 
+**Alt Mail** opens from the envelope by the bags, the Mini QoL **Mail** page, or
+`/altmail`. Set a recipient for each group, then hover over a stack and press
+**Ctrl+Shift+1** or **Ctrl+Shift+2** to mark it. The numbered envelope follows
+that stack in stock bags, Bagnon, or Baganator. Enable automatic sending per
+group, or use **Send Now** at a mailbox.
+
 Gearwise prompts when you loot an upgrade, and **Space** equips it while that
 prompt is open. When a looted item scores exactly what you are wearing, a small
 badge waits at the edge of the screen instead: hover it to see your character

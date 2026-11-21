@@ -23,7 +23,7 @@ ns.pages = {
     { id = "alts", label = "Alt gear", group = "Mini QoL",
       description = "Every character's gear, written down so the others can look at it on the character sheet." },
     { id = "mail", label = "Mail", group = "Mini QoL",
-      description = "A word when mail arrives, and the people you send to listed beside the Send Mail tab." },
+      description = "New mail alerts, contacts beside Send Mail, and marked stacks for your alts." },
     { id = "miniqol", label = "Mini QoL", group = "Mini QoL",
       description = "Panel preferences, module switches and source credits." },
 }

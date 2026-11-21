@@ -1,0 +1,8 @@
+<?xml version='1.0' encoding='utf-8'?>
+<Bindings><Binding name="BAGANATORALTMAIL_MARK1" category="Mini QoL Alt Mail">
+    MiniQoL.AltMail.MarkHovered(1)
+  </Binding>
+  <Binding name="BAGANATORALTMAIL_MARK2" category="Mini QoL Alt Mail">
+    MiniQoL.AltMail.MarkHovered(2)
+  </Binding>
+</Bindings>
