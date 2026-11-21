@@ -22,6 +22,8 @@ ns.pages = {
       description = "A louder splash, one-key casting, lures, an outfit swap and a record of your catch." },
     { id = "alts", label = "Alt gear", group = "Mini QoL",
       description = "Every character's gear, written down so the others can look at it on the character sheet." },
+    { id = "mail", label = "Mail", group = "Mini QoL",
+      description = "A word when mail arrives, and the people you send to listed beside the Send Mail tab." },
     { id = "miniqol", label = "Mini QoL", group = "Mini QoL",
       description = "Panel preferences, module switches and source credits." },
 }
@@ -180,6 +182,7 @@ events:SetScript("OnEvent", function(_, event, name)
         if ns.Dialogue then ns.Dialogue:Initialize() end
         if ns.Fishing then ns.Fishing:Start() end
         if ns.AltGear then ns.AltGear:Start() end
+        if ns.Mail then ns.Mail:Start() end
     end
 end)
 

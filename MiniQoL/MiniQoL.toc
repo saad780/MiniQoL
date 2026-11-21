@@ -84,6 +84,7 @@ Fishing\Outfit.lua
 Fishing\Page.lua
 Fishing\Bar.lua
 AltGear.lua
+Mail.lua
 Dialogue.lua
 Integrations.lua
 Panel.lua

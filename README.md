@@ -58,6 +58,17 @@ sheet, with the usual item tooltips, until you pick yourself again or close the
 sheet. A character is added the first time it logs in with Mini QoL on. The
 **Alt gear** page turns this off or forgets characters you no longer play.
 
+Mini QoL says when mail arrives: who it is from, in chat and on screen with a
+sound, and what is waiting when you log in. Each auction that sells is marked on
+screen as the game announces it. The game only tells addons the last three
+senders of unread mail, so a second letter from someone whose first is still
+unread goes unsaid. On the Send Mail tab, a box beside the mailbox lists your
+other characters and the people you have mailed in the last month, the ones
+mailed most first: click a name to put it in the To field, right-click a person
+to take them off, and drag the box by its title to move it. Your characters are
+added as they log in, or straight away if Syndicator knows them. The **Mail**
+page turns either part off.
+
 Gearwise prompts when you loot an upgrade, and **Space** equips it while that
 prompt is open. When a looted item scores exactly what you are wearing, a small
 badge waits at the edge of the screen instead: hover it to see your character

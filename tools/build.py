@@ -358,7 +358,7 @@ def build(addons, account, destination, refresh=False):
         licence_files = [str(p.relative_to(target)) for p in target.rglob("*") if p.is_file() and re.search(r"licen[sc]e|copying", p.name, re.I)]
         credits.append(f"\n## {name}\n\nAuthor: {meta.get('Author', 'See retained source headers')}\n\nVersion: {meta.get('Version', 'unknown')}\n\nManifest: Modules/{name}/{toc.name}\n\nLicences: {', '.join(licence_files) or 'See retained source headers; no root licence supplied'}\n")
     entries += ["Fishing\\Core.lua", "Fishing\\Catches.lua", "Fishing\\Sound.lua", "Fishing\\Character.lua", "Fishing\\Lures.lua", "Fishing\\Stats.lua", "Fishing\\EasyCast.lua", "Fishing\\Gear.lua", "Fishing\\Outfit.lua", "Fishing\\Page.lua", "Fishing\\Bar.lua"]
-    entries += ["AltGear.lua", "Dialogue.lua", "Integrations.lua", "Panel.lua", "Minimap.lua"]
+    entries += ["AltGear.lua", "Mail.lua", "Dialogue.lua", "Integrations.lua", "Panel.lua", "Minimap.lua"]
     saved, per_char = {"MiniQoLDB"}, set()
     for m in modules.values():
         saved.update(names(m["metadata"].get("SavedVariables")))
