@@ -103,7 +103,7 @@ local function getUniqueItemID(bagNumber, slotNumber)
     return
   end
 
-  local itemString = C_Container.GetContainerItemLink(bagNumber, slotNumber)
+  local itemString = itemInfo.hyperlink or C_Container.GetContainerItemLink(bagNumber, slotNumber)
   local itemID, uniqueItemID = parseItemString(itemString)
   itemID = itemID or itemInfo.itemID
   uniqueItemID = uniqueItemID or itemID
@@ -113,7 +113,7 @@ local function getUniqueItemID(bagNumber, slotNumber)
 
   local isSoulbound = getIsItemSoulbound(bagNumber, slotNumber)
 
-  return itemID, uniqueItemID, isSoulbound, itemString
+  return itemID, uniqueItemID, isSoulbound, itemString, itemInfo.stackCount
 end
 
 local function isUnwantedItem(itemType, subType, equipSlot)
@@ -171,11 +171,10 @@ local function peddleGoods()
   for bagNumber = 0, BAG_COUNT do
     local bagsSlotCount = C_Container.GetContainerNumSlots(bagNumber)
     for slotNumber = 1, bagsSlotCount do
-      local itemID, uniqueItemID, isSoulbound, itemLink = getUniqueItemID(bagNumber, slotNumber)
+      local itemID, uniqueItemID, isSoulbound, itemLink, stackCount = getUniqueItemID(bagNumber, slotNumber)
 
       if uniqueItemID and Peddler.itemIsToBeSold(itemID, uniqueItemID, isSoulbound) then
-        local itemInfo = C_Container.GetContainerItemInfo(bagNumber, slotNumber)
-        local amount = itemInfo and itemInfo.stackCount or 1
+        local amount = stackCount or 1
 
         local _, _, _, _, _, _, _, _, _, _, price = GetItemInfo(itemLink)
 
