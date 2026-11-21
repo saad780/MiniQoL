@@ -64,10 +64,11 @@ screen as the game announces it. The game only tells addons the last three
 senders of unread mail, so a second letter from someone whose first is still
 unread goes unsaid. On the Send Mail tab, a box beside the mailbox lists your
 other characters and the people you have mailed in the last month, the ones
-mailed most first: click a name to put it in the To field, right-click a person
-to take them off, and drag the box by its title to move it. Your characters are
-added as they log in, or straight away if Syndicator knows them. The **Mail**
-page turns either part off.
+mailed most first: click a name to put it in the To field, with "share" as the
+subject unless you have typed one, right-click a person to take them off, and
+drag the box by its title to move it. Your characters are added as they log in,
+or straight away if Syndicator knows them. The **Mail** page turns either part
+off.
 
 Gearwise prompts when you loot an upgrade, and **Space** equips it while that
 prompt is open. When a looted item scores exactly what you are wearing, a small

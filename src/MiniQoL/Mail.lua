@@ -30,6 +30,7 @@ local DAY = 86400
 local RECENT_DAYS = 30      -- "the recent past"
 local KEPT_DAYS = 120       -- after which someone is forgotten altogether
 local MAX_ALTS, MAX_PEOPLE = 10, 8
+local SUBJECT = "share"    -- what a click on a name writes as the subject
 local BOX_W, HEADER_H, HEAD_H, ROW_H, PAD, GAP = 172, 22, 16, 18, 8, 6
 local NEWS = { 1, 0.82, 0 } -- the game's own colour for a line of news
 
@@ -333,7 +334,24 @@ local function RowBody(row)
     return table.concat(lines, "\n")
 end
 
--- Puts the name in the To field and moves on to the subject.
+-- A subject you typed is yours, and a click on a name leaves it alone. One the
+-- game wrote (the name of an attached item) or an earlier click wrote is not.
+function Mail:WatchSubject()
+    local subject = SendMailSubjectEditBox
+    if not (subject and subject.HookScript) or self.subjectWatched == subject then return end
+    self.subjectWatched = subject
+    self.subjectTyped = nil
+    subject:HookScript("OnTextChanged", function(box, userInput)
+        if (box:GetText() or "") == "" then
+            self.subjectTyped = nil
+        elseif userInput then
+            self.subjectTyped = true
+        end
+    end)
+end
+
+-- Puts the name in the To field and "share" in the subject, selected so that
+-- typing replaces it, and leaves the cursor there.
 function Mail:Pick(entry, button)
     if not entry then return false end
     if button == "RightButton" then
@@ -341,7 +359,15 @@ function Mail:Pick(entry, button)
     end
     if not SendMailNameEditBox then return false end
     SendMailNameEditBox:SetText(entry.name)
-    if SendMailSubjectEditBox and SendMailSubjectEditBox.SetFocus then SendMailSubjectEditBox:SetFocus() end
+    local subject = SendMailSubjectEditBox
+    if subject then
+        self:WatchSubject()
+        if subject.SetFocus then subject:SetFocus() end
+        if not self.subjectTyped then
+            subject:SetText(SUBJECT)
+            if subject.HighlightText then subject:HighlightText() end
+        end
+    end
     return true
 end
 
@@ -667,7 +693,7 @@ function Mail:RegisterPage()
         label = "List who you send to beside the Send Mail tab", available = ready,
         get = function() return self:Get("contacts") end,
         set = function(value) self:Set("contacts", value) end,
-        tooltip = "A box beside the mailbox while the Send Mail tab is open: your other characters, then the people you have mailed in the last month, the ones mailed most first. Click a name to put it in the To field; right-click a person to take them off the list. Drag the box by its title to move it." })
+        tooltip = "A box beside the mailbox while the Send Mail tab is open: your other characters, then the people you have mailed in the last month, the ones mailed most first. Click a name to put it in the To field, with \"share\" as the subject unless you have typed one; right-click a person to take them off the list. Drag the box by its title to move it." })
     ns:RegisterFeature({ id = "mail.known", page = "mail", group = "Sending mail", kind = "info",
         label = "Nobody is listed yet.", available = ready,
         get = function() return self:Summary() end })
@@ -700,6 +726,7 @@ function Mail:OnEvent(event, ...)
     elseif event == "MAIL_SHOW" then
         self.atMailbox = true
         self:HookSending()
+        self:WatchSubject()
         self:RefreshBox()
     elseif event == "MAIL_CLOSED" then
         self.atMailbox = false

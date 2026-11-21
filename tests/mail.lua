@@ -48,6 +48,7 @@ function methods:SetText(text) self.text = text end
 function methods:GetText() return self.text end
 function methods:SetTextColor(r, g, b) self.color = { r, g, b } end
 function methods:SetFocus() self.focused = true end
+function methods:HighlightText() self.highlighted = true end
 function methods:RegisterEvent(event) self.events[event] = true end
 function methods:CreateTexture() return NewFrame("Texture", self) end
 function methods:CreateFontString() return NewFrame("FontString", self) end
@@ -616,8 +617,56 @@ equal(box.points[1][3], "TOPRIGHT", "at its top right")
 click(box.rows[3])
 equal(SendMailNameEditBox.text, "Carla Cook", "a click puts the name in the To field")
 equal(SendMailSubjectEditBox.focused, true, "and moves on to the subject")
+equal(SendMailSubjectEditBox.text, "share", "with \"share\" as the subject")
+equal(SendMailSubjectEditBox.highlighted, true, "selected, so typing replaces it")
 click(box.rows[1])
 equal(SendMailNameEditBox.text, "Azonei Murtaba", "one of yours the same")
+equal(SendMailSubjectEditBox.text, "share", "subject and all")
+
+-- The subject is only written over when it is not yours. The game says which
+-- changes to the field were typed.
+local function subject(text, typed)
+    SendMailSubjectEditBox:SetText(text)
+    SendMailSubjectEditBox.scripts.OnTextChanged(SendMailSubjectEditBox, typed)
+end
+subject("Linen Cloth", false)
+click(box.rows[3])
+equal(SendMailSubjectEditBox.text, "share", "the name of an attached item, which the game wrote, gives way")
+subject("for your tailoring", true)
+SendMailSubjectEditBox.highlighted = nil
+click(box.rows[1])
+equal(SendMailNameEditBox.text, "Azonei Murtaba", "after typing a subject, a click still addresses the mail")
+equal(SendMailSubjectEditBox.text, "for your tailoring", "and leaves the subject you typed")
+equal(SendMailSubjectEditBox.highlighted, nil, "unselected")
+subject("for your tailoring", false)
+click(box.rows[1])
+equal(SendMailSubjectEditBox.text, "for your tailoring", "which stays yours however the field is redrawn")
+subject("", true)
+click(box.rows[3])
+equal(SendMailSubjectEditBox.text, "share", "rubbed out, it is written again")
+subject("gold for the mount", true)
+subject("", false)
+subject("Copper Ore", false)
+click(box.rows[3])
+equal(SendMailSubjectEditBox.text, "share", "and a mail sent clears the field for the next one")
+local firstSubject = SendMailSubjectEditBox
+subject("typed in the old field", true)
+SendMailSubjectEditBox = CreateFrame("EditBox", nil, SendMailFrame)
+click(box.rows[3])
+equal(SendMailSubjectEditBox.text, "share", "a subject field built afresh is written to")
+subject("typed here", true)
+click(box.rows[3])
+equal(SendMailSubjectEditBox.text, "typed here", "and watched in its turn")
+SendMailSubjectEditBox = CreateFrame("EditBox", nil, SendMailFrame)
+fire(M, "MAIL_SHOW")
+subject("typed first", true)
+click(box.rows[3])
+equal(SendMailSubjectEditBox.text, "typed first", "a subject typed before any name is clicked is kept as well")
+SendMailSubjectEditBox = nil
+click(box.rows[3])
+equal(SendMailNameEditBox.text, "Carla Cook", "with no subject field at all a click still addresses the mail")
+SendMailSubjectEditBox = firstSubject
+subject("", false)
 box.rows[3].scripts.OnEnter(box.rows[3])
 equal(GameTooltip.title, "Carla Cook", "pointing at a name says who")
 assert(GameTooltip.lines[1]:find("Mailed 1 time", 1, true), "how often they were mailed: " .. GameTooltip.lines[1])
