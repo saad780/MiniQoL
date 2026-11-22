@@ -26,10 +26,30 @@ MapCanvasDataProviderMixin = {}
 Enum = { UIMapType = { World = 1, Continent = 2, Zone = 3 } }
 MAP_CANVAS_MOUSE_WHEEL_ZOOM_BEHAVIOR_NONE = 0
 MAP_CANVAS_MOUSE_WHEEL_ZOOM_BEHAVIOR_FULL = 1
-GetTime = function() return 10 end
+local time = 10
+GetTime = function() return time end
 InCombatLockdown = function() return false end
 geterrorhandler = function() return error end
-C_Timer = { After = noop }
+local timers = {}
+C_Timer = { After = function(delay, callback)
+    timers[#timers + 1] = { time = time + delay, callback = callback }
+end }
+local function advance(seconds)
+    local finish = time + seconds
+    while true do
+        local nextTimer
+        for i, timer in ipairs(timers) do
+            if timer.time <= finish and (not nextTimer or timer.time < timers[nextTimer].time) then
+                nextTimer = i
+            end
+        end
+        if not nextTimer then break end
+        local timer = table.remove(timers, nextTimer)
+        time = timer.time
+        timer.callback()
+    end
+    time = finish
+end
 C_Map = {
     GetMapRectOnMap = noop, GetMapInfoAtPosition = noop,
     GetMapInfo = function(id) return { mapType = id == 999 and 4 or 3 } end,
@@ -98,6 +118,13 @@ function ns:RegisterEvent(event, fn) events[event] = fn end
 function ns:GetCharacterKey() return character end
 function ns:GetSetting(key) return key == "continuousMap" end
 ns.Readable = function() return true end
+local playerMap, playerX, playerY = 1001, 0.5, 0.5
+local tracking, held
+function ns.GetPlayerWorld() return 1, 0, 0, playerMap, playerX, playerY end
+ns.Navigation = {
+    IsTracking = function() return tracking end,
+    IsMapInputHeld = function() return held end,
+}
 MiniQoLRuntime = { Execute = function(_, _, fn) return fn("Wayfinder", ns) end }
 local base = root .. "/Modules/Wayfinder/"
 assert(loadfile(base .. "ContinuousMap.lua"))("Wayfinder", ns)
@@ -199,6 +226,54 @@ assert(tracked == nil, "a closed map places nothing")
 map:Open(1002); draw()
 S.TrackView = nil
 
+-- Reopening before the deadline shows the pan and does not extend its life.
+controller.ShowNow(0.66, 0.58, 24); draw()
+advance(44)
+map:Close(); map:Open(1001); draw()
+expect(0.66, 0.58, 24)
+advance(1); draw()
+expect(0.2, 0.3, 24)
+
+-- An expired view stays centered on the current player on later reopens,
+-- using the remembered zoom rather than the new zone's fit.
+map:Close()
+playerMap = 1002
+map:Open(1002); draw()
+expect(0.7, 0.6, 24)
+
+-- A new pan renews the deadline. Changing zoom around the same center does
+-- not. An expiry while closed puts the player in view on the next opening.
+controller.ShowNow(0.54, 0.46, 24); draw()
+advance(30)
+controller.ShowNow(0.56, 0.48, 24); draw()
+advance(15)
+expect(0.56, 0.48, 24)
+controller.ShowNow(0.56, 0.48, 36); draw()
+map:Close()
+advance(30)
+playerX = 0.25
+map:Open(1002); draw()
+expect(0.65, 0.6, 36)
+
+-- Yield to an active drag at the deadline and catch up when it ends.
+controller.ShowNow(0.52, 0.48, 32); draw()
+held = true
+advance(45); draw()
+expect(0.52, 0.48, 32)
+held = false
+advance(0.25); draw()
+expect(0.65, 0.6, 32)
+
+-- A tracking reopen uses the player's current position even within 45 s.
+controller.ShowNow(0.55, 0.5, 24); draw()
+tracking = true
+continuous:ClearPositionMemory()
+map:Close()
+playerY = 0.25
+map:Open(1002); draw()
+expect(0.65, 0.55, 24)
+tracking = false
+
 -- A fresh load of the module -- what a reload or a relog gives you -- starts
 -- with no remembered view at all.
 map:Close()
@@ -211,4 +286,4 @@ MiniQoLRuntime.Execute = previousExecute
 assert(reloaded.ContinuousMap:SavedView() == nil, "a new session must not inherit the last one's view")
 assert(ns.db.mapViews == nil, "nothing about the view belongs in saved variables")
 
-print("Map reopen, pending repaint, layers, explicit navigation and session-only memory passed")
+print("Map memory: 45-second position expiry across reopens, preserved zoom and layers, and tracking reopen passed")

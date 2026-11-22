@@ -82,16 +82,81 @@ local function Finite(value)
 	return type(value) == "number" and value == value and value > -math.huge and value < math.huge
 end
 
--- Where you left the map is remembered for this play session only: closing and
--- reopening returns to the same place, while a reload or a relog starts fresh on
--- the map the game itself opens. Deliberately a plain upvalue, never saved
--- variables, so nothing carries over into the next session.
+-- Zoom and layer belong to the session. The last panned position has a shorter
+-- life, measured from when the centre last moved, even if the map is closed.
+local POSITION_MEMORY = 45
+local POSITION_EPSILON = 0.00001
 local sessionView
+local positionDeadline, observedU, observedV, returnQueued
+
+local function Tracking()
+	return ns.Navigation and ns.Navigation:IsTracking()
+end
+
+local function PlayerPoint()
+	local _, _, _, mapID, x, y = ns.GetPlayerWorld()
+	if not mapID then return end
+	local u, v = api.WorldFromMap(mapID, x, y)
+	if Finite(u) and Finite(v) then return u, v end
+end
+
+local function PositionChanged(u, v, previousU, previousV)
+	return math.abs(u - previousU) + math.abs(v - previousV) > POSITION_EPSILON
+end
+
+local function QueueReturn(delay)
+	if returnQueued then return end
+	returnQueued = true
+	C_Timer.After(delay, function()
+		returnQueued = nil
+		if not positionDeadline or Tracking() or not api.IsStitched() or not WorldMapFrame:IsShown() then return end
+		local remaining = positionDeadline - GetTime()
+		if remaining > 0 then
+			QueueReturn(remaining)
+			return
+		end
+		local mod = Controller()
+		if mod.Animating() or (ns.Navigation and ns.Navigation:IsMapInputHeld()) then
+			QueueReturn(0.25)
+			return
+		end
+		local u, v = PlayerPoint()
+		if not u then
+			QueueReturn(1)
+			return
+		end
+		local currentU, currentV, zoom = mod.ViewNow()
+		if PositionChanged(u, v, currentU, currentV) then
+			mod.ShowNow(u, v, zoom)
+		end
+		observedU, observedV = mod.ViewNow()
+	end)
+end
+
+local function ObservePosition(u, v)
+	if not Finite(u) or not Finite(v) then return end
+	if observedU and not PositionChanged(u, v, observedU, observedV) then return end
+	local hadView = observedU ~= nil
+	observedU, observedV = u, v
+	if not hadView or Tracking() then return end
+	local playerU, playerV = PlayerPoint()
+	if playerU and not PositionChanged(u, v, playerU, playerV) then
+		positionDeadline = nil
+		return
+	end
+	positionDeadline = GetTime() + POSITION_MEMORY
+	QueueReturn(POSITION_MEMORY)
+end
+
+function Continuous:ClearPositionMemory()
+	positionDeadline = nil
+end
 
 function Continuous:SaveView()
 	if not self:IsActive() then return end
 	local u, v, zoom = Controller().ViewNow()
 	if not Finite(u) or not Finite(v) or not Finite(zoom) or zoom < 1 then return end
+	ObservePosition(u, v)
 	local _, terrain = engine.MapStitch.GetCityView()
 	sessionView = { u = u, v = v, zoom = zoom, terrain = terrain == true }
 end
@@ -100,6 +165,10 @@ function Continuous:SavedView()
 	local saved = sessionView
 	if type(saved) ~= "table" then return end
 	engine.MapStitch.SetCityView(saved.terrain)
+	if Tracking() or (positionDeadline and GetTime() >= positionDeadline) then
+		local u, v = PlayerPoint()
+		if u then return u, v, saved.zoom end
+	end
 	return saved.u, saved.v, saved.zoom
 end
 
@@ -235,6 +304,12 @@ function Continuous:Start()
 	mod.enabled = true
 	mod.SavedView = function() return self:SavedView() end
 	mod.OnMapHidden = function() self:SaveView() end
+	mod.OnMapShown = function()
+		observedU, observedV = mod.ViewNow()
+		if positionDeadline and not Tracking() then
+			QueueReturn(math.max(0, positionDeadline - GetTime()))
+		end
+	end
 	mod.OnSwitched = function() ns.MapPins:RefreshNow() end
 	mod.OnStitchedChanged = function(on)
 		if not on and ns.DetailView:IsFollowingMap() then ns.DetailView:Exit(true) end
@@ -254,6 +329,7 @@ function Continuous:Start()
 		end
 	end
 	mod.OnViewMoved = function()
+		ObservePosition(mod.ViewNow())
 		if GetTime() - last >= 0.1 then PublishView()
 		elseif not publishPending then
 			publishPending = true

@@ -10,12 +10,11 @@ module lives there, so the game's AddOns list holds a single **Mini QoL** entry
 whose only job is to open the panel. Other addons keep their own settings and
 minimap icons.
 
-The continuous map remembers the position, zoom and map layer you left it on for
-the rest of the play session, so closing and reopening returns you to the same
-place. A reload or a relog starts fresh on the map the game itself opens; the
-view is never written to saved variables. Use **Track my location** to return to
-your character; the map then follows you as you move until you drag it, pick
-another map or click the button again.
+The continuous map remembers where you panned for 45 seconds, even while the
+map is closed. It then returns to your character at the same zoom. Zoom and
+map layer are remembered for the play session. **Track my location** follows
+your character across map reopens until you click the button again. Dragging
+the map pauses tracking until you release it.
 
 When you release your spirit, the waypoint arrow points at your corpse. Coming
 back to life completes that waypoint, wherever it happens, and the arrow returns

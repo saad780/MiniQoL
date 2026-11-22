@@ -1,5 +1,5 @@
 -- "Track my location": the map button moves the map to the player and keeps
--- it on them as they move, until the player takes the map themselves.
+-- it on them as they move and as the map closes and reopens.
 local root = ...
 local function noop() end
 
@@ -52,7 +52,8 @@ function canvas:GetCanvasScale() return 2 end
 WorldMapFrame = NewFrame()
 WorldMapFrame.ScrollContainer = canvas
 WorldMapFrame.mapID, WorldMapFrame.zoomedIn = CONTINENT, true
-function WorldMapFrame:IsShown() return true end
+WorldMapFrame.shown = true
+function WorldMapFrame:IsShown() return self.shown end
 function WorldMapFrame:GetMapID() return self.mapID end
 function WorldMapFrame:SetMapID(mapID)
     self.mapID = mapID
@@ -87,7 +88,7 @@ ns.DetailView = {
 }
 local switching = false
 ns.ContinuousEngine = { MapStitch = { Switching = function() return switching end } }
-ns.ContinuousMap = { IsActive = function() return false end }
+ns.ContinuousMap = { IsActive = function() return false end, ClearPositionMemory = noop }
 -- The player as the continuous map's API sees them, in world units.
 function ns.GetPlayerWorld() return 1, playerX * 100, playerY * 100, playerMap, playerX, playerY end
 MiniQoLRuntime = { Execute = function(_, _, fn) return fn("Wayfinder", ns) end }
@@ -104,7 +105,7 @@ end
 local function tick(seconds)
     seconds = seconds or 0.05
     now = now + seconds
-    button.scripts.OnUpdate(button, seconds)
+    if WorldMapFrame:IsShown() then button.scripts.OnUpdate(button, seconds) end
 end
 local function click() button.scripts.OnClick(button, "LeftButton") end
 local function lastPan() return pans[#pans] end
@@ -163,49 +164,45 @@ tick()
 equal(WorldMapFrame.mapID, ELWYNN, "and turns once the fight is over")
 
 ---------------------------------------------------------------------------
--- 3. Taking the map back
+-- 3. Manual input and reopening leave tracking enabled
 ---------------------------------------------------------------------------
-canvas.hooks.OnMouseDown(canvas, "MiddleButton")
-equal(Navigation:IsTracking(), true, "a middle-click sets a waypoint and keeps tracking")
-canvas.hooks.OnMouseDown(canvas, "LeftButton")
-equal(Navigation:IsTracking(), false, "pressing on the map to drag it stops tracking")
-assert(not button.lit.shown and not button.icon.desaturated, "and the button goes back to gold")
+count = #pans
+canvas.mouseButtonInfo.LeftButton.down = true
+tick()
+equal(#pans, count, "holding the left mouse button pauses following")
+equal(Navigation:IsTracking(), true, "dragging leaves tracking enabled")
+assert(button.lit.shown, "the button stays lit during a drag")
+canvas.mouseButtonInfo.LeftButton.down = false
+playerX = 0.7
+tick()
+equal(lastPan()[1], 0.7, "following resumes when the drag ends")
+
+canvas.mouseButtonInfo.RightButton.down = true
 count = #pans
 tick()
-equal(#pans, count, "the map is left where the player puts it")
+equal(#pans, count, "holding the right mouse button pauses following too")
+equal(Navigation:IsTracking(), true, "right-click keeps tracking enabled")
+canvas.mouseButtonInfo.RightButton.down = false
 
-start()
-canvas.hooks.OnMouseDown(canvas, "RightButton")
-equal(Navigation:IsTracking(), false, "a right-click stops it too")
-
--- A press that reaches the map through one of its icons.
-start()
-canvas.mouseButtonInfo.LeftButton.down = true
-tick()
-equal(Navigation:IsTracking(), false, "a press carried by the map stops it")
-canvas.mouseButtonInfo.LeftButton.down = false
-
--- Already held when tracking starts: only a new press counts.
-canvas.mouseButtonInfo.LeftButton.down = true
-start()
-tick()
-equal(Navigation:IsTracking(), true, "a button held from before is not a new press")
-canvas.mouseButtonInfo.LeftButton.down = false
-tick()
-canvas.mouseButtonInfo.LeftButton.down = true
-tick()
-equal(Navigation:IsTracking(), false, "the next press is")
-canvas.mouseButtonInfo.LeftButton.down = false
-
--- Picking another map.
-start()
 WorldMapFrame:SetMapID(STORMWIND)
-equal(Navigation:IsTracking(), false, "choosing another map stops tracking")
+equal(Navigation:IsTracking(), true, "choosing another map leaves tracking enabled")
+tick()
+equal(WorldMapFrame.mapID, ELWYNN, "tracking returns to the player's zone")
 
--- The button again.
-start()
+WorldMapFrame.shown = false
+count = #pans
+playerX = 0.6
+tick(60)
+equal(#pans, count, "the map is idle while closed")
+equal(Navigation:IsTracking(), true, "closing the map keeps tracking enabled")
+WorldMapFrame.shown = true
+WorldMapFrame.hooks.OnShow(WorldMapFrame)
+tick(0.001)
+equal(lastPan()[1], 0.6, "the reopened map follows on its first update")
+
 click()
 equal(Navigation:IsTracking(), false, "clicking the button again stops it")
+assert(not button.lit.shown and not button.icon.desaturated, "the button goes back to gold")
 
 ---------------------------------------------------------------------------
 -- 4. The detail view
@@ -219,8 +216,10 @@ equal(detail.centred, centred + 1, "the detail view is kept on the player")
 equal(#pans, count, "without moving the map under it")
 detail.dragging = true
 tick()
-equal(Navigation:IsTracking(), false, "dragging the detail view stops tracking")
+equal(detail.centred, centred + 1, "tracking waits while dragging the detail view")
+equal(Navigation:IsTracking(), true, "dragging the detail view leaves tracking enabled")
 detail.active, detail.dragging = false, false
+click()
 
 ---------------------------------------------------------------------------
 -- 5. The continuous map
@@ -253,4 +252,4 @@ equal(#glides - before, 1, "half a second of walking is one glide")
 OpenMapAPI = nil
 click()
 
-print("Map tracking: follows the player and over zone borders, stops when the map is taken, detail view, continuous map passed")
+print("Map tracking: follows across zone borders and map reopens, pauses while dragging, and stops when toggled")

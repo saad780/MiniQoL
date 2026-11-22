@@ -989,10 +989,8 @@ end
 ---------------------------------------------------------------------------
 -- The world map: middle-click and "track my location"
 ---------------------------------------------------------------------------
--- Tracking keeps the map on you as you move, until you click the button
--- again or take the map yourself: press on it to drag or click, right-click
--- it, or pick another map. Zooming keeps tracking. It lasts the session, so
--- the map opens on you again until it is turned off.
+-- Tracking lasts for the session and only the locate button toggles it.
+-- Holding the map temporarily pauses following so it can still be dragged.
 local FOLLOW_EVERY = 0.05 -- seconds between moves; the map eases in between
 local tracking = false
 
@@ -1001,13 +999,16 @@ local function PlayerMap()
 		or C_Map.GetBestMapForUnit("player")
 end
 
--- Whether the left button is held on the map: the canvas's own record, which
+-- Whether a button is held on the map: the canvas's own record, which
 -- also catches presses that reach it through a map icon.
-local function MapButtonDown()
+function Navigation:IsMapInputHeld()
 	local container = WorldMapFrame and WorldMapFrame.ScrollContainer
 	local info = container and container.mouseButtonInfo
 	local left = info and info.LeftButton
-	return (left and left.down == true) or ns.DetailView:IsDragging() == true
+	local right = info and info.RightButton
+	return (left and left.down == true) or (right and right.down == true)
+		or (container and container.HasGamepadScrollSpeed and container:HasGamepadScrollSpeed())
+		or ns.DetailView:IsDragging() == true
 end
 
 -- Puts another map up. The game keeps what that sets in the addon's name, and
@@ -1085,9 +1086,9 @@ function Navigation:SetTracking(on)
 		return
 	end
 	tracking = on
-	self.trackingHeld = MapButtonDown()
 	self.followElapsed = 0
 	if on then
+		ns.ContinuousMap:ClearPositionMemory()
 		self:ShowPlayerOnMap()
 	end
 	self:RefreshLocateButton()
@@ -1098,13 +1099,9 @@ function Navigation:OnTrackingUpdate(elapsed)
 	if not tracking then
 		return
 	end
-	-- A press the map is carrying is the player taking it over.
-	local held = MapButtonDown()
-	if held and not self.trackingHeld then
-		self:SetTracking(false)
+	if self:IsMapInputHeld() then
 		return
 	end
-	self.trackingHeld = held
 	self.followElapsed = (self.followElapsed or 0) + elapsed
 	if self.followElapsed >= FOLLOW_EVERY then
 		self.followElapsed = 0
@@ -1112,28 +1109,14 @@ function Navigation:OnTrackingUpdate(elapsed)
 	end
 end
 
--- Another map, picked by the player rather than reached by following them.
-function Navigation:OnTrackedMapChanged()
-	if not tracking or not WorldMapFrame:IsShown() then
-		return
-	end
-	local stitch = ns.ContinuousEngine and ns.ContinuousEngine.MapStitch
-	if stitch and stitch.Switching and stitch.Switching() then
-		return -- the continuous map changing what lies underneath its own view
-	end
-	if WorldMapFrame:GetMapID() ~= PlayerMap() then
-		self:SetTracking(false)
-	end
-end
-
 function Navigation:ShowLocateTooltip(button)
 	GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
 	if tracking then
 		GameTooltip:SetText("Tracking my location")
-		GameTooltip:AddLine("The map follows you as you move. Click again, or drag the map, to stop.", 1, 1, 1, true)
+		GameTooltip:AddLine("The map follows you as you move. Click again to stop.", 1, 1, 1, true)
 	else
 		GameTooltip:SetText("Track my location")
-		GameTooltip:AddLine("Moves the map to you and follows you as you move. Click again, or drag the map, to stop.", 1, 1, 1, true)
+		GameTooltip:AddLine("Moves the map to you and follows you as you move, even after reopening it.", 1, 1, 1, true)
 	end
 	GameTooltip:AddLine("Middle-click anywhere on the map to set a waypoint.", 0.8, 0.8, 0.8, true)
 	GameTooltip:Show()
@@ -1208,14 +1191,9 @@ function Navigation:CreateLocateButton()
 	end)
 	self.locateButton = button
 
-	-- Taking the map: caught as the press lands, before a drag can move it.
-	WorldMapFrame.ScrollContainer:HookScript("OnMouseDown", function(_, mouseButton)
-		if tracking and (mouseButton == "LeftButton" or mouseButton == "RightButton") then
-			Navigation:SetTracking(false)
-		end
-	end)
-	hooksecurefunc(WorldMapFrame, "OnMapChanged", function()
-		Navigation:OnTrackedMapChanged()
+	WorldMapFrame:HookScript("OnShow", function()
+		-- Resume on the first update, after the map and its providers have opened.
+		Navigation.followElapsed = FOLLOW_EVERY
 	end)
 	self:RefreshLocateButton()
 end
