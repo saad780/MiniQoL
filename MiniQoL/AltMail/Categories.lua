@@ -36,11 +36,12 @@ function addon.GetCategories(profile)
 end
 
 local function Groups()
-  BaganatorAltMailGroups = BaganatorAltMailGroups or { settings = {}, stackMarks = {}, excludedTypes = {} }
+  BaganatorAltMailGroups = type(BaganatorAltMailGroups) == "table" and BaganatorAltMailGroups or {}
   local groups = BaganatorAltMailGroups
+  groups.settings = groups.settings or {}
+  groups.stackMarks = groups.stackMarks or {}
+  groups.excludedTypes = groups.excludedTypes or {}
   if groups.marks then
-    groups.stackMarks = {}
-    groups.excludedTypes = {}
     local hadMarks = false
     for itemID, mark in pairs(groups.marks) do
       groups.excludedTypes[itemID] = true
@@ -52,6 +53,37 @@ local function Groups()
     end
   end
   return groups
+end
+
+local function ProfileKey(name)
+  if type(name) ~= "string" or (issecretvalue and issecretvalue(name)) then return "" end
+  return strlower((name:gsub("[%s%-]", "")))
+end
+
+function addon.RestoreLegacySettings()
+  local profiles = ns.altMailLegacyProfiles
+  if not profiles or (type(BaganatorAltMailGroups) == "table" and BaganatorAltMailGroups.legacyImported) then return end
+  local player = ProfileKey(ns.Mail.PlayerName())
+  if player == "" then return end
+  local realm = ProfileKey(GetRealmName())
+  local match
+  for _, profile in ipairs(profiles) do
+    if ProfileKey(profile.name) == player and (not profile.realm or realm == "" or ProfileKey(profile.realm) == realm) then
+      if match then return end -- An ambiguous snapshot cannot safely choose a recipient.
+      match = profile
+    end
+  end
+  if not match then return end
+
+  local saved = Groups()
+  local groups, routes = match.read()
+  if type(groups) == "table" and not next(saved.settings) and not next(saved.stackMarks) and not next(saved.excludedTypes) then
+    BaganatorAltMailGroups = groups
+  end
+  if type(routes) == "table" and (not BaganatorAltMailRoutes or not next(BaganatorAltMailRoutes)) then
+    BaganatorAltMailRoutes = routes
+  end
+  Groups().legacyImported = true
 end
 
 function addon.GetGroup(slot)

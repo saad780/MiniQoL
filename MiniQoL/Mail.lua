@@ -73,6 +73,7 @@ local function PlayerName()
     local tail = Separator() .. surname
     return name:sub(-#tail) == tail and name or name .. tail
 end
+Mail.PlayerName = PlayerName
 
 -- A name as typed into the To field, tidied: "reco  veri " is "Reco Veri".
 -- Only a plain small letter at the start of a word is raised; anything else

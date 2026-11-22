@@ -187,12 +187,15 @@ def migration(account, modules):
             text.append("end\n")
         for path in sorted(account.glob("*/*/SavedVariables/BaganatorAltMail.lua")):
             char = path.parents[1].name
-            realm = re.sub(r"[\s-]+", "", path.parents[2].name).lower()
-            aliases = sorted({char, char.replace("-", " "), char.replace("-", "")})
-            matches = " or ".join(f"UnitName('player') == {lua(alias)}" for alias in aliases)
-            text.append(f"if ({matches}) and strlower((GetRealmName() or ''):gsub('[%s%-]', '')) == {lua(realm)} then\n")
-            text.append(migrate_file(path, ALT_MAIL_SAVED, "BaganatorAltMail", True))
-            text.append("end\n")
+            realm = path.parents[2].name
+            # Forever's numbered realm folders are ruleset storage, not the realm
+            # names or player GUID realm IDs exposed in game.
+            realm = None if realm.isascii() and realm.isdecimal() else realm
+            source = path.read_text(encoding="utf-8-sig", errors="surrogateescape")
+            variables = ", ".join(ALT_MAIL_SAVED)
+            text.append("MiniQoL.altMailLegacyProfiles = MiniQoL.altMailLegacyProfiles or {}\n")
+            text.append(f"table.insert(MiniQoL.altMailLegacyProfiles, {{ name = {lua(char)}, realm = {lua(realm)}, read = function()\n")
+            text.append(f"local {variables}\n{source}\nreturn {variables}\nend }})\n")
     return "".join(text), states
 
 

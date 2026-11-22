@@ -144,3 +144,56 @@ end
 Load("stock")
 Load("bagnon")
 print("Alt Mail: stock and Bagnon work with Baganator absent, with a single stack badge and cached bags excluded")
+
+local playerName, realm
+function GetRealmName() return realm end
+local function SetupRecovery(profiles)
+    local ns = { Print = noop, Mail = { PlayerName = function() return playerName end },
+        altMailLegacyProfiles = profiles }
+    assert(loadfile(shell .. "/AltMail/Categories.lua"))("MiniQoL", ns)
+    ns.AltMail.RefreshItemBadges = noop
+    return ns.AltMail
+end
+
+local reads = 0
+local numericProfile = { name = "First-Last", read = function()
+    reads = reads + 1
+    return {
+        settings = { [1] = { name = "Cloth", recipient = "Other Alt", automatic = true } },
+        stackMarks = { ["Item-legacy"] = { slot = 1, itemID = 100 } },
+    }, { DEFAULT = { ["2"] = { name = "Legacy", recipient = "Other Alt" } } }
+end }
+local profiles = { numericProfile }
+BaganatorAltMailGroups, BaganatorAltMailRoutes = nil, nil
+local addon = SetupRecovery(profiles)
+addon.RestoreLegacySettings() -- Identity is unavailable while the addon loads.
+assert(reads == 0)
+playerName, realm = "First Other", ""
+addon.RestoreLegacySettings()
+assert(reads == 0)
+playerName = "First Last"
+addon.RestoreLegacySettings()
+assert(reads == 1 and addon.GetGroup(1).name == "Cloth")
+assert(addon.GetRoute(nil, addon.GetGroup(1)).automatic)
+assert(addon.GetMark("Item-legacy").slot == 1)
+assert(addon.GetRoute("DEFAULT", { id = "2", name = "Legacy" }).recipient == "Other Alt")
+
+-- A later UI session reads the persisted MiniQoL groups and never reapplies a
+-- retired snapshot over a recipient or mark the player deliberately cleared.
+addon.SaveRoute(nil, addon.GetGroup(1), nil, false)
+addon.ClearMark("Item-legacy")
+addon = SetupRecovery(profiles)
+addon.RestoreLegacySettings()
+assert(reads == 1 and not addon.GetRoute(nil, addon.GetGroup(1)) and not addon.GetMark("Item-legacy"))
+
+BaganatorAltMailGroups, BaganatorAltMailRoutes = nil, nil
+addon = SetupRecovery(profiles)
+addon.SaveRoute(nil, addon.GetGroup(1), "New Alt", false)
+addon.RestoreLegacySettings()
+assert(reads == 2 and addon.GetRoute(nil, addon.GetGroup(1)).recipient == "New Alt")
+
+BaganatorAltMailGroups, BaganatorAltMailRoutes = nil, nil
+addon = SetupRecovery({ numericProfile, numericProfile })
+addon.RestoreLegacySettings()
+assert(reads == 2 and not addon.GetRoute(nil, addon.GetGroup(1)))
+print("Alt Mail recovery: full names and numeric realm folders, existing settings preserved, recovery runs once")

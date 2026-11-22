@@ -77,7 +77,7 @@ help:SetWidth(386)
 help:SetJustifyV("TOP")
 help:SetSpacing(3)
 
-local selectedID = addon.GetGroup(1).id
+local selectedID = "altmail:1"
 local selectedProfile
 local selectedGUID
 

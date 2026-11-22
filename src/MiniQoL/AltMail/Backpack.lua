@@ -435,6 +435,9 @@ owner:SetScript("OnEvent", function(_, event, name)
       QueueUpdate()
     end
   else
+    if event == "PLAYER_LOGIN" or event == "PLAYER_ENTERING_WORLD" then
+      addon.RestoreLegacySettings()
+    end
     QueueUpdate()
     if event == "PLAYER_REGEN_ENABLED" then
       RefreshBindings()
