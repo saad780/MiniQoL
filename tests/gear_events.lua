@@ -102,7 +102,10 @@ local ITEMS = {
         lines = { "+3 Agility" }, loaded = false },
     [900] = { name = "Linen Bandage", loc = "", classID = 0, subclassID = 0 },
 }
-local function Link(id) return "|cffffffff|Hitem:" .. id .. "::::|h[" .. ITEMS[id].name .. "]|h|r" end
+local function Link(id, level, spec, suffix)
+    local payload = ("%d::::::%s::%d:%d"):format(id, suffix or "", level or 16, spec or 0)
+    return "|cffffffff|Hitem:" .. payload .. "|h[" .. ITEMS[id].name .. "]|h|r"
+end
 local function ID(link) return link and tonumber(link:match("item:(%d+)")) end
 
 local WHITE, RED = { r = 1, g = 1, b = 1 }, { r = 1, g = 0.13, b = 0.13 }
@@ -326,4 +329,51 @@ Settle()
 assert(ns.revision > revision, "its arrival is answered")
 Offered(160, "and the cloak is offered once it can be read")
 
-print("Gear events: carried gear is offered when it can be worn, the biggest gain first, bursts answered once")
+---------------------------------------------------------------------------
+-- Declining an upgrade
+---------------------------------------------------------------------------
+U.frame.later:GetScript("OnClick")(U.frame.later)
+assert(not Prompt(), "Keep current closes the cloak offer")
+
+-- A level-up changes the viewer level in item links, including for items
+-- that were already wearable and were never offered or declined.
+for slot, link in pairs(BAG) do BAG[slot] = Link(ID(link), 19) end
+Fire("PLAYER_LEVEL_UP", 19)
+LEVEL, PAINTED = 19, 19
+Settle()
+assert(not Prompt(), "refreshed links after leveling do not count as new loot")
+
+-- A zone transition can produce a bag scan before an item is visible again.
+BAG = {}
+Fire("PLAYER_ENTERING_WORLD", false, false)
+Settle()
+BAG = { Link(160, 19, 1) }
+Fire("BAG_UPDATE_DELAYED")
+Settle()
+assert(not Prompt(), "a declined upgrade stays dismissed when it reappears after zoning")
+
+-- Reload with the character's saved settings and a fresh upgrade queue.
+assert(loadfile(gearwise .. "/Core.lua"))("Gearwise", ns)
+core = LAST
+assert(loadfile(gearwise .. "/Upgrades.lua"))("Gearwise", ns)
+U = ns.Upgrades
+BAG = {}
+Fire("ADDON_LOADED", "Gearwise")
+Fire("PLAYER_LOGIN")
+Settle()
+BAG = { Link(160, 19, 1) }
+Fire("BAG_UPDATE_DELAYED")
+Settle()
+assert(not Prompt(), "the character's declined upgrades survive a reload")
+
+U:Review()
+Settle()
+Offered(160, "a manual bag review can still show the declined upgrade")
+U.frame.later:GetScript("OnClick")(U.frame.later)
+BAG[2] = Link(160, 19, 1, 776)
+Fire("BAG_UPDATE_DELAYED")
+Settle()
+Offered(160, "a separate variant is offered as new loot")
+assert(U.current.link == BAG[2], "the newly looted variant is the one offered")
+
+print("Gear events: wearable gear, queue order, event coalescing, and remembered upgrade dismissals passed")

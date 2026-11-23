@@ -4,9 +4,9 @@ Gearwise compares equipment for your selected build. Green up arrows and red dow
 
 A gold coin at the bottom left marks the quest reward choice worth the most at a vendor, including the reward quantity. It waits for all sale prices to load and ignores guaranteed rewards. The coin stays visible alongside upgrade/downgrade arrows at the top right, including when the same item is both an upgrade and the best sale.
 
-Newly obtained upgrades open a compact, movable comparison window showing the current item, replacement, and expected item stat gains and losses. A two-handed weapon comparison includes both displaced weapons. The larger **Equip upgrade** button equips into the displayed slot; **Keep current** dismisses it. Hover either item for its tooltip. Prompts wait until combat ends and recheck your gear before equipping. The game's binding confirmation still applies.
+Newly obtained upgrades open a compact, movable comparison window showing the current item, replacement, and expected item stat gains and losses. A two-handed weapon comparison includes both displaced weapons. **Equip upgrade** equips into the displayed slot. **Keep current** saves your choice for that character and stops automatic prompts for that upgrade. Hover either item for its tooltip. Prompts wait until combat ends and recheck your gear before equipping. The game's binding confirmation still applies.
 
-The first login or reload records your existing inventory without prompting for it. Sorting bags or swapping gear does not count as obtaining an item. Use `/gw upgrades` to review upgrades already in your bags.
+The first login or reload records your existing inventory without prompting for it. Sorting bags or swapping gear does not count as obtaining an item. Use `/gw upgrades` to review upgrades already in your bags, including ones you declined.
 
 Gear you carry before you can wear it is remembered: a sword two levels ahead, mail before level 40, an off-hand weapon before dual wield, a bow before the skill is trained. The prompt opens when the level or the skill arrives, and says the item can be worn now. With several upgrades waiting, the biggest gain is offered first, so equipping it retires the lesser pieces for the same slot; the count on the prompt is a count of upgrades.
 

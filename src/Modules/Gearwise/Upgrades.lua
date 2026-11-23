@@ -3,7 +3,18 @@ local Upgrades = { queue = {}, queued = {}, locked = {} }
 ns.Upgrades = Upgrades
 
 local function ItemKey(link)
-	return ns.Text(link) and (link:match("item:[^|]+") or link)
+	link = ns.Text(link)
+	if not link then return nil end
+	local payload = link:match("item:([^|]+)")
+	if not payload then return link end
+	local fields = {}
+	-- Fields 9 and 10 describe the player viewing the link (level and spec).
+	-- Keep the item's own fields, including random suffixes and bonuses.
+	for field in (payload .. ":"):gmatch("([^:]*):") do
+		local index = #fields + 1
+		fields[index] = (index == 9 or index == 10) and "" or field
+	end
+	return "item:" .. (table.concat(fields, ":"):gsub(":+$", ""))
 end
 
 local function Container(method, legacy, ...)
@@ -96,9 +107,10 @@ function Upgrades:Unlocked(bags, fresh)
 	return unlocked
 end
 
-function Upgrades:Enqueue(candidate)
-	if self.queued[candidate.key] then return end
-	self.queued[candidate.key] = true
+function Upgrades:Enqueue(candidate, review)
+	local key = candidate.key
+	if self.queued[key] or (not review and ns.db.upgradeRejected[key]) then return end
+	self.queued[key] = true
 	self.queue[#self.queue + 1] = candidate
 end
 
@@ -137,7 +149,7 @@ function Upgrades:Scan(review)
 	-- Gear that has just become wearable is offered like new loot.
 	for _, candidate in ipairs(self:Unlocked(bags, fresh)) do acquired[#acquired + 1] = candidate end
 	if ns.db.popups then
-		for _, candidate in ipairs(acquired) do self:Enqueue(candidate) end
+		for _, candidate in ipairs(acquired) do self:Enqueue(candidate, review) end
 		-- Only the upgrade prompt: a piece you just took off is no new look.
 		for _, candidate in ipairs(self:Displaced(worn, bags)) do self:Enqueue(candidate) end
 	else
@@ -182,8 +194,12 @@ function Upgrades:Schedule(delay)
 	end)
 end
 
-function Upgrades:Dismiss()
-	if self.current then self.queued[self.current.key] = nil end
+function Upgrades:Dismiss(remember)
+	if self.current then
+		local key = self.current.key
+		if remember then ns.db.upgradeRejected[key] = true end
+		self.queued[key] = nil
+	end
 	self.current = nil
 	if self.frame then self.frame:Hide() end
 	self:Advance()
@@ -308,7 +324,7 @@ function Upgrades:CreateFrame()
 	frame.subtitle = T:Text(frame, "", "GameFontDisableSmall", 190, T.MUTED)
 	frame.subtitle:SetJustifyH("RIGHT")
 	frame.subtitle:SetPoint("TOPRIGHT", -34, -13)
-	T:CloseButton(frame, function() self:Dismiss() end):SetPoint("TOPRIGHT", -5, -7)
+	T:CloseButton(frame, function() self:Dismiss(true) end):SetPoint("TOPRIGHT", -5, -7)
 
 	-- Score banner: the one number the prompt exists to deliver.
 	local score = CreateFrame("Frame", nil, frame, "BackdropTemplate")
@@ -402,9 +418,9 @@ function Upgrades:CreateFrame()
 		end
 		return body
 	end)
-	frame.later = T:Button(frame, "Keep current", 110, 26, function() self:Dismiss() end)
+	frame.later = T:Button(frame, "Keep current", 110, 26, function() self:Dismiss(true) end)
 	frame.later:SetPoint("RIGHT", frame.equip, "LEFT", -8, 0)
-	T:Tip(frame.later, "Keep current", "Dismisses this prompt. Use /gw upgrades to review bag upgrades again.")
+	T:Tip(frame.later, "Keep current", "Remembers your choice. Use /gw upgrades to review it again.")
 
 	-- A one-pixel keyboard listener, armed only while the prompt is up. Every
 	-- path that hides the prompt disarms it, because it hangs off OnHide.
@@ -589,6 +605,7 @@ function Upgrades:Show(result)
 end
 
 function Upgrades:Init()
+	if type(ns.db.upgradeRejected) ~= "table" then ns.db.upgradeRejected = {} end
 	self:CreateFrame()
 	-- Establish the initial inventory without prompting for pre-existing gear.
 	self:Scan()
