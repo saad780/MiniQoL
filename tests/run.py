@@ -45,6 +45,9 @@ alt_gear.execute((root / "tests/alt_gear.lua").read_text(), str(shell).replace("
 mail = LuaRuntime(unpack_returned_tuples=True)
 mail.execute((root / "tests/mail.lua").read_text(), str(shell).replace("\\", "/"))
 
+regen = LuaRuntime(unpack_returned_tuples=True)
+regen.execute((root / "tests/regen.lua").read_text(), str(shell).replace("\\", "/"))
+
 alt_mail = LuaRuntime(unpack_returned_tuples=True)
 alt_mail.execute((root / "tests/alt_mail.lua").read_text(), str(package if len(sys.argv) > 1 else shell).replace("\\", "/"))
 

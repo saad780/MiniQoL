@@ -69,6 +69,18 @@ drag the box by its title to move it. Your characters are added as they log in,
 or straight away if Syndicator knows them. The **Mail** page turns either part
 off.
 
+A slim bar under the player frame's health and power bars times your regen:
+one row for health, one for mana, energy or rage. A grey row means nothing is
+coming back (full, in combat, or dead). After a spell that costs mana, the mana
+row drains through the five-second rule; once it empties, regen is under way
+and each row fills toward the next tick, flashing as it lands. The number on a
+row is what the last tick gave, green for health, blue for mana, yellow for
+energy and red for rage (what rage loses each tick out of combat). When the
+game keeps your health or power secret from addons, the number is the last
+tick measured or what your regen rate gives; `/mqol regen` says which. The
+**Regen ticks** page turns either row or the numbers off and sets the gap below
+the player frame.
+
 **Alt Mail** opens from the envelope by the bags, the Mini QoL **Mail** page, or
 `/altmail`. Set a recipient for each group, then hover over a stack and press
 **Ctrl+Shift+1** or **Ctrl+Shift+2** to mark it. The numbered envelope follows

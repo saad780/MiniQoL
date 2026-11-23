@@ -24,6 +24,8 @@ ns.pages = {
       description = "Every character's gear, written down so the others can look at it on the character sheet." },
     { id = "mail", label = "Mail", group = "Mini QoL",
       description = "New mail alerts, contacts beside Send Mail, and marked stacks for your alts." },
+    { id = "regen", label = "Regen ticks", group = "Mini QoL",
+      description = "A slim bar under your player frame that times the five-second rule and every health and power tick." },
     { id = "miniqol", label = "Mini QoL", group = "Mini QoL",
       description = "Panel preferences, module switches and source credits." },
 }
@@ -183,6 +185,7 @@ events:SetScript("OnEvent", function(_, event, name)
         if ns.Fishing then ns.Fishing:Start() end
         if ns.AltGear then ns.AltGear:Start() end
         if ns.Mail then ns.Mail:Start() end
+        if ns.Regen then ns.Regen:Start() end
     end
 end)
 
@@ -197,6 +200,8 @@ SlashCmdList.MINIQOL = function(input)
         elseif rest == "gear" or rest == "outfit" then ns.Fishing:ToggleOutfit()
         elseif rest == "bar" then ns.Fishing:Set("bar", not ns.Fishing:Get("bar"))
         else ns.Fishing:ToggleGear() end
+    elseif command == "regen" then
+        if ns.Regen and ns.Regen.db then ns.Regen:Report() end
     elseif input == "icon" then
         ns.db.minimap.hide = false
         ns:UpdateMinimapButton()
