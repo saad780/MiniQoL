@@ -92,6 +92,13 @@ wayfinder("nativeMinimapTurnIns", "Live minimap", "Prefer Blizzard's turn-in mar
 
 wayfinder("showArrow", "Waypoints", "Show the waypoint arrow",
     "Middle-click the map (or any icon) to set a waypoint; a floating arrow then points the way. Several can stand at once: type /way 42 65, or let an addon that speaks TomTom's language add them. Drag the arrow to move it, middle-click it to remove the one it is on, right-click it for the whole list.")
+feature({ id = "wayfinder.routeStyle", page = "maps", group = "Waypoints", label = "Route style",
+    addon = "Wayfinder", kind = "select",
+    choices = { { "fastest", "Direct" }, { "balanced", "Balanced" }, { "roads", "Roads Always" } },
+    get = function() return Wayfinder.Navigation:GetRouteStyle() end,
+    set = function(value) Wayfinder:SetSetting("routeStyle", value) end,
+    available = mapReady,
+    tooltip = "Direct favors the shortest walkable route. Balanced uses roads when the detour is small. Roads Always strongly favors roads and avoids steep terrain.\n\nWalking maps cover Eastern Kingdoms, Kalimdor, and Zephras Isle. Elsewhere, the arrow points straight at the waypoint." })
 wayfinder("clearOnArrival", "Waypoints", "Remove the waypoint when you arrive")
 wayfinder("corpseWaypoint", "Waypoints", "Point the arrow at your corpse",
     "When you release your spirit, a waypoint is set on your corpse and the arrow points to it. Coming back to life completes it, wherever that happens, and the arrow returns to the waypoint it was on before.")

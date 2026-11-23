@@ -62,6 +62,8 @@ Modules\Wayfinder\AddonPins.lua
 Modules\Wayfinder\MapLoading.lua
 Modules\Wayfinder\DetailView.lua
 Modules\Wayfinder\WorldFog.lua
+Modules\Wayfinder\Walking.lua
+Modules\Wayfinder\Vendor\PolestarWalking\Walking.xml
 Modules\Wayfinder\Navigation.lua
 Modules\Wayfinder\TomTom.lua
 Modules\Wayfinder\Polestar.lua

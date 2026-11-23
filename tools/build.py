@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from os.path import relpath
 import re
 import shutil
 from pathlib import Path
@@ -208,12 +209,14 @@ def resolve_case(path):
     return path
 
 
-def absolute_xml_includes(data, original_file, addon_root, all_addons):
+def relative_xml_includes(data, original_file, addon_root, all_addons):
     def replace(match):
         requested = match[2].decode("utf-8").replace("\\", "/")
-        if requested.lower().startswith("interface/"):
-            return match[0]
-        candidates = [original_file.parent / requested, addon_root / requested]
+        addons_prefix = "Interface/AddOns/"
+        if requested.lower().startswith(addons_prefix.lower()):
+            candidates = [all_addons / requested[len(addons_prefix):]]
+        else:
+            candidates = [original_file.parent / requested, addon_root / requested]
         chosen = None
         for candidate in candidates:
             if "[" in requested:
@@ -226,14 +229,18 @@ def absolute_xml_includes(data, original_file, addon_root, all_addons):
                 break
         if chosen is None:
             return match[0]
-        relative = chosen.resolve().relative_to(all_addons.resolve())
-        replacement = "Interface\\AddOns\\MiniQoL\\Modules\\" + str(relative).replace("/", "\\")
+        # Both files keep their relative locations inside the bundled Modules directory.
+        source = chosen.resolve()
+        if not source.is_relative_to(all_addons.resolve()):
+            raise ValueError(f"XML include outside bundled sources: {chosen}")
+        replacement = relpath(source, original_file.parent.resolve()).replace("/", "\\")
         return match[1] + replacement.encode() + match[3]
     return re.sub(rb'(<(?:Script|Include)\b[^>]*\bfile=["\x27])([^"\x27]+)(["\x27])', replace, data)
 
 
 def validate_entries(output, entries):
     """Walk selected TOCs/XML includes and verify every concrete referenced source."""
+    output = output.resolve()
     visited, missing = set(), []
     def visit(relative):
         normalized = re.sub(r"\s*\[(?:Allow|Exclude)Load\w+\b.*$", "", relative).replace("\\", "/")
@@ -242,11 +249,11 @@ def validate_entries(output, entries):
             if not list(output.glob(pattern)):
                 missing.append(normalized)
             return
-        path = resolve_case(output / normalized)
+        path = resolve_case((output / normalized).resolve())
         if path in visited:
             return
         visited.add(path)
-        if not path.is_file():
+        if not path.is_relative_to(output) or not path.is_file():
             missing.append(normalized)
             return
         if path.suffix.lower() == ".xml":
@@ -260,10 +267,7 @@ def validate_entries(output, entries):
             for node in tree.iter():
                 if node.tag.rsplit("}", 1)[-1] in {"Include", "Script"} and node.get("file"):
                     child = node.get("file").replace("\\", "/")
-                    if child.lower().startswith("interface/addons/miniqol/"):
-                        visit(child[len("Interface/AddOns/MiniQoL/"):])
-                    else:
-                        visit(str(path.parent.relative_to(output) / child))
+                    visit(str(path.parent.relative_to(output) / child))
     for entry in entries:
         visit(entry)
     if missing:
@@ -328,7 +332,7 @@ def build(addons, account, destination, refresh=False):
                 continue
             data = file.read_bytes().removeprefix(b"\xef\xbb\xbf")
             if file.suffix.lower() == ".xml":
-                data = absolute_xml_includes(data, folder / file.relative_to(target), folder, addons)
+                data = relative_xml_includes(data, folder / file.relative_to(target), folder, addons)
             data = rewrite_paths(data, modules)
             if file.suffix.lower() == ".lua":
                 if name == "XPCounter" and file.name == "Popup.lua":

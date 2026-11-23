@@ -141,6 +141,7 @@ ns.defaults = {
 	showMinimapServices = true,  -- Wayfinder owns service icons on the corner minimap
 	showArrow = true,            -- floating arrow pointing at the waypoint
 	arrowScale = 1.0,
+	routeStyle = "balanced",     -- walking preferences
 	clearOnArrival = true,       -- remove the waypoint once you reach it
 	corpseWaypoint = true,       -- releasing your spirit points the arrow at your corpse
 	followPolestar = false,      -- Polestar's guide on the arrow (Polestar.lua)

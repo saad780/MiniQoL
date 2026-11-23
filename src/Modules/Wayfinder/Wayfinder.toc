@@ -45,6 +45,8 @@ AddonPins.lua
 MapLoading.lua
 DetailView.lua
 WorldFog.lua
+Walking.lua
+Vendor\PolestarWalking\Walking.xml
 Navigation.lua
 TomTom.lua
 Polestar.lua

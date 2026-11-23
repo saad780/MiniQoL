@@ -29,8 +29,9 @@ local ns = { db = { waypoints = {}, settings = { showArrow = true, arrowScale = 
 function ns:NewModule(name) self[name] = { name = name }; return self[name] end
 function ns:GetCharacterKey() return "Tester-Realm" end
 function ns:GetSetting(key) return self.db.settings[key] end
-function ns:On() end
-function ns:Fire() end
+local handlers = {}
+function ns:On(message, handler) handlers[message] = handler end
+function ns:Fire(message, ...) if handlers[message] then handlers[message](...) end end
 function ns:RegisterEvent() end
 ns.Print = noop
 function ns.Readable(value) return value ~= nil end
@@ -87,6 +88,7 @@ function methods:CreateTexture() return NewFrame("Texture", self) end
 function methods:CreateFontString() return NewFrame("FontString", self) end
 function methods:SetTexture() return true end
 function methods:SetColorTexture(r, g, b, a) self.color = { r, g, b, a } end
+function methods:SetText(text) self.text = text end
 -- Where a frame anchored to the screen sits, in its own units.
 function methods:GetCenter()
     local point = self.points[1]
@@ -260,3 +262,72 @@ arrow.scripts.OnUpdate(arrow, 0.001)
 near(offset(), 100, "and the cursor no longer moves it")
 
 print("Arrow placement: drag without a jump, snap to the middle from either side, saved centred, a bigger arrow, hidden mid-drag passed")
+
+---------------------------------------------------------------------------
+-- Walking routes drive the same arrow and replace in-flight jobs on changes.
+---------------------------------------------------------------------------
+local requests = {}
+local covered = true
+ns.Walking = { Nav = { follow = { Reset = noop, Mark = noop, Catch = noop,
+    Step = function(xs, ys, _, _, _, state)
+        state.idx = 2
+        return xs[2], ys[2]
+    end } }, Compat = { GetPlayerFaction = function() return "Alliance" end, IsOnTaxi = function() return false end } }
+ns.Walking.Nav.Path = {
+    Available = function(cont) return covered and cont == 1 end,
+    Find = function(cont, from, to, done, options)
+        local job = { cont = cont, from = from, to = to, done = done, options = options }
+        requests[#requests + 1] = job
+        return job
+    end,
+    Cancel = function(job) job.cancelled = true end,
+}
+C_AddOns = { LoadAddOn = function() error("walking should not load another addon") end }
+local inCombat, now = true, 0
+function InCombatLockdown() return inCombat end
+function GetTime() return now end
+
+Navigation:AddWaypoint(1, 400, 650, "Across the river", 1429)
+equal(#requests, 0, "defers the walking search in combat")
+inCombat = false
+Navigation:UpdateArrow()
+equal(#requests, 1, "starts the walking search after combat")
+local balanced = requests[1]
+equal(balanced.options.style, "balanced", "older profiles default to Balanced")
+equal(balanced.options.profile, "Alliance", "routes with the player's faction")
+assert(not arrow.head.shown, "no straight bearing while finding a route")
+
+local function SetStyle(style)
+    ns.db.settings.routeStyle = style
+    ns:Fire("SETTING_CHANGED", "routeStyle")
+end
+SetStyle("fastest")
+local direct = requests[2]
+assert(balanced.cancelled, "changing styles cancels the previous search")
+equal(direct.options.style, "fastest", "Direct uses Polestar's Fastest style")
+balanced.done({ balanced.from, balanced.to })
+Navigation:UpdateArrow()
+assert(not arrow.head.shown, "a stale result cannot show a bearing")
+
+SetStyle("roads")
+local roads = requests[3]
+assert(direct.cancelled, "Direct is retired on switching to Roads Always")
+equal(roads.options.style, "roads", "Roads Always uses Polestar's Roads style")
+roads.done({ roads.from, { x = 430, y = 600 }, roads.to })
+Navigation:UpdateArrow()
+assert(arrow.head.shown, "the completed route shows a bearing")
+equal(arrow.bearingFrame, 0, "aims at the first turn, north")
+equal(arrow.distance.text, "88 yd", "reports the distance along the walk")
+
+local nextWaypoint = Navigation:AddWaypoint(1, 420, 650, "Another destination", 1429)
+assert(Navigation:GetWaypoint() == nextWaypoint, "placing a new waypoint changes the route")
+local nextJob = requests[4]
+nextJob.done(nil, "unreachable")
+Navigation:UpdateArrow()
+equal(arrow.distance.text, "No walking route", "keeps the arrow from sending players through obstructions")
+
+covered = false
+Navigation:AddWaypoint(1, 420, 650, "Outside walking coverage", 1429)
+assert(arrow.head.shown, "straight bearings still work on unmapped ground")
+equal(arrow.distance.text, "54 yd", "reports the distance to the original waypoint")
+print("Walking arrow: combat deferral, style changes, stale searches, route distance and fallback passed")

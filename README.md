@@ -16,6 +16,12 @@ map layer are remembered for the play session. **Track my location** follows
 your character across map reopens until you click the button again. Dragging
 the map pauses tracking until you release it.
 
+Under **Maps & travel → Waypoints → Route style**, choose **Direct** for the
+shortest walkable route, **Balanced** (the default) to favor roads with short
+detours, or **Roads Always** to follow roads even on longer detours. Mini QoL
+includes the router and walking maps for Eastern Kingdoms, Kalimdor, and Zephras
+Isle. Where terrain data is unavailable, the arrow points straight at the waypoint.
+
 When you release your spirit, the waypoint arrow points at your corpse. Coming
 back to life completes that waypoint, wherever it happens, and the arrow returns
 to the waypoint it was on before. **Point the arrow at your corpse** under
@@ -135,6 +141,7 @@ includes these contributions from other projects:
 | [Wayfinder](https://github.com/saad780/Wayfinder) and [XP Counter](https://github.com/saad780/XPCounter) | saad780, with the Wayfinder contributions below | GPLv3 in this distribution |
 | [Peddler](https://www.curseforge.com/wow/addons/peddler) | Cartas @ Bloodfang-Classic and upstream contributors; Forever adaptations by saad780 | Upstream public-domain dedication; local adaptations GPLv3 |
 | [Carbonite All-in-One](https://github.com/IrcDirk/Carbonite-All-in-One-Retail-Classic) town-service and transport data | Carbonite contributors, maintained by IrcDirk | GPLv3 |
+| [Polestar](https://github.com/fitzforge/polestar) walking router and maps | Polestar contributors, Cillian Berragan, and Leffe | GPLv3; upstream notices retained |
 | [OpenMap](https://github.com/openmap-world/openmap) scroll controller and coordinate/layout adaptations | OpenMap contributors | MIT; notice retained |
 | Game-derived map masks and client artwork | Blizzard Entertainment; mask tracing/generation by OpenMap contributors | Separate asset rights; see the retained provenance notices |
 

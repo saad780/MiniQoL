@@ -66,6 +66,21 @@ adaptations. Generated Lua adapters are marked in their headers.
 - XP Counter's original code and MiniQoL popup bridge are GPL-3.0-only in this
   distribution; the full license is also included in its module directory.
 
+## Polestar walking router and terrain data
+
+- Source: [Polestar 0.4.2.1](https://github.com/fitzforge/polestar/releases/tag/v0.4.2.1).
+- The walking router and data are by the Polestar contributors, with the router
+  based on Cillian Berragan's Shortest Path Forever and packed navigation data by
+  Leffe and the Polestar contributors. The original GPL-3.0-or-later notices
+  are retained in `Modules/Wayfinder/Vendor/PolestarWalking`.
+- `tools/import_walking_maps.py` verifies the upstream pack's SHA-256 hashes,
+  adapts the Lua namespace for Wayfinder, and generates the load list for the
+  bundled files. The walkable terrain, route costs, and road classes come from
+  the released pack. Mini QoL provides the client and waypoint integration.
+- Includes the path follower, danger weighting and zone level estimates from
+  the same release. The zone level estimates derive from pfQuest's MIT data,
+  credited in [Polestar's notices](https://github.com/fitzforge/polestar/blob/v0.4.2.1/THIRD_PARTY.md).
+
 ## OpenMap code and assets
 
 - Authors: OpenMap contributors; copyright (c) 2026 OpenMap contributors.

@@ -1,0 +1,3 @@
+# Packed navigation Lua contains compressed byte strings.
+src/Modules/Wayfinder/Vendor/PolestarWalking/Maps/*.lua -text -diff
+MiniQoL/Modules/Wayfinder/Vendor/PolestarWalking/Maps/*.lua -text -diff

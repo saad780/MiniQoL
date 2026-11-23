@@ -661,21 +661,132 @@ local function ShowNames(name, goal)
 	end
 end
 
+---------------------------------------------------------------------------
+-- Walking routes from Wayfinder's bundled router.
+---------------------------------------------------------------------------
+local walk
+local REROUTE_YARDS = 25
+
+function Navigation:GetRouteStyle()
+	local style = ns:GetSetting("routeStyle")
+	return (style == "fastest" or style == "roads") and style or "balanced"
+end
+
+local function ClearWalk()
+	local old = walk
+	walk = nil
+	if old and old.job then old.engine.Cancel(old.job) end
+end
+
+local function PlayerHeight(compat, cont)
+	if not (compat and compat.GetPlayerUnitPosition) then return end
+	local _, _, height, instance = compat.GetPlayerUnitPosition()
+	if instance == cont then return height end
+end
+
+local function AskWalk(engine, follow, compat, danger, cont, wx, wy, mapID, style, ghost)
+	local rec = current
+	local route = { waypoint = rec, engine = engine, style = style, ghost = ghost,
+		x = wx, y = wy, asked = GetTime(), pending = true }
+	walk = route
+	local level = danger and danger.Level and danger.Level()
+	local profile = compat and compat.GetPlayerFaction and compat.GetPlayerFaction()
+	local options = { style = style, waterWalking = ghost, profile = profile,
+		walkLevel = profile and danger and danger.Blocked and (level or 0) or nil,
+		danger = level and danger.Table and danger.Table(level, mapID, rec.m) }
+	local function Finished(points, reason, result)
+		if walk ~= route then return end
+		route.job, route.pending = nil, false
+		if not points or #points == 0 then
+			if reason ~= "nodata" and reason ~= "outside" then route.status = "No walking route" end
+			return
+		end
+		local xs, ys, zs, left, state = {}, {}, {}, {}, {}
+		local count = #points
+		xs.absoluteDry = points.absoluteDry
+		for i = count, 1, -1 do
+			local point = points[i]
+			xs[i], ys[i], zs[i] = point.x, point.y, point.z or false
+			if point.detail then
+				xs.detail = xs.detail or {}
+				xs.detail[i] = true
+			end
+			if i == count then
+				left[i] = ns.Distance(point.x, point.y, rec.x, rec.y)
+			else
+				left[i] = left[i + 1] + ns.Distance(point.x, point.y, xs[i + 1], ys[i + 1])
+			end
+		end
+		follow.Reset(state)
+		follow.Mark(xs, ys, zs, left, count, state)
+		route.xs, route.ys, route.zs, route.left, route.state = xs, ys, zs, left, state
+		route.partial = result and result.reached
+	end
+	local ok, job = pcall(engine.Find, cont, { x = wx, y = wy, z = PlayerHeight(compat, cont) },
+		{ x = rec.x, y = rec.y }, Finished, options)
+	if route.pending then
+		if ok and job then route.job = job else Finished(nil, "nodata") end
+	end
+end
+
+local function WalkAim(cont, wx, wy, mapID)
+	local routing = ns.Walking
+	local nav = routing and routing.Nav
+	if not (nav and nav.Path and nav.follow) or routing.Compat.IsOnTaxi() then
+		ClearWalk()
+		return
+	end
+	local engine, follow, compat, danger = nav.Path, nav.follow, routing.Compat, nav.danger
+	local style = Navigation:GetRouteStyle()
+	local ghost = UnitIsGhost and UnitIsGhost("player")
+	ghost = ns.Readable(ghost) and ghost == true
+	if walk and (walk.waypoint ~= current or walk.style ~= style or walk.ghost ~= ghost) then
+		ClearWalk()
+	end
+	local aimX, aimY, yards, stray, retryAfter
+	if walk and walk.xs then
+		local xs, ys, zs, left, state = walk.xs, walk.ys, walk.zs, walk.left, walk.state
+		if not walk.caught then
+			follow.Catch(xs, ys, zs, left, #xs, state, wx, wy,
+				ns.Distance(wx, wy, walk.x, walk.y), REROUTE_YARDS, nil, PlayerHeight(compat, cont))
+			walk.caught = true
+		end
+		local outdoors = compat and compat.IsIndoors and compat.IsIndoors() == false
+		aimX, aimY = follow.Step(xs, ys, zs, left, #xs, state, wx, wy, nil, nil, nil, outdoors)
+		local nextPoint = min(state.idx, #xs)
+		yards = ns.Distance(wx, wy, xs[nextPoint], ys[nextPoint]) + left[nextPoint]
+		stray = aimX and state.off or ns.Distance(wx, wy, xs[#xs], ys[#xs])
+		retryAfter = yards > 2000 and 10 or 2
+	elseif walk and not walk.job then
+		stray, retryAfter = ns.Distance(wx, wy, walk.x, walk.y), 15
+	end
+	local needsWalk = not walk or (stray and stray > REROUTE_YARDS and GetTime() - walk.asked >= retryAfter)
+	if needsWalk and not InCombatLockdown() and engine.Available(cont) then
+		AskWalk(engine, follow, compat, danger, cont, wx, wy, mapID, style, ghost)
+		aimX, aimY, yards = nil, nil, nil
+	end
+	local status = walk and (walk.pending and "Finding walking route…" or walk.status)
+	if walk and walk.partial and not aimX then status = "No walking route" end
+	return aimX, aimY, yards, status
+end
+
 -- Points the arrow from the player toward the waypoint.
 function Navigation:UpdateArrow()
 	if not current then
 		return
 	end
-	local cont, wx, wy = ns.GetPlayerWorld()
+	local cont, wx, wy, mapID = ns.GetPlayerWorld()
 	local away = cont and cont ~= current.c
 	ShowNames(away and (current.n .. " (another continent)") or current.n, current.goal)
 	if not cont then
+		ClearWalk()
 		arrow.head:Hide()
 		arrow.distance:SetText("?")
 		Tint(CYAN)
 		return
 	end
 	if away then
+		ClearWalk()
 		arrow.head:Hide()
 		arrow.distance:SetText("Far away")
 		Tint(CYAN)
@@ -683,6 +794,15 @@ function Navigation:UpdateArrow()
 	end
 	local dx, dy = current.x - wx, current.y - wy -- yards north, yards west
 	local distance = sqrt(dx * dx + dy * dy)
+	local aimX, aimY, walkDistance, status = WalkAim(cont, wx, wy, mapID)
+	if status then
+		arrow.head:Hide()
+		arrow.distance:SetText(status)
+		Tint(CYAN)
+		return
+	end
+	if aimX then dx, dy = aimX - wx, aimY - wy end
+	if walkDistance then distance = max(distance, walkDistance) end
 	-- Standing at your corpse is not the end of that one: coming back to life is.
 	-- Nor is reaching a guide's goal: the guide moves it on when it is done.
 	if distance <= ARRIVE_YARDS and current.source ~= CORPSE and not current.kept
@@ -884,6 +1004,7 @@ function Navigation:RefreshArrow()
 		arrow:Show()
 		self:UpdateArrow()
 	else
+		ClearWalk()
 		arrow:Hide()
 	end
 end
@@ -1279,7 +1400,7 @@ function Navigation:OnLogin()
 	ns:On("SETTING_CHANGED", function(key)
 		if key == "arrowScale" then
 			arrow:SetScale(ns:GetSetting("arrowScale") or 1)
-		elseif key == "showArrow" then
+		elseif key == "showArrow" or key == "routeStyle" then
 			self:RefreshArrow()
 		elseif key == "corpseWaypoint" then
 			if ns:GetSetting("corpseWaypoint") then
@@ -1295,7 +1416,11 @@ function Navigation:OnLogin()
 	local function Check() self:CheckCorpse() end
 	ns:RegisterEvent("PLAYER_ALIVE", Check)
 	ns:RegisterEvent("PLAYER_UNGHOST", Check)
-	ns:RegisterEvent("PLAYER_ENTERING_WORLD", Check)
+	ns:RegisterEvent("PLAYER_ENTERING_WORLD", function()
+		ClearWalk()
+		Check()
+	end)
+	ns:RegisterEvent("PLAYER_LEVEL_UP", ClearWalk)
 	EventUtil.ContinueOnAddOnLoaded("Blizzard_WorldMap", function()
 		self:HookWorldMap()
 	end)
