@@ -24,8 +24,17 @@ function methods:IsShown() return self.shown end
 function methods:SetPoint(...) self.points[#self.points + 1] = { ... } end
 function methods:ClearAllPoints() self.points = {} end
 function methods:SetHeight(height) self.height = height end
+function methods:SetWidth(width) self.width = width end
+function methods:SetSize(width, height) self.width, self.height = width, height end
 function methods:SetValue(value) self.value = value end
 function methods:SetStatusBarColor(r, g, b) self.color = { r, g, b } end
+function methods:SetStatusBarTexture(texture) self.texture = texture end
+function methods:SetAtlas(name) self.art, self.colorTexture = name, nil end
+function methods:SetTexture(file) self.art, self.colorTexture = file, nil end
+function methods:SetColorTexture(r, g, b, a) self.art, self.colorTexture = nil, { r, g, b, a } end
+function methods:SetDesaturated(value) self.desaturated = value end
+function methods:SetFont(file, size, flags) self.font = { file, size, flags } end
+function methods:SetJustifyH(value) self.justify = value end
 function methods:GetStatusBarTexture()
     self.fill = self.fill or NewFrame("Texture", self)
     return self.fill
@@ -49,6 +58,20 @@ end
 UIParent = NewFrame("Frame")
 PlayerFrame = NewFrame("Frame", UIParent)
 PlayerFrame.manabar = NewFrame("StatusBar", PlayerFrame)
+TextStatusBarText = { GetFont = function() return "Fonts\\FRIZQT__.TTF", 10, "OUTLINE" end }
+
+-- The game's art: the player frame's bars and the cast bar's frame.
+local UNIT_BAR = "UI-HUD-UnitFrame-Player-PortraitOn-Bar-"
+local FLAT = "Interface\\TargetingFrame\\UI-StatusBar"
+local ART = {}
+local function Art(present)
+    for _, name in ipairs({ UNIT_BAR .. "Health", UNIT_BAR .. "Mana", UNIT_BAR .. "Energy", UNIT_BAR .. "Rage",
+        "ui-castingbar-background", "ui-castingbar-frame", "ui-castingbar-pip" }) do
+        ART[name] = present or nil
+    end
+end
+Art(true)
+C_Texture = { GetAtlasInfo = function(name) return ART[name] and { width = 1, height = 1 } or nil end }
 
 ---------------------------------------------------------------------------
 -- The game
@@ -149,7 +172,18 @@ end
 local function power(value) me.power = value; fire("UNIT_POWER_FREQUENT", "player", TOKENS[me.powerType]) end
 local function health(value) me.health = value; fire("UNIT_HEALTH", "player") end
 local function cast(id) fire("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-GUID", id) end
-local function grey(row) return row.color[1] == row.color[2] and row.color[2] == row.color[3] end
+-- Idle rows are the game's art greyed out (or the flat texture in grey);
+-- live ones wear the art as drawn.
+local function grey(row)
+    local c = row.color
+    return c[1] == c[2] and c[2] == c[3] and c[1] < 1 and (row.fill.desaturated or row.texture == FLAT)
+end
+local function lit(row, art)
+    local c = row.color
+    return row.texture == UNIT_BAR .. art and not row.fill.desaturated and c[1] == 1 and c[2] == 1 and c[3] == 1
+end
+local function white(text) return text.color[1] == 1 and text.color[2] == 1 and text.color[3] == 1 end
+local function dim(text) return text.color[1] == text.color[2] and text.color[1] < 0.9 end
 local function shown(row) return row.text.shown and row.text.text or nil end
 
 ---------------------------------------------------------------------------
@@ -163,17 +197,29 @@ equal(box.parent, PlayerFrame, "it belongs to the player frame, so it scales and
 local top = box.points[1]
 equal(top[2], PlayerFrame.manabar, "it hangs from the player frame's power bar")
 equal(top[5], -4, "four pixels down to start with")
-equal(box.height, 2 * 2 + 2 * 9 + 1, "two rows high")
+equal(top[4], -2, "reaching past the bar by the cast bar frame's edge")
+-- Two 10-pixel rows, each in a frame reaching 2 pixels out, 1 pixel between.
+equal(box.height, 2 * 2 + 2 * 10 + (1 + 2 * 2), "two rows high")
 local hp, pw = R.health.row, R.power.row
 assert(hp.shown and pw.shown, "a row each for health and energy")
+equal(hp.points[1][5], -2, "the health row sits inside its frame")
+equal(pw.points[1][5], -2 - 10 - 5, "and the energy row below it")
+equal(hp.texture, UNIT_BAR .. "Health", "health wears the player frame's health bar")
+equal(pw.texture, UNIT_BAR .. "Energy", "energy its energy bar")
+equal(pw.border.art, "ui-castingbar-frame", "framed like the cast bar")
+equal(pw.back.art, "ui-castingbar-background", "over the cast bar's backing")
+equal(pw.spark.art, "ui-castingbar-pip", "with the cast bar's spark")
+equal(pw.text.font[2], 10, "the number in the unit frames' size")
+equal(pw.text.font[3], "OUTLINE", "and outline")
+equal(pw.text.points[1][1], "CENTER", "centred, as the player frame has its own")
 equal(R:State(R.health, clock), "idle", "health is full")
 equal(R:State(R.power, clock), "idle", "energy is full")
-assert(grey(hp) and grey(pw), "both rows are grey")
+assert(grey(hp) and grey(pw), "both rows are greyed out")
 equal(pw.value, 1, "a grey row is filled across")
 equal(shown(pw), "+20", "energy says what a tick gives before one lands, from the game's regen rate")
-assert(grey(pw.text), "in grey while nothing comes back")
+assert(dim(pw.text), "in grey while nothing comes back")
 equal(shown(hp), "+9", "and health, from the game's health regen rate")
-assert(grey(hp.text), "in grey too")
+assert(dim(hp.text), "in grey too")
 equal(box.scripts.OnUpdate, nil, "nothing moves, so nothing runs each frame")
 
 ---------------------------------------------------------------------------
@@ -184,13 +230,13 @@ cast(1752)
 power(65)
 equal(R:State(R.power, clock), "regen", "spent energy comes back")
 assert(box.scripts.OnUpdate, "the row moves each frame")
-assert(not grey(pw), "in energy's colour")
+assert(lit(pw, "Energy"), "in the energy bar's own art")
 advance(0.9)
 power(85)
 advance(0.2)
 near(R.power.tickAt, start + 0.9, "a rise away from the cast is the first tick, and sets the beat")
 equal(shown(pw), "+20", "the number is what it gave")
-equal(pw.text.color[1], 1, "in yellow")
+assert(white(pw.text), "in white, like the player frame's numbers")
 near(pw.flash.alpha, 0.35, "the row flashes as the tick is counted")
 advance(0.2)
 near(pw.flash.alpha, 0.35 * (1 - 0.2 / 0.35), "and fades")
@@ -256,7 +302,7 @@ health(732)
 advance(0.2)
 near(R.health.tickAt, clock - 0.2, "on the beat the energy ticks keep")
 equal(shown(hp), "+12", "health says what its tick gave")
-equal(hp.text.color[2], 1, "in green")
+assert(lit(hp, "Health"), "on the health bar's art")
 
 ---------------------------------------------------------------------------
 -- 4. Secret health: the beat says which changes are ticks
@@ -275,7 +321,7 @@ fire("UNIT_HEALTH", "player")
 advance(0.2)
 near(R.health.tickAt, clock - 0.2, "the next tick on the beat")
 equal(shown(hp), "+9", "gives what the game's health regen rate does over a tick")
-equal(hp.text.color[2], 1, "in green")
+assert(white(hp.text), "in white")
 advance(0.8)
 fire("UNIT_HEALTH", "player") -- food, off the beat
 advance(0.2)
@@ -319,7 +365,7 @@ for _, id in ipairs({ "regen.enabled", "regen.health", "regen.power", "regen.num
 end
 features["regen.health"].set(false)
 assert(not hp.shown and pw.shown, "the health row can go")
-equal(box.height, 2 * 2 + 9, "one row high")
+equal(box.height, 2 * 2 + 10, "one row high")
 equal(pw.points[1][5], -2, "the power row moves up")
 features["regen.health"].set(true)
 features["regen.gap"].set(10.4)
@@ -337,6 +383,90 @@ assert(box.shown, "and come back")
 assert(features["regen.reading"].get():find("energy %+"), "the page says what a tick gives")
 
 ---------------------------------------------------------------------------
+-- 5b. Look, size and place
+---------------------------------------------------------------------------
+for _, id in ipairs({ "texture", "border", "textPos", "textColor", "textSize", "reset",
+    "matchWidth", "width", "height", "spacing", "gap", "offset" }) do
+    assert(features["regen." .. id], "regen." .. id .. " is on the panel")
+    equal(features["regen." .. id].page, "regen", id .. " is on the Regen ticks page")
+end
+equal(features["regen.texture"].group, "Look", "the art has a group of its own")
+equal(features["regen.width"].group, "Size and position", "and so do size and place")
+
+-- Width: the player frame's own by default; anything else, centred under it.
+equal(features["regen.width"].available(), false, "the width waits until it stops matching the frame")
+features["regen.matchWidth"].set(false)
+equal(features["regen.width"].available(), true, "then it can be set")
+features["regen.width"].set(200.4)
+equal(box.width, 200 + 2 * 2, "the rows are as wide as asked, their frames reaching past")
+equal(#box.points, 1, "one anchor")
+equal(box.points[1][1], "TOP", "centred")
+equal(box.points[1][2], PlayerFrame.manabar, "under the power bar")
+features["regen.offset"].set(-12)
+equal(box.points[1][4], -12, "and nudged sideways")
+features["regen.matchWidth"].set(true)
+equal(#box.points, 2, "matching the frame again spans the power bar")
+equal(box.points[1][4], -12 - 2, "still nudged, left edge")
+equal(box.points[2][4], -12 + 2, "and right")
+features["regen.offset"].set(0)
+
+-- Height and spacing.
+features["regen.height"].set(14)
+features["regen.spacing"].set(3)
+equal(box.height, 2 * 2 + 2 * 14 + (3 + 2 * 2), "taller rows, further apart")
+equal(pw.points[1][5], -2 - 14 - 7, "the power row moves down with them")
+equal(pw.height, 14, "each row as tall as asked")
+equal(pw.spark.height, math.floor(14 * 20 / 11 + 0.5), "the spark grows with the row")
+
+-- Borders.
+features["regen.border"].set("thin")
+equal(box.height, 1 * 2 + 2 * 14 + (3 + 1 * 2), "a thin line reaches a pixel out")
+assert(not pw.border.shown and pw.edge.shown, "and draws no cast bar frame")
+features["regen.border"].set("none")
+equal(box.height, 2 * 14 + 3, "no border reaches nowhere")
+assert(not pw.border.shown and not pw.edge.shown, "nothing drawn round the rows")
+equal(pw.points[1][4], 0, "the rows fill the box")
+
+-- The number.
+features["regen.textPos"].set("RIGHT")
+equal(pw.text.points[1][1], "RIGHT", "the number can sit right")
+equal(pw.text.justify, "RIGHT", "and is set right")
+features["regen.textPos"].set("LEFT")
+equal(pw.text.points[1][1], "LEFT", "or left")
+features["regen.textSize"].set(13)
+equal(pw.text.font[2], 13, "at any size")
+equal(features["regen.textSize"].format(13), "13 px", "which the page says")
+features["regen.textColor"].set("bar")
+cast(1752)
+power(60)
+advance(0.1)
+equal(R:State(R.power, clock), "regen", "spent energy comes back")
+equal(pw.text.color[1], 1, "the number in energy's colour")
+near(pw.text.color[2], 0.9, "yellow")
+near(pw.text.color[3], 0.25, "not white")
+
+-- The flat texture, the old look.
+features["regen.texture"].set("flat")
+equal(pw.texture, FLAT, "the classic flat texture")
+advance(0.1)
+equal(pw.color[1], 1, "in energy's classic colour")
+equal(pw.color[3], 0, "yellow")
+equal(pw.spark.art, "Interface\\CastingBar\\UI-CastingBar-Spark", "with the classic spark")
+features["regen.texture"].set("unitframe")
+equal(pw.texture, UNIT_BAR .. "Energy", "and back to the game's art")
+
+-- Reset puts every look and size setting back.
+features["regen.reset"].run()
+for _, key in ipairs({ "texture", "border", "textPos", "textColor", "textSize", "matchWidth", "width",
+    "height", "spacing", "gap", "offset" }) do
+    equal(MiniQoLDB.regen[key], nil, key .. " is back to its default")
+end
+equal(box.height, 2 * 2 + 2 * 10 + (1 + 2 * 2), "the default size")
+equal(pw.border.art, "ui-castingbar-frame", "and frame")
+equal(pw.text.points[1][1], "CENTER", "and number")
+assert(MiniQoLDB.regen.enabled ~= false and MiniQoLDB.regen.health ~= false, "and which rows show is left alone")
+
+---------------------------------------------------------------------------
 -- 6. A warlock: the five-second rule
 ---------------------------------------------------------------------------
 MiniQoLDB = {}
@@ -352,7 +482,9 @@ cast(686)
 power(900)
 equal(R:State(R.power, clock), "wait", "a spell that costs mana starts the five-second rule")
 near(pw.value, 1, "the row starts full")
-near(pw.color[3], 0.85 * 0.72, "in a darker blue")
+equal(pw.texture, UNIT_BAR .. "Mana", "on the mana bar's art")
+near(pw.color[3], 0.72, "shaded darker")
+assert(not pw.fill.desaturated, "but not greyed out")
 advance(2.5)
 near(pw.value, 0.5, "and drains with the rule")
 advance(1.5)
@@ -364,7 +496,7 @@ advance(0.4)
 power(928)
 advance(0.2)
 equal(shown(pw), "+28", "the first tick after the rule")
-equal(pw.text.color[3], 1, "in blue")
+assert(lit(pw, "Mana"), "on the mana bar's art as drawn")
 
 -- Life Tap pays with health and gives mana at once; neither is a tick.
 local lastHealth, lastMana = R.health.tickAt, R.power.tickAt
@@ -395,6 +527,7 @@ equal(R:State(R.power, clock), "wait", "until the cost lands")
 me.powerType, me.power, me.powerMax = 3, 100, 100
 fire("UNIT_DISPLAYPOWER", "player")
 equal(R.power.token, "ENERGY", "the power row follows the form")
+equal(pw.texture, UNIT_BAR .. "Energy", "and wears the energy bar's art")
 equal(R:State(R.power, clock), "idle", "full energy, whatever the mana rule says")
 equal(shown(pw), "+20", "energy's tick")
 
@@ -408,7 +541,7 @@ advance(1)
 power(27)
 advance(0.2)
 equal(shown(pw), "-3", "rage counts what it loses")
-equal(pw.text.color[1], 1, "in red")
+equal(pw.texture, UNIT_BAR .. "Rage", "on the rage bar's art")
 advance(1.8)
 power(29)
 advance(0.2)
@@ -433,5 +566,21 @@ R:Report()
 assert(printed[1]:find("health readable"), "/mqol regen says what the game lets addons read: " .. printed[1])
 assert(printed[1]:find("health readable %(the game's rate: 6%.0 a second%)"), "and the rate it gives: " .. printed[1])
 assert(printed[1]:find("rage readable,"), "rage has no rate: " .. printed[1])
+
+---------------------------------------------------------------------------
+-- 8. A client without the game's newer art
+---------------------------------------------------------------------------
+Art(false)
+MiniQoLDB = {}
+Session({ health = 500, healthMax = 600, healthRegen = 3, power = 100, powerMax = 100, powerType = 3, combat = false })
+hp, pw, box = R.health.row, R.power.row, R.box
+equal(pw.texture, FLAT, "the flat texture stands in for the unit frame's art")
+assert(not pw.border.shown and pw.edge.shown, "and a thin line for the cast bar's frame")
+equal(box.height, 1 * 2 + 2 * 10 + (1 + 1 * 2), "sized for the thin line")
+equal(pw.spark.art, "Interface\\CastingBar\\UI-CastingBar-Spark", "with the classic spark")
+equal(R:State(R.health, clock), "regen", "health short of full comes back")
+assert(hp.color[1] == 0 and hp.color[2] == 1 and hp.color[3] == 0, "in the classic green")
+assert(grey(pw), "full energy in grey")
+Art(true)
 
 print("Regen ticks: rows, the rule, the beat and secret values behave")

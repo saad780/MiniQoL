@@ -195,6 +195,29 @@ if gearwise then
     assert(gear.db.custom.combat == nil and gear.profile.weights.agi == 2.3, "reset puts the build's own back")
     assert(agi.label:GetText() == "Agility" and agi.value:GetText() == "2.30", "on the page as well")
     assert(GEAR_SAID == "Combat is back on its own values.", "and says so")
+    -- A drag writes every step at once but leaves repainting the page until
+    -- the button comes up, and a repaint never hides a row that stays on the
+    -- page: hiding the slider under the mouse would drop the drag.
+    local renders, hides, render = 0, 0, ns.Render
+    ns.Render = function(...) renders = renders + 1; return render(...) end
+    agi:HookScript("OnHide", function() hides = hides + 1 end)
+    local slider = agi.control.slider
+    slider.scripts.OnMouseDown(slider, "LeftButton")
+    slider:SetValue(2.5)
+    assert(gear.db.custom.combat.agi == 2.5, "the first step of a drag is kept")
+    slider:SetValue(3)
+    assert(gear.db.custom.combat.agi == 3, "and every step after it")
+    assert(agi.value:GetText() == "3.00", "the row's number follows the thumb")
+    assert(renders == 0, "but the page isn't repainted under the mouse")
+    agi.control:Apply(2.3)
+    assert(slider:GetValue() == 3, "nor is the thumb pulled back mid-drag")
+    slider.scripts.OnMouseUp(slider, "LeftButton")
+    assert(renders == 1, "letting go repaints the page")
+    assert(agi.label:GetText():find("(default 2.3)", 1, true), "with what the drag changed")
+    ns:Render()
+    assert(hides == 0 and agi:IsShown(), "repaints leave rows that stay on the page alone")
+    ns.Render = render
+    reset.control.scripts.OnClick()
     -- Another class has another list.
     CLASS_NAME, CLASS = "Priest", "PRIEST"
     gear.profile = gear.Profiles:Detect()

@@ -202,6 +202,9 @@ end
 ---------------------------------------------------------------------------
 -- Pooled content rows
 ---------------------------------------------------------------------------
+-- Rows a repaint uses are marked with its pass; the rest are hidden once it is
+-- done. A row that stays on the page is never hidden on the way, which would
+-- let go of a slider being dragged in it.
 function ns:Row(key, height, width)
     local row = self.rows[key]
     if not row then
@@ -209,6 +212,7 @@ function ns:Row(key, height, width)
         row:EnableMouse(true)
         self.rows[key] = row
     end
+    row.pass = self.pass
     row:SetSize(width or CONTENT_W, height)
     row:ClearAllPoints()
     row:Show()
@@ -354,9 +358,11 @@ function ns:FeatureRow(feature, x, y, showSource)
             row.value:SetJustifyH("RIGHT")
             row.value:SetJustifyV("MIDDLE")
             row.value:SetPoint("RIGHT", -20, 0)
-            row.control = T:Slider(row, 260, function(value)
-                if ns:Write(feature, value) then row.value:SetText(ns:Format(feature, value)) end
-            end)
+            -- A drag writes every step at once, so the change shows live, but
+            -- leaves repainting the page until the button comes up.
+            row.control = T:Slider(row, 260, function(value, dragging)
+                if ns:Write(feature, value, dragging) then row.value:SetText(ns:Format(feature, value)) end
+            end, function() ns:Refresh() end)
             row.control:SetPoint("LEFT", 280, 0)
             row.control:Configure(feature.min, feature.max, feature.step)
         elseif kind ~= "info" then
@@ -588,7 +594,7 @@ function ns:Render()
         end
     end
 
-    for _, row in pairs(self.rows) do row:Hide() end
+    self.pass = (self.pass or 0) + 1
 
     local features = {}
     for _, feature in ipairs(self.features) do
@@ -666,6 +672,11 @@ function ns:Render()
     if #features == 0 and shown == 0 and (searching or page.id ~= "home") then
         y = self:Note("empty", searching and ("Nothing matches \"" .. query .. "\".")
             or "Nothing to configure on this page yet.", y + 4)
+    end
+
+    local pass = self.pass
+    for _, row in pairs(self.rows) do
+        if row.pass ~= pass then row:Hide() end
     end
 
     self.content:SetHeight(math.max(y + 10, self.scroll:GetHeight()))

@@ -13,8 +13,9 @@ local _, ns = ...
 --   filling    regen is under way: it fills toward the next tick, flashes as
 --              the tick lands, and starts again.
 --
--- The number is what the last tick gave: green for health, blue for mana,
--- yellow for energy, red for rage.
+-- The number is what the last tick gave. The rows wear the player frame's own
+-- bar art by default, and the settings page can change their look, size and
+-- place.
 --
 -- This game can hand addons a secret value for the player's health or power,
 -- and Lua can do no sums with one. The change itself still says when a tick
@@ -33,26 +34,41 @@ local STALE = 10           -- a beat older than this isn't trusted to say where 
 local CAST_GRACE = 0.2     -- a change this close to a cast that costs something is that cast
 local FLASH = 0.35         -- how long a tick lights its row
 
-local ROW_H, ROW_GAP, EDGE = 9, 1, 2
+-- The bars are drawn with the game's own art: the fill of the player frame's
+-- health and power bars, inside the frame and backing of its cast bar, with
+-- the numbers in the unit frames' own font. Where a client lacks any of it,
+-- the classic flat texture and a plain line stand in.
+local UNIT_BAR = "UI-HUD-UnitFrame-Player-PortraitOn-Bar-"
+local CAST_BACK, CAST_FRAME, CAST_PIP = "ui-castingbar-background", "ui-castingbar-frame", "ui-castingbar-pip"
 local BAR_TEXTURE = "Interface\\TargetingFrame\\UI-StatusBar"
 local SPARK_TEXTURE = "Interface\\CastingBar\\UI-CastingBar-Spark"
 
-local DEFAULTS = { enabled = true, health = true, power = true, numbers = true, gap = 4 }
-
--- The fill is a shade darker than the game's own bar colours, so the number,
--- drawn bright over it, still reads.
-local LOOKS = {
-    HEALTH = { fill = { 0.10, 0.60, 0.10 }, text = { 0.38, 1.00, 0.38 } },
-    MANA = { fill = { 0.07, 0.30, 0.85 }, text = { 0.45, 0.70, 1.00 } },
-    ENERGY = { fill = { 0.80, 0.68, 0.04 }, text = { 1.00, 0.90, 0.25 } },
-    RAGE = { fill = { 0.72, 0.09, 0.07 }, text = { 1.00, 0.36, 0.30 } },
-    FOCUS = { fill = { 0.80, 0.42, 0.14 }, text = { 1.00, 0.62, 0.30 } },
+local DEFAULTS = {
+    enabled = true, health = true, power = true, numbers = true,
+    texture = "unitframe", border = "castbar",
+    textPos = "CENTER", textColor = "white", textSize = 10,
+    matchWidth = true, width = 124, height = 10, spacing = 1, gap = 4, offset = 0,
 }
+-- What "Reset" puts back: everything about the look, size and place.
+local LOOK_KEYS = { "texture", "border", "textPos", "textColor", "textSize",
+    "matchWidth", "width", "height", "spacing", "gap", "offset" }
+-- How far each border reaches outside its row.
+local OUTSET = { castbar = 2, thin = 1, none = 0 }
+
+-- Each bar's art on the player frame, and the classic colour the flat texture
+-- takes instead. The text colour is a brighter shade, for numbers drawn in
+-- the bar's colour rather than the unit frames' white.
+local LOOKS = {
+    HEALTH = { atlas = UNIT_BAR .. "Health", fill = { 0.00, 1.00, 0.00 }, text = { 0.38, 1.00, 0.38 } },
+    MANA = { atlas = UNIT_BAR .. "Mana", fill = { 0.00, 0.00, 1.00 }, text = { 0.45, 0.70, 1.00 } },
+    ENERGY = { atlas = UNIT_BAR .. "Energy", fill = { 1.00, 1.00, 0.00 }, text = { 1.00, 0.90, 0.25 } },
+    RAGE = { atlas = UNIT_BAR .. "Rage", fill = { 1.00, 0.00, 0.00 }, text = { 1.00, 0.36, 0.30 } },
+    FOCUS = { atlas = UNIT_BAR .. "Focus", fill = { 1.00, 0.50, 0.25 }, text = { 1.00, 0.62, 0.30 } },
+}
+local WHITE = { 1, 1, 1 }
 local IDLE_FILL, IDLE_TEXT = { 0.28, 0.28, 0.28 }, { 0.62, 0.62, 0.62 }
+local IDLE_SHADE = 0.55    -- the game's art, greyed out, also sits this much darker
 local WAIT_SHADE = 0.72    -- the draining fill sits a little darker than the filling one
--- The box takes after the player frame's own: a dark line, a bronze one, and
--- near-black behind the rows.
-local OUTER, BRONZE, BACK = { 0, 0, 0, 0.85 }, { 0.50, 0.40, 0.22, 1 }, { 0.03, 0.03, 0.03, 0.9 }
 -- Per second, for when the game won't say.
 local DEFAULT_RATE = { ENERGY = 10 }
 
@@ -72,6 +88,30 @@ local function Flag(fn, ...)
     if not fn then return false end
     local ok, value = pcall(fn, ...)
     return ok and Readable(value) and value and true or false
+end
+
+-- Whether this client has a piece of the game's art. Asked once per name.
+local atlases = {}
+local function HasAtlas(name)
+    if not name then return false end
+    if atlases[name] == nil then
+        local ok, info = false, nil
+        if C_Texture and C_Texture.GetAtlasInfo then ok, info = pcall(C_Texture.GetAtlasInfo, name) end
+        atlases[name] = ok and info ~= nil
+    end
+    return atlases[name]
+end
+
+-- A power bar this file doesn't know takes after the game's own entry for it.
+local function PowerLook(token)
+    if token and LOOKS[token] then return LOOKS[token] end
+    local info = token and PowerBarColor and PowerBarColor[token]
+    if type(info) == "table" and type(info.r) == "number" then
+        local fill = { info.r, info.g or 0, info.b or 0 }
+        return { atlas = info.atlasElementName and (UNIT_BAR .. info.atlasElementName) or info.atlas,
+            fill = fill, text = fill }
+    end
+    return LOOKS.MANA
 end
 
 ---------------------------------------------------------------------------
@@ -136,7 +176,7 @@ function Regen:ReadPowerType()
     if not Readable(token) then token = nil end
     if powerType == power.powerType and token == power.token then return false end
     power.powerType, power.token = powerType, token
-    power.look = token and LOOKS[token] or LOOKS.MANA
+    power.look = PowerLook(token)
     power.value, power.max, power.full = nil, nil, nil
     power.tickAt, power.amount, power.expectUntil, power.flashAt = nil, nil, nil, nil
     power.guessAt = nil
@@ -360,43 +400,47 @@ end
 ---------------------------------------------------------------------------
 -- The bar
 ---------------------------------------------------------------------------
-local function StyleNumber(text)
+-- The unit frames' own number font (white, outlined), at the chosen size.
+local function StyleNumber(text, size)
+    local object = TextStatusBarText or GameFontHighlightSmall
     -- A font object first, so the text has a font even if the file below won't load.
-    if GameFontHighlightSmall then text:SetFontObject(GameFontHighlightSmall) end
-    local font = STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
-    if TextStatusBarText and TextStatusBarText.GetFont then
-        local file = TextStatusBarText:GetFont()
-        if file then font = file end
+    if object then text:SetFontObject(object) end
+    local file, flags
+    if object and object.GetFont then
+        local ok, f, _, fl = pcall(object.GetFont, object)
+        if ok then file, flags = f, fl end
     end
-    text:SetFont(font, 9, "OUTLINE")
-    text:SetShadowOffset(0, 0)
+    text:SetFont(file or STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", size,
+        (flags and flags ~= "") and flags or "OUTLINE")
 end
 
+-- Places a texture a few pixels outside a region all round.
+local function Around(texture, region, by)
+    texture:ClearAllPoints()
+    texture:SetPoint("TOPLEFT", region, "TOPLEFT", -by, by)
+    texture:SetPoint("BOTTOMRIGHT", region, "BOTTOMRIGHT", by, -by)
+end
+
+-- Layers as the game's cast bar has them: backing, fill, then its frame over
+-- the fill's ends, with the flash, spark and number on top.
 function Regen:Row(box)
     local row = CreateFrame("StatusBar", nil, box)
     row:SetStatusBarTexture(BAR_TEXTURE)
     row:SetMinMaxValues(0, 1)
     row:SetValue(1)
     row:EnableMouse(false)
-    row.back = row:CreateTexture(nil, "BACKGROUND")
-    row.back:SetAllPoints(row)
-    row.back:SetColorTexture(0, 0, 0, 0.55)
-    row.spark = row:CreateTexture(nil, "OVERLAY", nil, 1)
-    row.spark:SetTexture(SPARK_TEXTURE)
-    row.spark:SetBlendMode("ADD")
-    row.spark:SetSize(8, ROW_H + 6)
-    row.spark:SetPoint("CENTER", row:GetStatusBarTexture(), "RIGHT", 0, 0)
-    row.spark:Hide()
-    row.flash = row:CreateTexture(nil, "OVERLAY", nil, 2)
+    row.edge = row:CreateTexture(nil, "BACKGROUND", nil, -8)
+    row.back = row:CreateTexture(nil, "BACKGROUND", nil, 2)
+    row.border = row:CreateTexture(nil, "ARTWORK", nil, 4)
+    row.flash = row:CreateTexture(nil, "OVERLAY", nil, 1)
     row.flash:SetAllPoints(row)
     row.flash:SetColorTexture(1, 1, 1, 1)
     row.flash:SetBlendMode("ADD")
     row.flash:SetAlpha(0)
+    row.spark = row:CreateTexture(nil, "OVERLAY", nil, 2)
+    row.spark:Hide()
     row.text = row:CreateFontString(nil, "OVERLAY")
     row.text:SetDrawLayer("OVERLAY", 7)
-    StyleNumber(row.text)
-    row.text:SetPoint("RIGHT", row, "RIGHT", -3, 0)
-    row.text:SetJustifyH("RIGHT")
     row:Hide()
     return row
 end
@@ -405,21 +449,70 @@ function Regen:Build()
     if self.box then return end
     local box = CreateFrame("Frame", "MiniQoLRegenBar", PlayerFrame or UIParent)
     box:EnableMouse(false)
-    box.outer = box:CreateTexture(nil, "BACKGROUND", nil, -8)
-    box.outer:SetAllPoints(box)
-    box.outer:SetColorTexture(OUTER[1], OUTER[2], OUTER[3], OUTER[4])
-    box.bronze = box:CreateTexture(nil, "BACKGROUND", nil, -7)
-    box.bronze:SetPoint("TOPLEFT", box, "TOPLEFT", 1, -1)
-    box.bronze:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -1, 1)
-    box.bronze:SetColorTexture(BRONZE[1], BRONZE[2], BRONZE[3], BRONZE[4])
-    box.back = box:CreateTexture(nil, "BACKGROUND", nil, -6)
-    box.back:SetPoint("TOPLEFT", box, "TOPLEFT", EDGE, -EDGE)
-    box.back:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -EDGE, EDGE)
-    box.back:SetColorTexture(BACK[1], BACK[2], BACK[3], BACK[4])
     box:Hide()
     self.box = box
     self.health.row = self:Row(box)
     self.power.row = self:Row(box)
+end
+
+-- The border in use: the cast bar's frame needs the game's art for it.
+function Regen:Border()
+    local border = self:Get("border")
+    if not OUTSET[border] then border = DEFAULTS.border end
+    if border == "castbar" and not (HasAtlas(CAST_BACK) and HasAtlas(CAST_FRAME)) then return "thin" end
+    return border
+end
+
+-- Puts a row in the chosen look. Runs when the look or the power bar changes,
+-- never per frame.
+function Regen:Dress(track)
+    local row, look, height = track.row, track.look, self:Get("height")
+    local atlas = self:Get("texture") == "unitframe" and HasAtlas(look.atlas) and look.atlas or nil
+    row:SetStatusBarTexture(atlas or BAR_TEXTURE)
+    row.atlas = atlas
+    row.fillColor = nil -- so the next paint colours the new fill
+    local fill = row:GetStatusBarTexture()
+
+    local spark = row.spark
+    spark:ClearAllPoints()
+    if atlas and HasAtlas(CAST_PIP) then
+        -- The cast bar's pip is 8 by 20 on its 11-pixel bar.
+        spark:SetAtlas(CAST_PIP)
+        spark:SetBlendMode("BLEND")
+        spark:SetSize(math.max(3, math.floor(height * 8 / 11 + 0.5)), math.floor(height * 20 / 11 + 0.5))
+    else
+        spark:SetTexture(SPARK_TEXTURE)
+        spark:SetBlendMode("ADD")
+        spark:SetSize(8, height + 6)
+    end
+    spark:SetPoint("CENTER", fill or row, "RIGHT", 0, 0)
+
+    local border = self:Border()
+    if border == "castbar" then
+        row.back:SetAtlas(CAST_BACK)
+        Around(row.back, row, 1)
+        row.border:SetAtlas(CAST_FRAME)
+        Around(row.border, row, 2)
+        row.border:Show()
+        row.edge:Hide()
+    else
+        row.back:SetColorTexture(0, 0, 0, 0.5)
+        Around(row.back, row, 0)
+        row.border:Hide()
+        if border == "thin" then
+            row.edge:SetColorTexture(0, 0, 0, 0.9)
+            Around(row.edge, row, 1)
+        end
+        row.edge:SetShown(border == "thin")
+    end
+
+    local text, at = row.text, self:Get("textPos")
+    if at ~= "LEFT" and at ~= "RIGHT" then at = "CENTER" end
+    StyleNumber(text, self:Get("textSize"))
+    text:ClearAllPoints()
+    text:SetPoint(at, row, at, at == "LEFT" and 3 or at == "RIGHT" and -3 or 0, 0)
+    text:SetJustifyH(at)
+    text.ink = nil
 end
 
 -- The player frame's mana (or energy, or rage) bar, which the box hangs from.
@@ -431,17 +524,20 @@ local function PowerBar()
     return ok and bar or nil
 end
 
-function Regen:Anchor()
-    local box, gap = self.box, self:Get("gap")
+-- The box takes in the rows and their borders. `out` is how far a border
+-- reaches outside its row, so the rows themselves line up with the player
+-- frame's bars when the widths match.
+function Regen:Anchor(out)
+    local box, gap, offset = self.box, self:Get("gap"), self:Get("offset")
     box:ClearAllPoints()
     local bar = PowerBar()
-    if bar then
-        -- As wide as the player frame's bars, the rows lining up with them.
-        box:SetPoint("TOPLEFT", bar, "BOTTOMLEFT", -EDGE, -gap)
-        box:SetPoint("TOPRIGHT", bar, "BOTTOMRIGHT", EDGE, -gap)
+    if bar and self:Get("matchWidth") then
+        box:SetPoint("TOPLEFT", bar, "BOTTOMLEFT", offset - out, -gap)
+        box:SetPoint("TOPRIGHT", bar, "BOTTOMRIGHT", offset + out, -gap)
     else
-        box:SetWidth(128)
-        box:SetPoint("TOP", PlayerFrame or UIParent, "BOTTOM", 0, -gap)
+        -- Centred under the bars, at the width asked for.
+        box:SetWidth(self:Get("width") + out * 2)
+        box:SetPoint("TOP", bar or PlayerFrame or UIParent, "BOTTOM", offset, -gap)
     end
 end
 
@@ -457,39 +553,62 @@ function Regen:Layout()
         self:Animate(false)
         return
     end
+    local height, out = self:Get("height"), OUTSET[self:Border()]
+    -- The space between rows is the space between their borders.
+    local between = self:Get("spacing") + out * 2
+    self.barInk = self:Get("textColor") == "bar"
     for index, track in ipairs(rows) do
-        local row, top = track.row, -(EDGE + (index - 1) * (ROW_H + ROW_GAP))
+        self:Dress(track)
+        local row, top = track.row, -(out + (index - 1) * (height + between))
         row:ClearAllPoints()
-        row:SetPoint("TOPLEFT", box, "TOPLEFT", EDGE, top)
-        row:SetPoint("TOPRIGHT", box, "TOPRIGHT", -EDGE, top)
-        row:SetHeight(ROW_H)
+        row:SetPoint("TOPLEFT", box, "TOPLEFT", out, top)
+        row:SetPoint("TOPRIGHT", box, "TOPRIGHT", -out, top)
+        row:SetHeight(height)
         row:Show()
     end
-    box:SetHeight(EDGE * 2 + #rows * ROW_H + (#rows - 1) * ROW_GAP)
-    self:Anchor()
+    box:SetHeight(out * 2 + #rows * height + (#rows - 1) * between)
+    self:Anchor(out)
     box:Show()
     self:Refresh(true)
 end
 
--- Sets what changed only, since this runs every frame while a row moves.
-local function Color(region, method, color, shade, key)
-    if region[key] == color and region[key .. "Shade"] == shade then return end
-    region[key], region[key .. "Shade"] = color, shade
-    region[method](region, color[1] * shade, color[2] * shade, color[3] * shade)
+-- Puts a look back to the defaults.
+function Regen:ResetLook()
+    if not self.db then return end
+    for _, key in ipairs(LOOK_KEYS) do self.db[key] = nil end
+    self:Layout()
+end
+
+-- These set what changed only, since they run every frame while a row moves.
+-- The game's art is tinted white to show as drawn, darker to shade it, and
+-- greyed out (as the game greys a dead player's bars) when idle.
+local function Fill(row, color, shade, grey)
+    if row.fillColor == color and row.fillShade == shade and row.fillGrey == grey then return end
+    row.fillColor, row.fillShade, row.fillGrey = color, shade, grey
+    row:SetStatusBarColor(color[1] * shade, color[2] * shade, color[3] * shade)
+    local fill = row:GetStatusBarTexture()
+    if fill and fill.SetDesaturated then fill:SetDesaturated(grey) end
+end
+
+local function Ink(text, color)
+    if text.ink == color then return end
+    text.ink = color
+    text:SetTextColor(color[1], color[2], color[3])
 end
 
 function Regen:Paint(track, state, now, force)
     local row, look = track.row, track.look
+    local color = row.atlas and WHITE or look.fill
     local value
     if state == "wait" then
         value = math.max(0, math.min(1, (self.ruleEnds - now) / RULE))
-        Color(row, "SetStatusBarColor", look.fill, WAIT_SHADE, "painted")
+        Fill(row, color, WAIT_SHADE, false)
     elseif state == "regen" then
         value = self:Progress(track, now)
-        Color(row, "SetStatusBarColor", look.fill, 1, "painted")
+        Fill(row, color, 1, false)
     else
         value = 1
-        Color(row, "SetStatusBarColor", IDLE_FILL, 1, "painted")
+        if row.atlas then Fill(row, WHITE, IDLE_SHADE, true) else Fill(row, IDLE_FILL, 1, false) end
     end
     row:SetValue(value)
     row.spark:SetShown(state ~= "idle" and value > 0.02 and value < 0.98)
@@ -507,7 +626,7 @@ function Regen:Paint(track, state, now, force)
         row.text:SetText(amount and ("%s%d"):format(sign, amount) or "")
         row.text:SetShown(amount ~= nil)
     end
-    Color(row.text, "SetTextColor", state == "idle" and IDLE_TEXT or look.text, 1, "painted")
+    Ink(row.text, state == "idle" and IDLE_TEXT or self.barInk and look.text or WHITE)
 end
 
 function Regen:Refresh(force)
@@ -616,38 +735,75 @@ function Regen:Report()
 end
 
 function Regen:RegisterPage()
+    local WAIT = "Turn on Show the regen bar first."
     local function ready() return self.db ~= nil end
     local function on() return ready() and self:Get("enabled") end
     local function feature(spec)
         spec.page, spec.group = "regen", spec.group or "Regen bar"
+        if spec.available == nil then spec.available, spec.unavailable = on, WAIT end
         ns:RegisterFeature(spec)
     end
-    local function check(key, label, tooltip, needsBar)
-        feature({ id = "regen." .. key, kind = "check", label = label, tooltip = tooltip,
-            available = needsBar and on or ready,
-            unavailable = needsBar and "Turn on Show the regen bar first." or nil,
+    local function check(key, label, tooltip, needsBar, group)
+        feature({ id = "regen." .. key, kind = "check", label = label, tooltip = tooltip, group = group,
+            available = needsBar and on or ready, unavailable = needsBar and WAIT or nil,
             get = function() return self:Get(key) end,
             set = function(value) self:Set(key, value) end })
     end
+    local function choose(key, group, label, choices, tooltip)
+        feature({ id = "regen." .. key, kind = "select", group = group, label = label, choices = choices,
+            tooltip = tooltip,
+            get = function() return self:Get(key) end,
+            set = function(value) self:Set(key, value) end })
+    end
+    local function pixels(value) return ("%d px"):format(math.floor(value + 0.5)) end
+    local function slide(key, group, label, low, high, tooltip, available, unavailable)
+        feature({ id = "regen." .. key, kind = "slider", group = group, label = label,
+            min = low, max = high, step = 1, format = pixels, tooltip = tooltip,
+            available = available, unavailable = unavailable,
+            get = function() return self:Get(key) end,
+            set = function(value) self:Set(key, math.floor(value + 0.5)) end })
+    end
+
     check("enabled", "Show the regen bar",
         "A slim bar under your player frame: one row for health, one for mana, energy or rage.\n\n"
         .. "Grey: nothing is coming back (full, in combat, or dead).\n"
         .. "Draining: the five-second rule after a spell that costs mana. Regen starts as it empties.\n"
         .. "Filling: regen is under way. It fills toward the next tick, flashes as the tick lands, and starts again.")
     check("health", "Health row",
-        "Health comes back every two seconds out of combat. Its number, in green, is what the last tick gave.", true)
+        "Health comes back every two seconds out of combat. Its number is what the last tick gave.", true)
     check("power", "Mana, energy or rage row",
-        "Blue for mana, yellow for energy, red for rage. Mana waits out the five-second rule after each spell that costs mana; energy fills toward every tick; rage counts down what you lose each tick out of combat.", true)
+        "Mana waits out the five-second rule after each spell that costs mana; energy fills toward every tick; rage counts down what you lose each tick out of combat.", true)
     check("numbers", "Show what each tick gives",
         "The number on each row. When the game keeps your health or power secret from addons, it is the last tick measured, or what your regen rate gives over one tick.", true)
-    feature({ id = "regen.gap", kind = "slider", label = "Gap below the player frame",
-        min = 0, max = 24, step = 1, available = on, unavailable = "Turn on Show the regen bar first.",
-        format = function(value) return ("%d px"):format(math.floor(value + 0.5)) end,
-        get = function() return self:Get("gap") end,
-        set = function(value) self:Set("gap", math.floor(value + 0.5)) end,
-        tooltip = "How far under the player frame's bars the regen bar sits." })
-    feature({ id = "regen.reading", kind = "info", label = "No tick seen yet this session.", available = on,
+    feature({ id = "regen.reading", kind = "info", label = "No tick seen yet this session.",
         get = function() return self:Reading() end })
+
+    local LOOK, SIZE = "Look", "Size and position"
+    choose("texture", LOOK, "Bar texture", { { "unitframe", "Unit frame" }, { "flat", "Classic flat" } },
+        "Unit frame: the same art as your player frame's health and power bars.\n"
+        .. "Classic flat: the old plain texture in solid colours.")
+    choose("border", LOOK, "Border", { { "castbar", "Cast bar" }, { "thin", "Thin line" }, { "none", "None" } },
+        "Cast bar: each row framed like the game's own cast bar.\n"
+        .. "Thin line: a dark one-pixel edge.\nNone: just a dark backing.")
+    choose("textPos", LOOK, "Number position", { { "CENTER", "Center" }, { "RIGHT", "Right" }, { "LEFT", "Left" } },
+        "Where on each row the number sits. The player frame centres its own.")
+    choose("textColor", LOOK, "Number color", { { "white", "White" }, { "bar", "Bar color" } },
+        "White, like the numbers on the player frame, or green for health, blue for mana, yellow for energy and red for rage.")
+    feature({ id = "regen.reset", kind = "action", group = LOOK, label = "Default look and size", button = "Reset",
+        tooltip = "Puts the texture, border, number, size and position back as they started.",
+        run = function() self:ResetLook() end })
+    slide("textSize", LOOK, "Number size", 6, 18, "The size of the number on each row.")
+
+    check("matchWidth", "Match the player frame's width",
+        "Lines the rows up with the player frame's health and power bars. Turn off to set your own width.",
+        true, SIZE)
+    slide("width", SIZE, "Width", 40, 400, "How wide each row is, centred under the player frame's bars.",
+        function() return on() and not self:Get("matchWidth") end,
+        "Turn off Match the player frame's width first.")
+    slide("height", SIZE, "Row height", 4, 24, "How tall each row is. The player frame's power bar is 10.")
+    slide("spacing", SIZE, "Space between rows", 0, 12, "The gap between the health row and the power row.")
+    slide("gap", SIZE, "Gap below the player frame", 0, 60, "How far under the player frame's bars the regen bar sits.")
+    slide("offset", SIZE, "Sideways nudge", -150, 150, "Moves the regen bar left (below zero) or right.")
 end
 
 -- Called once the saved variables and the panel exist.

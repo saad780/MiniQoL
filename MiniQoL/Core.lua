@@ -79,7 +79,9 @@ function ns:Read(feature)
     self.lastError = tostring(value)
 end
 
-function ns:Write(feature, value)
+-- `later` leaves the panel unpainted, for a caller that repaints it itself
+-- once it is done (a slider, when its thumb is let go).
+function ns:Write(feature, value, later)
     if not self:Available(feature) then return false end
     if InCombatLockdown and InCombatLockdown() then
         self:Print("Change settings after combat.")
@@ -92,7 +94,7 @@ function ns:Write(feature, value)
         return false
     end
     if feature.reload then self.reloadPending = true end
-    self:Refresh()
+    if not later then self:Refresh() end
     return true
 end
 

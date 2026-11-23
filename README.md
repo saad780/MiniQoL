@@ -76,16 +76,20 @@ or straight away if Syndicator knows them. The **Mail** page turns either part
 off.
 
 A slim bar under the player frame's health and power bars times your regen:
-one row for health, one for mana, energy or rage. A grey row means nothing is
-coming back (full, in combat, or dead). After a spell that costs mana, the mana
-row drains through the five-second rule; once it empties, regen is under way
-and each row fills toward the next tick, flashing as it lands. The number on a
-row is what the last tick gave, green for health, blue for mana, yellow for
-energy and red for rage (what rage loses each tick out of combat). When the
-game keeps your health or power secret from addons, the number is the last
-tick measured or what your regen rate gives; `/mqol regen` says which. The
-**Regen ticks** page turns either row or the numbers off and sets the gap below
-the player frame.
+one row for health, one for mana, energy or rage, drawn with the player
+frame's own bar art inside the game's cast bar frame. A greyed-out row means
+nothing is coming back (full, in combat, or dead). After a spell that costs
+mana, the mana row drains through the five-second rule; once it empties, regen
+is under way and each row fills toward the next tick, flashing as it lands.
+The number on a row is what the last tick gave (for rage, what it loses each
+tick out of combat). When the game keeps your health or power secret from
+addons, the number is the last tick measured or what your regen rate gives;
+`/mqol regen` says which. The **Regen ticks** page turns either row or the
+numbers off, and sets the look (unit frame art or the classic flat texture;
+cast bar frame, thin line or no border; where the number sits, its size and
+color) and the size and place (the player frame's width or your own, row
+height, the space between rows, the gap below the player frame and a sideways
+nudge). **Reset** puts the look and size back.
 
 **Alt Mail** opens from the envelope by the bags, the Mini QoL **Mail** page, or
 `/altmail`. Set a recipient for each group, then hover over a stack and press

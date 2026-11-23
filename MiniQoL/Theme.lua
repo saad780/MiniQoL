@@ -222,7 +222,10 @@ end
 
 -- Horizontal slider: a hairline track with a brass thumb. Programmatic changes
 -- never reach the callback, so repainting the panel cannot write settings back.
-function T:Slider(parent, width, onChange)
+-- While the mouse holds the thumb, onChange is told so (its second argument),
+-- and onRelease runs once the button comes up: a caller can leave work that
+-- would disturb the drag, such as repainting the page, until then.
+function T:Slider(parent, width, onChange, onRelease)
     local holder = CreateFrame("Frame", nil, parent)
     holder:SetSize(width, 16)
     local track = CreateFrame("Frame", nil, holder, "BackdropTemplate")
@@ -246,6 +249,8 @@ function T:Slider(parent, width, onChange)
         slider:SetValueStep(step)
     end
     function holder:Apply(value)
+        -- A repaint mid-drag must not pull the thumb out from under the mouse.
+        if self.dragging then return end
         self.applying = true
         slider:SetValue(value)
         self.applying = false
@@ -256,8 +261,19 @@ function T:Slider(parent, width, onChange)
     end
     slider:SetScript("OnValueChanged", function(_, value)
         if holder.applying or not onChange then return end
-        onChange(value)
+        onChange(value, holder.dragging)
     end)
+    local function release()
+        if not holder.dragging then return end
+        holder.dragging = false
+        if onRelease then onRelease() end
+    end
+    slider:SetScript("OnMouseDown", function(_, button)
+        if button == "LeftButton" then holder.dragging = true end
+    end)
+    slider:SetScript("OnMouseUp", release)
+    -- Hiding the panel mid-drag never sends the button up.
+    slider:SetScript("OnHide", release)
     slider:SetScript("OnEnter", function() thumb:SetColorTexture(Color(T.GOLD)); track:SetBackdropBorderColor(Color(T.BORDER_HI)) end)
     slider:SetScript("OnLeave", function() track:SetBackdropBorderColor(Color(T.BORDER)) end)
     return holder
