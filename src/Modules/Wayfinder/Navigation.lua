@@ -127,7 +127,7 @@ local function NewRecord(cont, wx, wy, label, mapID, options)
 	local where, zone = ns.DescribeLocation(cont, wx, wy, mapID)
 	return { waypoint = true, c = cont, x = wx, y = wy, m = zone, n = label or where,
 		where = where, cats = {}, uid = NewUID(), source = options.source,
-		kept = options.kept and true or nil, goal = options.goal, note = options.note, objective = options.objective }
+		kept = options.kept and true or nil, goal = options.goal, note = options.note }
 end
 
 -- Keep the oldest from piling up forever when an addon feeds them in.
@@ -206,8 +206,6 @@ function Navigation:PlaceSourceWaypoint(source, cont, wx, wy, label, mapID, opti
 	rec.source = source
 	if old and old.c == rec.c and ns.Distance(old.x, old.y, rec.x, rec.y) < 1 and old.n == rec.n
 		and old.goal == rec.goal and old.note == rec.note and old.kept == rec.kept then
-		-- The guide can move its final objective while keeping this approach.
-		old.objective = rec.objective
 		if options.focus then
 			self:SetActiveWaypoint(old)
 		end
@@ -795,20 +793,18 @@ function Navigation:UpdateArrow()
 	end
 	trailCont, trailWalk = nil, nil
 	local cont, wx, wy, mapID = ns.GetPlayerWorld()
-	local stop, instruction, caption
-	if ns.Travel then stop, instruction, caption = ns.Travel:Aim(current, cont, wx, wy, mapID) end
+	local stop, instruction, caption, usingTransport
+	if ns.Travel then stop, instruction, caption, usingTransport = ns.Travel:Aim(current, cont, wx, wy, mapID) end
+	-- Both displays lead to this leg's endpoint. Only the trail follows its turns.
 	local leg = stop or current
-	local objective = current.objective or current
-	local localObjective = cont == objective.c
-	local target = localObjective and objective or (cont == leg.c and leg)
-	local step = instruction or caption or (current.objective and current.n)
-	if localObjective and step then
-		ShowNames(objective.n, step)
+	local away = cont and cont ~= leg.c
+	local step = instruction or caption
+	if stop or usingTransport or current.goal or away or not cont then
+		local onward = current.goal or (step and current.n)
+		ShowNames(step or (away and (leg.n .. " (another continent)") or leg.n),
+			onward and ("On the way to " .. onward))
 	else
-		local goalName = current.goal or (step and current.n)
-		local away = cont and not target
-		ShowNames(step or (away and (current.n .. " (another continent)") or current.n),
-			goalName and ("On the way to " .. goalName))
+		ShowNames(leg.n, step)
 	end
 
 	local walkDistance, status
@@ -818,13 +814,13 @@ function Navigation:UpdateArrow()
 	else
 		ClearWalk()
 	end
-	if not target then
+	if not cont or away or usingTransport then
 		arrow.head:Hide()
 		arrow.distance:SetText(instruction and "" or (cont and "Far away" or "?"))
 		Tint(CYAN)
 		return
 	end
-	local dx, dy = target.x - wx, target.y - wy -- yards north, yards west
+	local dx, dy = leg.x - wx, leg.y - wy -- yards north, yards west
 	local distance = sqrt(dx * dx + dy * dy)
 	-- Standing at your corpse is not the end of that one: coming back to life is.
 	-- Nor is reaching a guide's goal: the guide moves it on when it is done.

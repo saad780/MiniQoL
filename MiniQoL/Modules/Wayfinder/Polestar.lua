@@ -7,8 +7,7 @@ MiniQoLRuntime:Execute("Wayfinder", function(...)
 -- (Target, Follow, Unfollow, Dismiss). With "Show Polestar's guide on this
 -- arrow" on, Wayfinder follows it with one waypoint of Polestar's, moved along
 -- as the guide moves on: to the end of the leg the route is on (the flight
--- master to walk to, the boat to catch), otherwise to the goal itself. The
--- waypoint carries the final goal's coordinates for the arrow's direct bearing.
+-- master to walk to, the boat to catch), otherwise to the goal itself.
 -- Polestar's "Let a following addon show the way" then hides its own arrow.
 --
 -- Polestar says when a goal is done, so its waypoint is never cleared on
@@ -149,16 +148,16 @@ function PolestarFollow:Sync()
 		-- Somewhere Wayfinder's maps can't place, inside a dungeon say.
 		return self:Drop()
 	end
-	local objective
-	if stop then
+	local onward = stop and title
+	if stop and not onward then
 		local c, x, y, map = Place(target)
-		if c then objective = { c = c, x = x, y = y, n = title or ns.DescribeLocation(c, x, y, map) } end
+		if c then onward = ns.DescribeLocation(c, x, y, map) end
 	end
 	local key = ("%s|%s|%s"):format(title or "", tostring(target.quest or ""), tostring(target.map))
 	local fresh = key ~= goal
 	goal = key
 	ns.Navigation:PlaceSourceWaypoint(SOURCE, cont, wx, wy, label, mapID, {
-		focus = fresh, kept = true, note = NOTE, goal = stop and title or nil, objective = objective })
+		focus = fresh, kept = true, note = NOTE, goal = onward })
 end
 
 -- Follows Polestar while the setting is on and Polestar is there to follow.

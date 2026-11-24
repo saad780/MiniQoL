@@ -347,11 +347,11 @@ print("Walking arrow and trail: independent bearings, route styles, stale search
 
 -- An intercontinental destination stays selected while its local stop drives
 -- the walking path. Being at the dock must never clear the final pin.
-local stage = { c=1, x=460, y=600, m=1429, z=54 }
+local stage = { c=1, x=460, y=600, m=1429, z=54, n="Orgrimmar zeppelin tower" }
 local boarded = false
 ns.Travel = { Aim = function()
-    if boarded then return nil, "Take the zeppelin to Undercity" end
-    return stage, nil, "Orgrimmar zeppelin tower"
+    if boarded then return nil, "Take the zeppelin to Undercity", nil, true end
+    if stage then return stage, nil, stage.n end
 end, Reset = noop }
 covered = true
 ns.db.settings.clearOnArrival = true
@@ -381,17 +381,25 @@ assert(requests[#requests] ~= oldApproach and Navigation:GetWaypoint() == trip,
 local localTrip = Navigation:AddWaypoint(1, 400, 800, "Quest across the bay", 1429)
 Navigation:UpdateArrow()
 local approach = requests[#requests]
-approach.done({ approach.from, {x=440, y=600}, approach.to })
+approach.done({ approach.from, {x=400, y=570}, approach.to })
 Navigation:UpdateArrow()
-assert(arrow.head.shown and arrow.bearingFrame == 32 and arrow.distance.text == "200 yd")
-equal(arrow.label.text, localTrip.n, "names the objective the arrow points at")
-equal(arrow.goal.text, "Orgrimmar zeppelin tower", "also names the next transport stop")
+assert(arrow.head.shown and arrow.bearingFrame == 0 and arrow.distance.text == "60 yd", "points north at the tower on this continent")
+equal(arrow.label.text, stage.n, "names the transport stop")
+equal(arrow.goal.text, "On the way to " .. localTrip.n, "keeps the quest in view")
 cont, endX, endY, xs, ys, idx = Navigation:GetTrail()
-assert(endX == stage.x and endY == stage.y and xs[idx] == 440 and ys[idx] == 600, "trail follows the approach to the tower")
+assert(endX == stage.x and endY == stage.y and xs[idx] == 400 and ys[idx] == 570, "trail turns east on the way to the tower")
 boarded = true
 Navigation:UpdateArrow()
-assert(arrow.head.shown and arrow.bearingFrame == 32 and not Navigation:GetTrail(), "the objective remains visible while boarding")
-equal(arrow.goal.text, "Take the zeppelin to Undercity", "the boarding instruction remains visible")
+assert(not arrow.head.shown and not Navigation:GetTrail(), "keep the boarding action until departure")
+equal(arrow.label.text, "Take the zeppelin to Undercity", "shows what to board")
+boarded, covered = false, false
+stage = { c=1, x=400, y=550, m=1429, n="Flight master" }
+Navigation:UpdateArrow()
+assert(arrow.head.shown and arrow.bearingFrame == 96 and arrow.distance.text == "50 yd", "leads east to the next connection")
+stage = nil
+Navigation:UpdateArrow()
+assert(arrow.head.shown and arrow.bearingFrame == 32 and arrow.distance.text == "200 yd", "after the last transfer the objective is due west")
+equal(arrow.label.text, localTrip.n, "restores the quest name")
 ns.GetPlayerWorld = function() end
 Navigation:UpdateArrow()
 assert(not arrow.head.shown and not Navigation:GetTrail(), "no bearing is available during a loading screen")

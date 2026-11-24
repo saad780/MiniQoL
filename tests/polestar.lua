@@ -194,13 +194,13 @@ equal(mark(), goal, "the same waypoint")
 equal(changes, before, "and nothing redrawn")
 
 ---------------------------------------------------------------------------
--- 3. The walking leg leads to the master while the arrow faces the quest.
+-- 3. The next travel stop takes priority over the final quest.
 ---------------------------------------------------------------------------
 guide({ map = 1436, x = 0.5, y = 0.5, title = "Kill Defias", kind = "kill",
     next = { map = 1429, x = 0.8, y = 0.2, kind = "walk", title = "Walk to the flight master" } })
 local leg = mark()
 near(leg.x, 800, "the walking leg leads to the flight master first")
-equal(Navigation.arrow.bearingFrame, 14, "faces the quest in Westfall")
+equal(Navigation.arrow.bearingFrame, 112, "faces the flight master before the quest in Westfall")
 equal(leg.n, "Walk to the flight master", "named for the leg")
 equal(leg.goal, "Kill Defias", "with the goal it is on the way to")
 equal(arrow(), leg, "a new goal takes the arrow")
@@ -215,8 +215,8 @@ equal(#Navigation:GetWaypoints(), 2, "beside the inn")
 local label, under = Navigation.arrow.label, Navigation.arrow.goal
 equal(label.calls.SetWordWrap[1], true, "the name wraps onto more lines")
 assert(label.calls.SetWidth[1] > 110, "wider than the arrow")
-equal(label.calls.SetText[1], "Kill Defias", "names the quest the arrow points at")
-equal(under.calls.SetText[1], "Walk to the flight master", "also shows the travel step")
+equal(label.calls.SetText[1], "Walk to the flight master", "names the travel step")
+equal(under.calls.SetText[1], "On the way to Kill Defias", "keeps the quest below the stop")
 equal(under.calls.SetWordWrap[1], true, "which wraps too")
 
 -- The final objective can move independently of the route leg.
@@ -224,7 +224,7 @@ target.x, target.y = 0.9, 0.1
 notify()
 Navigation:UpdateArrow()
 equal(mark(), leg, "the walking leg stays put")
-equal(Navigation.arrow.bearingFrame, 7, "uses the updated objective coordinates")
+equal(Navigation.arrow.bearingFrame, 112, "moving the final goal cannot divert the arrow from the flight master")
 
 -- The player puts the arrow on the inn; the route moves on to the flight.
 Navigation:SetActiveWaypoint(inn)

@@ -98,7 +98,7 @@ feature({ id = "wayfinder.routeStyle", page = "maps", group = "Waypoints", label
     get = function() return Wayfinder.Navigation:GetRouteStyle() end,
     set = function(value) Wayfinder:SetSetting("routeStyle", value) end,
     available = mapReady,
-    tooltip = "Direct favors the shortest walkable route. Balanced uses roads when the detour is small. Roads Always strongly favors roads and avoids steep terrain.\n\nWalking maps cover Eastern Kingdoms, Kalimdor, and Zephras Isle. The arrow points directly at your objective. For an objective on another continent, it points at the local boarding stop when available." })
+    tooltip = "Direct favors the shortest walkable route. Balanced uses roads when the detour is small. Roads Always strongly favors roads and avoids steep terrain.\n\nWalking maps cover Eastern Kingdoms, Kalimdor, and Zephras Isle. The arrow points straight at the next transport stop on your route, then at your objective. Follow the ant trail for walking turns." })
 wayfinder("antTrails", "Waypoints", "Show ant trails",
     "Follow the dots on the continuous world map and minimap to walk the route to your waypoint or the next transport stop. Outside walking map coverage, the dots lead straight to that point.")
 local function antTrails() return mapReady() and Wayfinder:GetSetting("antTrails") and true or false end

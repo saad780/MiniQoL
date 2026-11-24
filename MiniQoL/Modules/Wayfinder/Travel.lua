@@ -343,8 +343,8 @@ local function locationChanged(c, x, y, map, taxi, now)
 	return changed
 end
 
--- Returns the boarding waypoint to walk to, or an instruction while waiting
--- or riding. A fresh search from the landing naturally handles missed stops.
+-- Returns the walking stop, action text, approach caption, and whether the
+-- player is boarding or riding. A fresh search from the landing handles missed stops.
 function Travel:Aim(target, c, x, y, map)
 	local now = GetTime()
 	local taxi = ns.Walking.Compat.IsOnTaxi()
@@ -365,10 +365,10 @@ function Travel:Aim(target, c, x, y, map)
 		j = nil
 	end
 	local a = j and j.action
-	if taxi then return nil, j and j.riding or "In flight" end
+	if taxi then return nil, j and j.riding or "In flight", nil, true end
 	if position.carried then
 		local namedRide = a and j.boarded and labels[a.kind] and a.kind ~= "portal"
-		return nil, namedRide and j.instruction or "Riding transport"
+		return nil, namedRide and j.instruction or "Riding transport", nil, true
 	end
 	if not c then return nil, j and j.boarded and j.instruction or nil end
 	if near(target, c, x, y, 10) and land(c, x, y, map) == land(target.c, target.x, target.y, target.m) then
@@ -435,8 +435,8 @@ function Travel:Aim(target, c, x, y, map)
 	end
 	if close then j.boarded = now end
 	if j.boarded then
-		if flight and not known[dep.taxi] and not dep.class then return nil, j.learn end
-		return nil, j.instruction
+		local learn = flight and not known[dep.taxi] and not dep.class
+		return nil, learn and j.learn or j.instruction, nil, true
 	end
 	if c ~= dep.c then self:Reset(); return nil, "Planning travel…" end
 	return dep, nil, j.caption

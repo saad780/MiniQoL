@@ -58,7 +58,8 @@ assert(tower and caption:find("zeppelin to Undercity"), tostring(caption))
 local count = searches
 for i=1,200 do aim(uc, org) end
 assert(searches == count and steps > 10, "unchanged arrow updates should reuse the budgeted plan")
-assert(select(2, route(uc, tower)) == "Take the zeppelin to Undercity")
+local _, boardZeppelin, _, waitingAtTower = route(uc, tower)
+assert(boardZeppelin == "Take the zeppelin to Undercity" and waitingAtTower, "show the boarding action at the tower")
 assert(select(2, T:Aim(uc, nil)) == "Take the zeppelin to Undercity", "retain the ride during a loading screen")
 local dock = spot(0, 2064, 288.6, 1420)
 assert(route(uc, dock) == nil, "walk to the final pin after the crossing")
@@ -109,7 +110,8 @@ assert(campAction == hearthToCamp, "ready Taurajo hearth: " .. tostring(campActi
 assert(not T:GetRecommendedFlight(), "the taxi map must agree with the hearth recommendation")
 
 duration, now = 3600, now + 4
-assert(select(2, route(quest, bluff)) == flyToCamp, "take the known flight while the hearth cools")
+local _, boardFlight, _, waitingAtMaster = route(quest, bluff)
+assert(boardFlight == flyToCamp and waitingAtMaster, "show the flight action at the master while the hearth cools")
 local boardAt, flyTo = T:GetRecommendedFlight()
 assert(boardAt.taxi == 22 and flyTo.taxi == 77, "highlight Camp Taurajo at the Thunder Bluff master")
 waypoint = nil
@@ -160,7 +162,8 @@ assert(board and board:find("Learn the flight point") and board:find("Orgrimmar"
 T:RememberTaxi(25)
 assert(select(2, aim(orgMaster, crossNode)):find("^Fly to"))
 flying = true
-assert(select(2, aim(orgMaster, crossNode)):find("^Flying to"))
+local _, inFlight, _, riding = aim(orgMaster, crossNode)
+assert(inFlight:find("^Flying to") and riding, "keep the ride instruction until landing")
 flying = false
 assert(not route(orgMaster, orgMaster))
 setting("travelFlights", false)

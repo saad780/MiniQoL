@@ -21,9 +21,9 @@ Under **Maps & travel → Waypoints → Route style**, choose **Direct** for the
 shortest walkable route, **Balanced** (the default) to favor roads with short
 detours, or **Roads Always** to follow roads even on longer detours. Mini QoL
 includes the router and walking maps for Eastern Kingdoms, Kalimdor, and Zephras
-Isle. The arrow points straight at the objective and shows its straight-line
-distance. For an objective on another continent, it points at the next local
-boarding stop when one is available.
+Isle. The arrow points straight at the next flight master, dock, zeppelin tower,
+tram or portal on your route and shows the distance to that stop. On the final
+walking leg it points straight at your objective.
 
 **Show ant trails** (under Waypoints, on by default) draws the walking route
 on the continuous world map and minimap. Follow the dots around obstacles
@@ -66,8 +66,8 @@ icon, and **Elemental Convergences** under Icons turns them off. Other races
 are not shown them.
 
 With the Polestar leveling guide installed, **Show Polestar's guide on this
-arrow** under Waypoints points the arrow at the guide's objective. The ant trail
-leads to any flight master or boat along the way. Turn on Polestar's own
+arrow** under Waypoints points the arrow at the guide's next travel stop, then
+at its objective. The ant trail shows the walking route. Turn on Polestar's own
 **Let a following addon show the way**
 (Guide, Arrow & routes, Other waypoints) and Polestar's arrow steps aside while
 this one shows the way. Polestar moves the waypoint on when a goal is done;
