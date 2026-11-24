@@ -84,6 +84,9 @@ arrow_snap.execute((root / "tests/arrow_snap.lua").read_text(), str(package).rep
 from walking_routes import check_walking_routes
 check_walking_routes(package)
 
+LuaRuntime(unpack_returned_tuples=True).execute(
+    (root / "tests/travel.lua").read_text(encoding="utf-8"), package.resolve().as_posix())
+
 sidegrades = LuaRuntime(unpack_returned_tuples=True)
 sidegrades.execute((root / "tests/sidegrades.lua").read_text(), str(gearwise).replace("\\", "/"), str(shell).replace("\\", "/"))
 

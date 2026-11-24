@@ -81,6 +81,11 @@ adaptations. Generated Lua adapters are marked in their headers.
   the same release. The zone level estimates derive from pfQuest's MIT data,
   credited in [Polestar's notices](https://github.com/fitzforge/polestar/blob/v0.4.2.1/THIRD_PARTY.md).
 
+The flight network, inns, docks, portals and average crossing times in
+`Modules/Wayfinder/Data/TravelNetwork.lua` are excerpted from Polestar 0.4.2.2.
+The file retains the upstream notices and identifies the client tables, pfQuest,
+CMaNGOS and Shortest Path Forever sources.
+
 ## OpenMap code and assets
 
 - Authors: OpenMap contributors; copyright (c) 2026 OpenMap contributors.

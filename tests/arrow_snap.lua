@@ -331,3 +331,24 @@ Navigation:AddWaypoint(1, 420, 650, "Outside walking coverage", 1429)
 assert(arrow.head.shown, "straight bearings still work on unmapped ground")
 equal(arrow.distance.text, "54 yd", "reports the distance to the original waypoint")
 print("Walking arrow: combat deferral, style changes, stale searches, route distance and fallback passed")
+
+-- An intercontinental destination stays selected while its local stop drives
+-- the walking path. Being at the dock must never clear the final pin.
+local stage = { c=1, x=460, y=600, m=1429, z=54 }
+local boarded = false
+ns.Travel = { Aim = function()
+    if boarded then return nil, "Take the zeppelin to Undercity" end
+    return stage, nil, "Orgrimmar zeppelin tower"
+end, Reset = noop }
+covered = true
+ns.db.settings.clearOnArrival = true
+local trip = Navigation:AddWaypoint(0, 1570, 270, "Undercity", 1429)
+equal(requests[#requests].to.x, stage.x, "walking search aims at the local boarding point")
+equal(requests[#requests].to.z, 54, "the pathfinder receives the tower height")
+equal(arrow.label.text, "Orgrimmar zeppelin tower", "names the boarding point")
+equal(arrow.goal.text, "On the way to Undercity", "keeps the final destination visible")
+boarded = true
+Navigation:UpdateArrow()
+equal(arrow.label.text, "Take the zeppelin to Undercity", "shows the boarding instruction")
+equal(Navigation:GetWaypoint(), trip, "the destination survives boarding")
+assert(requests[#requests].cancelled and not arrow.head.shown, "no walking route or bearing during the ride")

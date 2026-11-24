@@ -99,6 +99,12 @@ feature({ id = "wayfinder.routeStyle", page = "maps", group = "Waypoints", label
     set = function(value) Wayfinder:SetSetting("routeStyle", value) end,
     available = mapReady,
     tooltip = "Direct favors the shortest walkable route. Balanced uses roads when the detour is small. Roads Always strongly favors roads and avoids steep terrain.\n\nWalking maps cover Eastern Kingdoms, Kalimdor, and Zephras Isle. Elsewhere, the arrow points straight at the waypoint." })
+wayfinder("travelHearth", "Waypoints", "Use Hearthstone in travel routes",
+    "Suggest your ready Hearthstone when the route through your bound inn saves at least two minutes on a trip of three minutes or more.")
+wayfinder("travelFlights", "Waypoints", "Use flight points in travel routes",
+    "Guide you to the flight master and name the destination to select. If a useful departure is new, the arrow prompts you to learn it.")
+wayfinder("travelTransports", "Waypoints", "Use boats, zeppelins and other transports",
+    "Guide you to the departure for the next boat, zeppelin, airship, tram or portal. Travel times include the expected wait.")
 wayfinder("clearOnArrival", "Waypoints", "Remove the waypoint when you arrive")
 wayfinder("corpseWaypoint", "Waypoints", "Point the arrow at your corpse",
     "When you release your spirit, a waypoint is set on your corpse and the arrow points to it. Coming back to life completes it, wherever that happens, and the arrow returns to the waypoint it was on before.")

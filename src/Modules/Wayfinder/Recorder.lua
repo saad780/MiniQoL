@@ -534,6 +534,9 @@ function Recorder:ImportKnownFlightPaths(refresh)
 									name = node.name, faction = FLIGHT_FACTION[node.faction] or 0,
 									cont = cont, wx = wx, wy = wy, mapID = mapID, accuracy = 0 }, "taxi_api")
 							end
+							if ns.Travel and ns.Readable(node.isUndiscovered) and type(node.isUndiscovered) == "boolean" then
+								ns.Travel:ObserveTaxi(id, node.isUndiscovered)
+							end
 							if node.isUndiscovered == false and not recorded[id] then
 								recorded[id] = true
 								ns.Database:RecordTaxi({ nodeID = id, name = node.name,

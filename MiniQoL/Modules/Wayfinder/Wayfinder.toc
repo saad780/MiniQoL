@@ -47,6 +47,8 @@ DetailView.lua
 WorldFog.lua
 Walking.lua
 Vendor\PolestarWalking\Walking.xml
+Data\TravelNetwork.lua
+Travel.lua
 Navigation.lua
 TomTom.lua
 Polestar.lua

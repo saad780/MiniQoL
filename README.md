@@ -23,6 +23,15 @@ detours, or **Roads Always** to follow roads even on longer detours. Mini QoL
 includes the router and walking maps for Eastern Kingdoms, Kalimdor, and Zephras
 Isle. Where terrain data is unavailable, the arrow points straight at the waypoint.
 
+Middle-click a destination and the arrow guides you to the next flight master,
+dock, zeppelin tower, tram or portal when a transfer is quicker. At the stop it
+names the ride or flight to take. After arrival it continues toward your original
+pin. Flights use this character's discoveries. A new departure can be learned
+on the way. The arrow also calls out an undiscovered flight master you pass on foot.
+A ready Hearthstone is suggested when it saves at least two minutes
+on a trip of three minutes or more. Hearthstones, flights and transports each
+have a default-on switch under **Maps & travel → Waypoints**.
+
 When you release your spirit, the waypoint arrow points at your corpse. Coming
 back to life completes that waypoint, wherever it happens, and the arrow returns
 to the waypoint it was on before. **Point the arrow at your corpse** under
