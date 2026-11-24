@@ -98,7 +98,24 @@ feature({ id = "wayfinder.routeStyle", page = "maps", group = "Waypoints", label
     get = function() return Wayfinder.Navigation:GetRouteStyle() end,
     set = function(value) Wayfinder:SetSetting("routeStyle", value) end,
     available = mapReady,
-    tooltip = "Direct favors the shortest walkable route. Balanced uses roads when the detour is small. Roads Always strongly favors roads and avoids steep terrain.\n\nWalking maps cover Eastern Kingdoms, Kalimdor, and Zephras Isle. Elsewhere, the arrow points straight at the waypoint." })
+    tooltip = "Direct favors the shortest walkable route. Balanced uses roads when the detour is small. Roads Always strongly favors roads and avoids steep terrain.\n\nWalking maps cover Eastern Kingdoms, Kalimdor, and Zephras Isle. The arrow points directly at your objective. For an objective on another continent, it points at the local boarding stop when available." })
+wayfinder("antTrails", "Waypoints", "Show ant trails",
+    "Follow the dots on the continuous world map and minimap to walk the route to your waypoint or the next transport stop. Outside walking map coverage, the dots lead straight to that point.")
+local function antTrails() return mapReady() and Wayfinder:GetSetting("antTrails") and true or false end
+feature({ id = "wayfinder.antTrailsWhere", page = "maps", group = "Waypoints", label = "Ant trails on",
+    addon = "Wayfinder", kind = "select",
+    choices = { { "both", "Map and minimap" }, { "map", "World map" }, { "minimap", "Minimap" } },
+    get = function() return Wayfinder:GetSetting("antTrailsWhere") end,
+    set = function(value) Wayfinder:SetSetting("antTrailsWhere", value) end,
+    available = antTrails,
+    tooltip = "Where the ant trails show. The world map's is on the continuous map." })
+feature({ id = "wayfinder.antTrailColor", page = "maps", group = "Waypoints", label = "Ant trail color",
+    addon = "Wayfinder", kind = "select",
+    choices = { { "cyan", "Arrow cyan" }, { "gold", "Gold" }, { "green", "Green" }, { "white", "White" } },
+    get = function() return Wayfinder:GetSetting("antTrailColor") end,
+    set = function(value) Wayfinder:SetSetting("antTrailColor", value) end,
+    available = antTrails,
+    tooltip = "The dots' color. Each has a dark edge so it shows on any ground." })
 wayfinder("travelHearth", "Waypoints", "Use Hearthstone in travel routes",
     "Suggest your ready Hearthstone when casting it and traveling from your bound inn gets you to the waypoint sooner.")
 wayfinder("travelFlights", "Waypoints", "Use flight points in travel routes",

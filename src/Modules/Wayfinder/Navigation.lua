@@ -127,7 +127,7 @@ local function NewRecord(cont, wx, wy, label, mapID, options)
 	local where, zone = ns.DescribeLocation(cont, wx, wy, mapID)
 	return { waypoint = true, c = cont, x = wx, y = wy, m = zone, n = label or where,
 		where = where, cats = {}, uid = NewUID(), source = options.source,
-		kept = options.kept and true or nil, goal = options.goal, note = options.note }
+		kept = options.kept and true or nil, goal = options.goal, note = options.note, objective = options.objective }
 end
 
 -- Keep the oldest from piling up forever when an addon feeds them in.
@@ -206,7 +206,8 @@ function Navigation:PlaceSourceWaypoint(source, cont, wx, wy, label, mapID, opti
 	rec.source = source
 	if old and old.c == rec.c and ns.Distance(old.x, old.y, rec.x, rec.y) < 1 and old.n == rec.n
 		and old.goal == rec.goal and old.note == rec.note and old.kept == rec.kept then
-		-- Told again of the same place: at most the arrow moves to it.
+		-- The guide can move its final objective while keeping this approach.
+		old.objective = rec.objective
 		if options.focus then
 			self:SetActiveWaypoint(old)
 		end
@@ -647,15 +648,15 @@ end
 -- The waypoint's whole name under the arrow, on as many lines as it takes, and
 -- on a guide's route the goal it leads to. Set only when it changes, since
 -- this runs every few frames.
-local function ShowNames(name, goal)
+local function ShowNames(name, detail)
 	if arrow.shownName ~= name then
 		arrow.shownName = name
 		arrow.label:SetText(name)
 	end
-	goal = goal and ("On the way to " .. goal) or ""
-	if arrow.shownGoal ~= goal then
-		arrow.shownGoal = goal
-		arrow.goal:SetText(goal)
+	detail = detail or ""
+	if arrow.shownGoal ~= detail then
+		arrow.shownGoal = detail
+		arrow.goal:SetText(detail)
 	end
 end
 
@@ -664,6 +665,8 @@ end
 ---------------------------------------------------------------------------
 local walk
 local REROUTE_YARDS = 25
+-- The walking leg shown on the maps, including an approach to a transport.
+local trailCont, trailX, trailY, trailWalk
 
 function Navigation:GetRouteStyle()
 	local style = ns:GetSetting("routeStyle")
@@ -731,7 +734,7 @@ local function AskWalk(engine, follow, compat, danger, cont, wx, wy, mapID, styl
 	end
 end
 
-local function WalkAim(cont, wx, wy, mapID, rec)
+local function UpdateWalk(cont, wx, wy, mapID, rec)
 	local routing = ns.Walking
 	local nav = routing and routing.Nav
 	if not (nav and nav.Path and nav.follow) or routing.Compat.IsOnTaxi() then
@@ -745,7 +748,7 @@ local function WalkAim(cont, wx, wy, mapID, rec)
 	if walk and (walk.waypoint ~= rec or walk.style ~= style or walk.ghost ~= ghost) then
 		ClearWalk()
 	end
-	local aimX, aimY, yards, stray, retryAfter
+	local hasNext, yards, stray, retryAfter
 	if walk and walk.xs then
 		local xs, ys, zs, left, state = walk.xs, walk.ys, walk.zs, walk.left, walk.state
 		if not walk.caught then
@@ -754,10 +757,10 @@ local function WalkAim(cont, wx, wy, mapID, rec)
 			walk.caught = true
 		end
 		local outdoors = compat and compat.IsIndoors and compat.IsIndoors() == false
-		aimX, aimY = follow.Step(xs, ys, zs, left, #xs, state, wx, wy, nil, nil, nil, outdoors)
+		hasNext = follow.Step(xs, ys, zs, left, #xs, state, wx, wy, nil, nil, nil, outdoors) ~= nil
 		local nextPoint = min(state.idx, #xs)
 		yards = ns.Distance(wx, wy, xs[nextPoint], ys[nextPoint]) + left[nextPoint]
-		stray = aimX and state.off or ns.Distance(wx, wy, xs[#xs], ys[#xs])
+		stray = hasNext and state.off or ns.Distance(wx, wy, xs[#xs], ys[#xs])
 		retryAfter = yards > 2000 and 10 or 2
 	elseif walk and not walk.job then
 		stray, retryAfter = ns.Distance(wx, wy, walk.x, walk.y), 15
@@ -765,11 +768,24 @@ local function WalkAim(cont, wx, wy, mapID, rec)
 	local needsWalk = not walk or (stray and stray > REROUTE_YARDS and GetTime() - walk.asked >= retryAfter)
 	if needsWalk and not InCombatLockdown() and engine.Available(cont) then
 		AskWalk(engine, follow, compat, danger, cont, wx, wy, mapID, style, ghost, rec)
-		aimX, aimY, yards = nil, nil, nil
+		hasNext, yards = false, nil
 	end
 	local status = walk and (walk.pending and "Finding walking route…" or walk.status)
-	if walk and walk.partial and not aimX then status = "No walking route" end
-	return aimX, aimY, yards, status
+	if walk and walk.partial and not hasNext then status = "No walking route" end
+	return hasNext and walk or nil, yards, status
+end
+
+-- World coordinates of the remaining walk, starting at the next path point.
+-- A partial route ends at its last known walkable point.
+function Navigation:GetTrail()
+	if not (current and trailCont and arrow and arrow:IsShown()) then return end
+	local route = trailWalk
+	if route and route == walk and route.xs and #route.xs > 0 then
+		local endX, endY
+		if not route.partial then endX, endY = trailX, trailY end
+		return trailCont, endX, endY, route.xs, route.ys, min(route.state.idx or 1, #route.xs)
+	end
+	return trailCont, trailX, trailY
 end
 
 -- Points the arrow from the player toward the waypoint.
@@ -777,49 +793,43 @@ function Navigation:UpdateArrow()
 	if not current then
 		return
 	end
+	trailCont, trailWalk = nil, nil
 	local cont, wx, wy, mapID = ns.GetPlayerWorld()
 	local stop, instruction, caption
 	if ns.Travel then stop, instruction, caption = ns.Travel:Aim(current, cont, wx, wy, mapID) end
-	local aim = stop or current
-	local away = cont and cont ~= aim.c
-	ShowNames(instruction or caption or (away and (current.n .. " (another continent)") or current.n),
-		(instruction or caption) and current.n or current.goal)
-	if instruction then
+	local leg = stop or current
+	local objective = current.objective or current
+	local localObjective = cont == objective.c
+	local target = localObjective and objective or (cont == leg.c and leg)
+	local step = instruction or caption or (current.objective and current.n)
+	if localObjective and step then
+		ShowNames(objective.n, step)
+	else
+		local goalName = current.goal or (step and current.n)
+		local away = cont and not target
+		ShowNames(step or (away and (current.n .. " (another continent)") or current.n),
+			goalName and ("On the way to " .. goalName))
+	end
+
+	local walkDistance, status
+	if cont and cont == leg.c and not instruction then
+		trailWalk, walkDistance, status = UpdateWalk(cont, wx, wy, mapID, leg)
+		if not status then trailCont, trailX, trailY = cont, leg.x, leg.y end
+	else
 		ClearWalk()
+	end
+	if not target then
 		arrow.head:Hide()
-		arrow.distance:SetText("")
+		arrow.distance:SetText(instruction and "" or (cont and "Far away" or "?"))
 		Tint(CYAN)
 		return
 	end
-	if not cont then
-		ClearWalk()
-		arrow.head:Hide()
-		arrow.distance:SetText("?")
-		Tint(CYAN)
-		return
-	end
-	if away then
-		ClearWalk()
-		arrow.head:Hide()
-		arrow.distance:SetText("Far away")
-		Tint(CYAN)
-		return
-	end
-	local dx, dy = aim.x - wx, aim.y - wy -- yards north, yards west
+	local dx, dy = target.x - wx, target.y - wy -- yards north, yards west
 	local distance = sqrt(dx * dx + dy * dy)
-	local aimX, aimY, walkDistance, status = WalkAim(cont, wx, wy, mapID, aim)
-	if status then
-		arrow.head:Hide()
-		arrow.distance:SetText(status)
-		Tint(CYAN)
-		return
-	end
-	if aimX then dx, dy = aimX - wx, aimY - wy end
-	if walkDistance then distance = max(distance, walkDistance) end
 	-- Standing at your corpse is not the end of that one: coming back to life is.
 	-- Nor is reaching a guide's goal: the guide moves it on when it is done.
-	if not stop and distance <= ARRIVE_YARDS and current.source ~= CORPSE and not current.kept
-		and ns:GetSetting("clearOnArrival") then
+	if not stop and not instruction and not status and max(distance, walkDistance or 0) <= ARRIVE_YARDS
+		and current.source ~= CORPSE and not current.kept and ns:GetSetting("clearOnArrival") then
 		ns.Print("Arrived at " .. current.n .. ".")
 		Sound("MAP_PING")
 		self:ClearWaypoint()
@@ -828,7 +838,7 @@ function Navigation:UpdateArrow()
 	-- Both bearing and player facing count counter-clockwise from north.
 	ShowBearing(atan2(dy, dx) - (GetPlayerFacing() or 0))
 	arrow.head:Show()
-	arrow.distance:SetText(FormatDistance(distance))
+	arrow.distance:SetText(status or FormatDistance(distance))
 	Tint(distance <= NEAR_YARDS and GREEN or CYAN)
 end
 
@@ -1018,6 +1028,7 @@ function Navigation:RefreshArrow()
 		self:UpdateArrow()
 	else
 		ClearWalk()
+		trailCont, trailWalk = nil, nil
 		if ns.Travel then ns.Travel:Reset() end
 		arrow:Hide()
 	end

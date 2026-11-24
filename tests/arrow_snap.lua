@@ -264,7 +264,7 @@ near(offset(), 100, "and the cursor no longer moves it")
 print("Arrow placement: drag without a jump, snap to the middle from either side, saved centred, a bigger arrow, hidden mid-drag passed")
 
 ---------------------------------------------------------------------------
--- Walking routes drive the same arrow and replace in-flight jobs on changes.
+-- The arrow faces the objective while the ant trail follows the walking route.
 ---------------------------------------------------------------------------
 local requests = {}
 local covered = true
@@ -295,7 +295,8 @@ equal(#requests, 1, "starts the walking search after combat")
 local balanced = requests[1]
 equal(balanced.options.style, "balanced", "older profiles default to Balanced")
 equal(balanced.options.profile, "Alliance", "routes with the player's faction")
-assert(not arrow.head.shown, "no straight bearing while finding a route")
+assert(arrow.head.shown and arrow.bearingFrame == 32, "the objective is due west while the trail is being found")
+equal(Navigation:GetTrail(), nil, "wait for the route before drawing its trail")
 
 local function SetStyle(style)
     ns.db.settings.routeStyle = style
@@ -307,7 +308,7 @@ assert(balanced.cancelled, "changing styles cancels the previous search")
 equal(direct.options.style, "fastest", "Direct uses Polestar's Fastest style")
 balanced.done({ balanced.from, balanced.to })
 Navigation:UpdateArrow()
-assert(not arrow.head.shown, "a stale result cannot show a bearing")
+assert(arrow.head.shown and arrow.bearingFrame == 32 and not Navigation:GetTrail(), "a stale result changes neither bearing nor trail")
 
 SetStyle("roads")
 local roads = requests[3]
@@ -316,21 +317,33 @@ equal(roads.options.style, "roads", "Roads Always uses Polestar's Roads style")
 roads.done({ roads.from, { x = 430, y = 600 }, roads.to })
 Navigation:UpdateArrow()
 assert(arrow.head.shown, "the completed route shows a bearing")
-equal(arrow.bearingFrame, 0, "aims at the first turn, north")
-equal(arrow.distance.text, "88 yd", "reports the distance along the walk")
+equal(arrow.bearingFrame, 32, "aims due west at the waypoint while the path turns north")
+equal(arrow.distance.text, "50 yd", "yardage is measured to the arrow's target")
+-- The walking trail takes the detour around the river.
+local cont, endX, endY, xs, ys, idx = Navigation:GetTrail()
+equal(cont, 1, "the trail is on the player's continent")
+equal(endX, 400, "it ends at the waypoint")
+equal(endY, 650, "on both axes")
+equal(xs[idx], 430, "from the route's next point")
+equal(ys[idx], 600, "north of the player, on the route")
+equal(#xs, 3, "along the whole route")
 
 local nextWaypoint = Navigation:AddWaypoint(1, 420, 650, "Another destination", 1429)
 assert(Navigation:GetWaypoint() == nextWaypoint, "placing a new waypoint changes the route")
 local nextJob = requests[4]
 nextJob.done(nil, "unreachable")
 Navigation:UpdateArrow()
-equal(arrow.distance.text, "No walking route", "keeps the arrow from sending players through obstructions")
+assert(arrow.head.shown and arrow.bearingFrame == 24, "the objective still has a bearing when the trail is blocked")
+equal(arrow.distance.text, "No walking route", "reports the blocked walk")
+equal(Navigation:GetTrail(), nil, "and no trail is drawn through them")
 
 covered = false
 Navigation:AddWaypoint(1, 420, 650, "Outside walking coverage", 1429)
 assert(arrow.head.shown, "straight bearings still work on unmapped ground")
 equal(arrow.distance.text, "54 yd", "reports the distance to the original waypoint")
-print("Walking arrow: combat deferral, style changes, stale searches, route distance and fallback passed")
+cont, endX, endY, xs = Navigation:GetTrail()
+assert(cont == 1 and endX == 420 and endY == 650 and xs == nil, "the trail runs straight at it too")
+print("Walking arrow and trail: independent bearings, route styles, stale searches and fallback passed")
 
 -- An intercontinental destination stays selected while its local stop drives
 -- the walking path. Being at the dock must never clear the final pin.
@@ -345,6 +358,7 @@ ns.db.settings.clearOnArrival = true
 local trip = Navigation:AddWaypoint(0, 1570, 270, "Undercity", 1429)
 equal(requests[#requests].to.x, stage.x, "walking search aims at the local boarding point")
 equal(requests[#requests].to.z, 54, "the pathfinder receives the tower height")
+assert(arrow.head.shown and arrow.bearingFrame == 0, "an overseas goal uses the direct bearing to the local tower")
 equal(arrow.label.text, "Orgrimmar zeppelin tower", "names the boarding point")
 equal(arrow.goal.text, "On the way to Undercity", "keeps the final destination visible")
 boarded = true
@@ -352,6 +366,7 @@ Navigation:UpdateArrow()
 equal(arrow.label.text, "Take the zeppelin to Undercity", "shows the boarding instruction")
 equal(Navigation:GetWaypoint(), trip, "the destination survives boarding")
 assert(requests[#requests].cancelled and not arrow.head.shown, "no walking route or bearing during the ride")
+equal(Navigation:GetTrail(), nil, "nor an ant trail")
 
 boarded = false
 Navigation:UpdateArrow()
@@ -361,3 +376,22 @@ assert(oldApproach.cancelled, "relocation cancels a walk calculated from the old
 Navigation:UpdateArrow()
 assert(requests[#requests] ~= oldApproach and Navigation:GetWaypoint() == trip,
     "calculate a new approach even when the next stop and final pin are identical")
+
+-- A flight or boat on this continent still has two distinct destinations.
+local localTrip = Navigation:AddWaypoint(1, 400, 800, "Quest across the bay", 1429)
+Navigation:UpdateArrow()
+local approach = requests[#requests]
+approach.done({ approach.from, {x=440, y=600}, approach.to })
+Navigation:UpdateArrow()
+assert(arrow.head.shown and arrow.bearingFrame == 32 and arrow.distance.text == "200 yd")
+equal(arrow.label.text, localTrip.n, "names the objective the arrow points at")
+equal(arrow.goal.text, "Orgrimmar zeppelin tower", "also names the next transport stop")
+cont, endX, endY, xs, ys, idx = Navigation:GetTrail()
+assert(endX == stage.x and endY == stage.y and xs[idx] == 440 and ys[idx] == 600, "trail follows the approach to the tower")
+boarded = true
+Navigation:UpdateArrow()
+assert(arrow.head.shown and arrow.bearingFrame == 32 and not Navigation:GetTrail(), "the objective remains visible while boarding")
+equal(arrow.goal.text, "Take the zeppelin to Undercity", "the boarding instruction remains visible")
+ns.GetPlayerWorld = function() end
+Navigation:UpdateArrow()
+assert(not arrow.head.shown and not Navigation:GetTrail(), "no bearing is available during a loading screen")

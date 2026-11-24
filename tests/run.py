@@ -66,6 +66,9 @@ polestar.execute((root / "tests/polestar.lua").read_text(), str(package).replace
 quest_waypoints = LuaRuntime(unpack_returned_tuples=True)
 quest_waypoints.execute((root / "tests/quest_waypoints.lua").read_text(), str(package).replace("\\", "/"))
 
+ant_trails = LuaRuntime(unpack_returned_tuples=True)
+ant_trails.execute((root / "tests/ant_trails.lua").read_text(), str(package).replace("\\", "/"))
+
 background_jobs = LuaRuntime(unpack_returned_tuples=True)
 background_jobs.execute((root / "tests/background_jobs.lua").read_text(), str(package).replace("\\", "/"))
 

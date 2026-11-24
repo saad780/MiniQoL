@@ -21,10 +21,18 @@ Under **Maps & travel → Waypoints → Route style**, choose **Direct** for the
 shortest walkable route, **Balanced** (the default) to favor roads with short
 detours, or **Roads Always** to follow roads even on longer detours. Mini QoL
 includes the router and walking maps for Eastern Kingdoms, Kalimdor, and Zephras
-Isle. Where terrain data is unavailable, the arrow points straight at the waypoint.
+Isle. The arrow points straight at the objective and shows its straight-line
+distance. For an objective on another continent, it points at the next local
+boarding stop when one is available.
 
-Middle-click a destination and the arrow guides you to the next flight master,
-dock, zeppelin tower, tram or portal when a transfer is quicker. At the stop it
+**Show ant trails** (under Waypoints, on by default) draws the walking route
+on the continuous world map and minimap. Follow the dots around obstacles
+and to any flight master, dock or portal on the way. Outside walking map
+coverage, the dots lead straight to the next stop or waypoint. **Ant trails on**
+chooses which maps show the dots, and **Ant trail color** sets their color.
+
+Middle-click a destination to get travel instructions for any flight, boat,
+zeppelin, tram or portal that gets you there sooner. At the stop, the guide
 names the ride or flight to take. After arrival it continues toward your original
 pin. Flights use this character's discoveries. A new departure can be learned
 on the way. The arrow also calls out an undiscovered flight master you pass on foot.
@@ -58,9 +66,9 @@ icon, and **Elemental Convergences** under Icons turns them off. Other races
 are not shown them.
 
 With the Polestar leveling guide installed, **Show Polestar's guide on this
-arrow** under Waypoints puts the guide's next goal on the waypoint arrow and
-moves it along as the guide does: to the flight master or boat on the way, then
-the goal itself. Turn on Polestar's own **Let a following addon show the way**
+arrow** under Waypoints points the arrow at the guide's objective. The ant trail
+leads to any flight master or boat along the way. Turn on Polestar's own
+**Let a following addon show the way**
 (Guide, Arrow & routes, Other waypoints) and Polestar's arrow steps aside while
 this one shows the way. Polestar moves the waypoint on when a goal is done;
 removing it yourself lets that goal go in Polestar too, until the guide moves on.

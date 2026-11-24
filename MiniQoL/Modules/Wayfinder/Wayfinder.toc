@@ -55,4 +55,5 @@ TomTom.lua
 Polestar.lua
 QuestWaypoints.lua
 MinimapServices.lua
+AntTrails.lua
 Options.lua

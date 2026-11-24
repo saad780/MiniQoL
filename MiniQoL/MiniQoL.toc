@@ -72,6 +72,7 @@ Modules\Wayfinder\TomTom.lua
 Modules\Wayfinder\Polestar.lua
 Modules\Wayfinder\QuestWaypoints.lua
 Modules\Wayfinder\MinimapServices.lua
+Modules\Wayfinder\AntTrails.lua
 Modules\Wayfinder\Options.lua
 Modules\Wayfinder\_MiniQoLComplete.lua
 Modules\XPCounter\XPCounter.lua
