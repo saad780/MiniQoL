@@ -131,6 +131,39 @@ assert(Shows(1458) and Last().pinsOnly == true, "its city map, without terrain")
 chain = S.ChainAt(0.65, 0.25)
 assert(chain[#chain] == 1458, "and it is the map the view is on")
 
+-- A point that isn't one (a NaN view) never reaches the game, which errors on it.
+local lookup = C_Map.GetMapInfoAtPosition
+C_Map.GetMapInfoAtPosition = function() error("asked about a NaN point") end
+chain = S.ChainAt(0 / 0, 0.25)
+assert(#chain == 1 and chain[1] == S.WORLD, "a NaN point is only on the world")
+chain = S.ChainAt(0.65, math.huge)
+assert(#chain == 1, "as is an infinite one")
+C_Map.GetMapInfoAtPosition = lookup
+
+-- A city counts only in the middle of its rectangle, which reaches out over its
+-- zone; its zone comes before it (upstream's 0e4e670: near Kharanos, Ironforge).
+chain = S.ChainAt(0.63, 0.63)
+assert(chain[#chain] == 1453 and chain[#chain - 1] == 1429, "Stormwind in its middle, after Elwynn")
+chain = S.ChainAt(0.6205, 0.63)
+assert(chain[#chain] == 1429, "at its rectangle's edge, Elwynn")
+-- The game giving the city as the continent's child, for its whole rectangle.
+WORLD_RECTS[1426] = { 0.75, 0.85, 0.6, 0.7 }  -- Dun Morogh
+WORLD_RECTS[1455] = { 0.76, 0.80, 0.61, 0.65 } -- Ironforge
+C_Map.GetMapInfoAtPosition = function(id, x, y)
+    if id ~= 1415 then return lookup(id, x, y) end
+    local u, v = 0.5 + x * 0.4, 0.1 + y * 0.8
+    for _, child in ipairs({ 1455, 1426 }) do
+        local l, r, t, b = WorldRect(child)
+        if u >= l and u <= r and v >= t and v <= b then return { mapID = child, mapType = 3 } end
+    end
+    return lookup(id, x, y)
+end
+chain = S.ChainAt(0.765, 0.63)
+assert(chain[#chain] == 1426, "near Kharanos the map is Dun Morogh's")
+chain = S.ChainAt(0.78, 0.63)
+assert(chain[#chain] == 1455 and chain[#chain - 1] == 1426, "Ironforge in its middle, Dun Morogh before it")
+C_Map.GetMapInfoAtPosition = lookup
+
 -- The markers sit in the view, not on the canvas, so a move of the canvas is
 -- passed on at once: the same place and scale the full update will give them a
 -- frame later, without waiting for it.

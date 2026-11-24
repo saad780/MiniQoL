@@ -10,12 +10,21 @@ module lives there, so the game's AddOns list holds a single **Mini QoL** entry
 whose only job is to open the panel. Other addons keep their own settings and
 minimap icons.
 
-The continuous map remembers where you panned and zoomed for 45 seconds after
-you last moved it, even while the map is closed. It then shows the whole zone
-you are in (or your city), the way the game's own map opens. The map layer is
-remembered for the play session. **Track my location** follows
+The continuous map keeps where you panned and zoomed for as long as it is open,
+and for 45 seconds after you close it. Opened later than that, or opened and
+closed without being moved, it shows the whole zone you are in (or your city),
+the way the game's own map opens. The map layer is remembered for the play
+session. **Track my location** follows
 your character across map reopens until you click the button again. Dragging
 the map pauses tracking until you release it.
+
+In a fight the map is left as the game shows it: the wheel doesn't zoom and
+nothing moves it by itself (a drag still pans), so the quest tracker and the
+game's map buttons keep working. It catches up when the fight ends. Ctrl-click
+sets the game's own waypoint on the zone you clicked, and Shift-clicks go to
+other addons. With the game's Gamepad UI on, the continuous map leaves the
+world map to the game (closing it with the controller would be blocked) and
+comes back when you switch to mouse and keyboard.
 
 Under **Maps & travel → Waypoints → Route style**, choose **Direct** for the
 shortest walkable route, **Balanced** (the default) to favor roads with short

@@ -21,6 +21,87 @@ local function Match(name, words, query, ...)
     return 3
 end
 
+-- Only the static data packs are indexed. Player position, faction-specific
+-- travel and Wayfinder's recorded NPCs are read at query time.
+local indexedPacks = { npc = "npcs", quest = "npcs", creature = "creatures", node = "nodes", item = "gear" }
+local indexes = {}
+local function CreatureDetail(row)
+    local detail = ranks[row[5]] or "Creature"
+    if row[4] > 0 then
+        if row[3] > 0 and row[3] ~= row[4] then return ("%s · Level %d–%d"):format(detail, row[3], row[4]) end
+        return ("%s · Level %d"):format(detail, row[4])
+    end
+    return detail
+end
+
+local function NpcDetail(row)
+    return row[6] or row[2]:gsub("_", " "):gsub("^%l", string.upper)
+end
+
+local function QuestDetail(quest, giver)
+    return ("Quest from %s (level %d)"):format(giver[5], quest[4])
+end
+
+local function SearchIndex(kind, faction)
+    if kind ~= "npc" and kind ~= "quest" then faction = nil end
+    local data = E:Data(indexedPacks[kind])
+    if not data then return end
+    local index = indexes[kind]
+    if index and index.data == data and index.faction == faction then return index end
+    index = { data = data, faction = faction }
+    local function group(mapID)
+        local bucket = { mapID = mapID, rows = {}, texts = {}, extra = {} }
+        index[#index + 1] = bucket
+        local zone = E.MapName(mapID) or ""
+        return function(row, name, detail, id, extra)
+            local i = #bucket.rows + 1
+            bucket.rows[i], bucket.extra[i] = row, extra
+            bucket.texts[i] = (name .. " " .. detail .. " " .. zone .. " " .. (id or "")):lower()
+        end
+    end
+    if kind == "item" then
+        local add = group(nil)
+        for id, row in pairs(data.items) do add(row, row[1], "", id, id) end
+    else
+        for mapID, rows in pairs(data.maps) do
+            local add = group(mapID)
+            for _, row in ipairs(rows) do
+                if kind == "creature" then
+                    add(row, row[2], CreatureDetail(row), row[1])
+                elseif kind == "node" then
+                    add(row, row[1], row[2] == "herb" and "Herb" or "Ore")
+                elseif E.OwnFaction(row[7], faction) then
+                    if kind == "npc" then
+                        local detail = NpcDetail(row) .. " " .. row[2]:gsub("_", " ")
+                        add(row, row[5], detail .. (flightTitles[row[6]] and " flight master" or ""), row[1])
+                    else
+                        for _, quest in ipairs(row[8] or {}) do
+                            if E.OwnFaction(quest[5], faction) then
+                                add(quest, quest[2], QuestDetail(quest, row), quest[1], row)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    indexes[kind] = index
+    return index
+end
+
+local function ContainsWords(text, words)
+    for i = 1, #words do
+        if not text:find(words[i], 1, true) then return false end
+    end
+    return true
+end
+
+local function NameRank(name, query)
+    local first, last = name:lower():find(query, 1, true)
+    if first == 1 then return last == #name and 0 or 1 end
+    return first and 2 or 3
+end
+
 local function Better(a, b)
     if a.rank ~= b.rank then return a.rank < b.rank end
     if a.tier ~= b.tier then return a.tier < b.tier end
@@ -53,7 +134,7 @@ end
 function E:Search(text, kind, limit)
     local query = text:lower():match("^%s*(.-)%s*$")
     if #query < 2 then return {}, 0 end
-    local words, bestByKey, zones = {}, {}, {}
+    local words, bestByKey = {}, {}
     for word in query:gmatch("%S+") do words[#words + 1] = word end
     local player = self.PlayerPosition()
     local faction = UnitFactionGroup("player")
@@ -71,30 +152,23 @@ function E:Search(text, kind, limit)
         if not prior or Better(candidate, prior) then bestByKey[key] = candidate end
     end
 
-    if wants("npc") or wants("quest") or wants("place") then
-        local data = self:Data("npcs")
-        for mapID, rows in pairs(data and data.maps or {}) do
-            zones[mapID] = true
-            for _, row in ipairs(rows) do
-                local id, role, x, y, name, title, side, quests = unpack(row, 1, 8)
-                if self.OwnFaction(side, faction) then
-                    if wants("npc") then
-                        local detail = title or role:gsub("_", " "):gsub("^%l", string.upper)
-                        local keywords = detail .. " " .. role:gsub("_", " ") .. (flightTitles[title] and " flight master" or "")
-                        add("npc:" .. id .. ":" .. mapID, name, detail, mapID, x, y, match(name, keywords, mapID, id))
-                    end
-                    if wants("quest") then
-                        for _, quest in ipairs(quests or {}) do
-                            if self.OwnFaction(quest[5], faction) then
-                                local detail = ("Quest from %s (level %d)"):format(name, quest[4])
-                                add("quest:" .. quest[1], quest[2], detail, mapID, x, y, match(quest[2], detail, mapID, quest[1]))
-                            end
-                        end
-                    end
-                end
+    local function visit(category, emit)
+        if not wants(category) then return end
+        local index = SearchIndex(category, faction)
+        if not index then return end
+        for _, bucket in ipairs(index) do
+            for i, text in ipairs(bucket.texts) do
+                if ContainsWords(text, words) then emit(bucket.rows[i], bucket.mapID, bucket.extra[i]) end
             end
         end
     end
+
+    visit("npc", function(row, mapID)
+        add("npc:" .. row[1] .. ":" .. mapID, row[5], NpcDetail(row), mapID, row[3], row[4], NameRank(row[5], query))
+    end)
+    visit("quest", function(row, mapID, giver)
+        add("quest:" .. row[1], row[2], QuestDetail(row, giver), mapID, giver[3], giver[4], NameRank(row[2], query))
+    end)
 
     if wants("npc") or wants("place") then
         for _, row in ipairs(network and network.taxi or {}) do
@@ -125,55 +199,24 @@ function E:Search(text, kind, limit)
         end
     end
 
-    if wants("creature") then
-        local data = self:Data("creatures")
-        for mapID, rows in pairs(data and data.maps or {}) do
-            for _, row in ipairs(rows) do
-                local id, name, low, high, rank, points = unpack(row)
-                local detail = ranks[rank] or "Creature"
-                if high > 0 then
-                    detail = detail .. (low > 0 and low ~= high and (" · Level %d–%d"):format(low, high) or (" · Level %d"):format(high))
-                end
-                local rating = match(name, detail, mapID, id)
-                if rating then
-                    local x, y = BestPoint(player, mapID, points)
-                    add("npc:" .. id .. ":" .. mapID, name, detail, mapID, x, y, rating)
-                end
+    visit("creature", function(row, mapID)
+        local x, y = BestPoint(player, mapID, row[6])
+        add("npc:" .. row[1] .. ":" .. mapID, row[2], CreatureDetail(row), mapID, x, y, NameRank(row[2], query))
+    end)
+    visit("node", function(row, mapID)
+        local x, y = BestPoint(player, mapID, row[3])
+        local detail = row[2] == "herb" and "Herb" or "Ore"
+        add("node:" .. row[1] .. ":" .. mapID, row[1], detail, mapID, x, y, NameRank(row[1], query))
+    end)
+    visit("item", function(item, _, id)
+        local rank = NameRank(item[1], query)
+        local key = "item:" .. id
+        for _, source in ipairs(item[4]) do
+            if self.OwnFaction(source[7], faction) then
+                add(key, item[1], self.SourceLabel(source), source[2], source[3], source[4], rank, id)
             end
         end
-    end
-
-    if wants("node") then
-        local data = self:Data("nodes")
-        for mapID, rows in pairs(data and data.maps or {}) do
-            for _, row in ipairs(rows) do
-                local name, node, points = unpack(row)
-                local detail = node == "herb" and "Herb" or "Ore"
-                local rank = match(name, detail, mapID)
-                if rank then
-                    local x, y = BestPoint(player, mapID, points)
-                    add("node:" .. name .. ":" .. mapID, name, detail, mapID, x, y, rank)
-                end
-            end
-        end
-    end
-
-    if wants("item") then
-        local data = self:Data("gear")
-        for id, item in pairs(data and data.items or {}) do
-            -- Item searches match item names and IDs. A vendor in Elwynn
-            -- should not return every item on their inventory as a match.
-            local rank = match(item[1], nil, nil, id)
-            if rank then
-                local key = "item:" .. id
-                for _, source in ipairs(item[4]) do
-                    if self.OwnFaction(source[7], faction) then
-                        add(key, item[1], self.SourceLabel(source), source[2], source[3], source[4], rank, id)
-                    end
-                end
-            end
-        end
-    end
+    end)
 
     if wants("place") then
         local data = self:Data("dungeons")
@@ -181,7 +224,8 @@ function E:Search(text, kind, limit)
             local name, mapID = dungeon.name, dungeon.map
             add("dungeon:" .. id, name, "Dungeon entrance", mapID, dungeon.x, dungeon.y, match(name, "Dungeon", mapID))
         end
-        for mapID in pairs(zones) do
+        local npcs = self:Data("npcs")
+        for mapID in pairs(npcs and npcs.maps or {}) do
             local name = self.MapName(mapID)
             add("zone:" .. mapID, name, "Zone", mapID, nil, nil, match(name, "Zone"))
         end
@@ -201,10 +245,18 @@ function E:Search(text, kind, limit)
         for _, data in ipairs(network and network.portals or {}) do route("portal", data.a, data.b) end
     end
 
-    local results = {}
-    for _, result in pairs(bestByKey) do results[#results + 1] = result end
-    table.sort(results, Better)
-    local total = #results
-    for i = total, limit + 1, -1 do results[i] = nil end
+    local results, total = {}, 0
+    for _, result in pairs(bestByKey) do
+        total = total + 1
+        if limit > 0 and (#results < limit or Better(result, results[limit])) then
+            local low, high = 1, #results + 1
+            while low < high do
+                local mid = math.floor((low + high) / 2)
+                if Better(result, results[mid]) then high = mid else low = mid + 1 end
+            end
+            table.insert(results, low, result)
+            results[limit + 1] = nil
+        end
+    end
     return results, total
 end

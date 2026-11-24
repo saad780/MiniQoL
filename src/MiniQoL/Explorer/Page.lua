@@ -58,17 +58,28 @@ local function ResultRow(key, y, result)
     end
     local place = PlaceText(result)
     local detail = result.detail or ""
+    if result.note then detail = result.note .. " · " .. detail end
+    if result.effects then detail = "Review item effects · " .. detail
+    elseif result.estimatedProc then detail = "Includes on-hit estimate · " .. detail
+    elseif result.effectNotes then detail = "Set comparison · " .. detail end
     if result.slot then detail = Gearwise.slotNames[result.slot] .. " · " .. detail end
-    if result.note then detail = detail .. " · " .. result.note end
     if place ~= "" then detail = detail .. " · " .. place end
     row.name:SetText(result.name)
     row.detail:SetText(detail)
-    row.gain:SetText(result.empty and "Empty slot" or result.percent and ("+%.1f%%"):format(result.percent)
-        or result.delta and ("+%.1f score"):format(result.delta) or "")
+    row.gain:SetText(result.planOnly and "Set option" or result.breakEven and ("%.2f/min"):format(result.breakEven)
+        or result.delta and (result.delta < 0.1 and "<0.1 score" or ("+%.1f score"):format(result.delta)) or "")
     row.waypoint:SetShown(E.Located(result.mapID, result.x, result.y) and true or false)
     -- Long creature and quest names still have access to the full location text.
     if not row.hasTip then
-        T:Tip(row, function() return row.result.name end, function() return row.detail:GetText() end)
+        T:Tip(row, function() return row.result.name end, function()
+            local item, text = row.result, row.detail:GetText()
+            if item.planOnly or item.breakEven then text = text .. ("\nCurrent estimate %+.1f score."):format(item.delta)
+            elseif item.empty then text = text .. "\nFills an empty slot."
+            elseif item.percent then text = text .. ("\n%.1f%% above the equipped slot score."):format(item.percent) end
+            if item.effectNotes then text = text .. "\n" .. table.concat(item.effectNotes, "\n") end
+            if item.effects then text = text .. "\nSome item effects or set bonuses are outside the score." end
+            return text
+        end)
         row.hasTip = true
     end
     return y + 50
@@ -166,25 +177,32 @@ local function RefreshGearSoon()
 end
 
 local function ScanFinished(scan)
-    if scan then
+    if scan and not scan.running then
         scan.time = GetTime()
-        if scan.itemArrived then RefreshGearSoon() end
     end
     if Visible("nearby") then ns:Refresh() end
 end
 
+local function NearbyVisible() return Visible("nearby") end
+
 local events = CreateFrame("Frame")
 for _, event in ipairs({ "ZONE_CHANGED_NEW_AREA", "PLAYER_ENTERING_WORLD", "PLAYER_EQUIPMENT_CHANGED", "PLAYER_LEVEL_UP",
-    "PLAYER_TALENT_UPDATE", "QUEST_TURNED_IN", "QUEST_ACCEPTED", "PLAYER_REGEN_ENABLED", "GET_ITEM_INFO_RECEIVED", "ITEM_DATA_LOAD_RESULT" }) do
+    "PLAYER_TALENT_UPDATE", "ACTIVE_TALENT_GROUP_CHANGED", "PLAYER_SPECIALIZATION_CHANGED", "CHARACTER_POINTS_CHANGED",
+    "SKILL_LINES_CHANGED", "SPELLS_CHANGED", "QUEST_TURNED_IN", "QUEST_ACCEPTED", "QUEST_REMOVED", "PLAYER_REGEN_ENABLED",
+    "BAG_UPDATE_DELAYED", "BANKFRAME_OPENED", "BANKFRAME_CLOSED", "PLAYERBANKSLOTS_CHANGED",
+    "PLAYERBANKBAGSLOTS_CHANGED", "GET_ITEM_INFO_RECEIVED", "ITEM_DATA_LOAD_RESULT" }) do
     pcall(events.RegisterEvent, events, event)
 end
 events:SetScript("OnEvent", function(_, event, id, success)
     if event == "GET_ITEM_INFO_RECEIVED" or event == "ITEM_DATA_LOAD_RESULT" then
-        local scan = E.scan
-        if success and scan and scan.pending[id] then
-            scan.pending[id], scan.itemArrived = nil, true
-            if scan.time and Visible("nearby") then RefreshGearSoon() end
+        if success then E:UpgradeItemArrived(id) end
+        local effects = Gearwise and Gearwise.Effects
+        if success and effects and effects.waitingForStorage[id] then
+            effects.waitingForStorage[id] = nil
+            if NearbyVisible() then RefreshGearSoon() else E:CancelUpgrades() end
         end
+    elseif event == "PLAYER_REGEN_ENABLED" then
+        if NearbyVisible() then ns:Refresh() end
     elseif Visible("nearby") then
         RefreshGearSoon()
     else
@@ -201,6 +219,21 @@ local function SelectSlot(button)
         add(nil, "All slots")
         for _, slot in ipairs(slots) do add(slot, Gearwise.slotNames[slot]) end
     end)
+end
+
+-- Gearwise also rebuilds its profile when item data arrives. Only an actual
+-- scoring change should invalidate comparisons already made in this scan.
+local function SameBuild(scan, current)
+    local old = scan.profile
+    if old == current then return true end
+    if old.key ~= current.key or old.class ~= current.class or old.level ~= current.level
+        or old.leveling ~= current.leveling or old.meleeDPS ~= current.meleeDPS or old.rangedDPS ~= current.rangedDPS then
+        return false
+    end
+    for key, value in pairs(old.weights) do if current.weights[key] ~= value then return false end end
+    for key in pairs(current.weights) do if old.weights[key] == nil then return false end end
+    scan.profile = current
+    return true
 end
 
 local function RenderGearGroup(key, title, results, y)
@@ -220,7 +253,7 @@ function E:RenderNearby(y)
     if not (Gearwise and Gearwise.Compare and Gearwise.profile) then
         return ns:Note("nearby.status", "Enable Gearwise in Mini QoL to compare gear.", y)
     end
-    if not self:Data("gear") then
+    if not (self.gear or self.loaders.gear) then
         return ns:Note("nearby.status", "Gear source data is missing from this Mini QoL build.", y)
     end
     local mapID = C_Map.GetBestMapForUnit("player")
@@ -230,22 +263,33 @@ function E:RenderNearby(y)
     if not row.slot then
         row.slot = T:Button(row, "All slots", 120, 24, function() SelectSlot(row.slot) end)
         row.slot:SetPoint("TOPLEFT", 0, 0)
+        row.build = SingleLine(row, "GameFontDisableSmall", T.MUTED, 364, "TOPLEFT", 131, -6)
         T:Button(row, "Refresh", 90, 24, function() E:CancelUpgrades(); ResetScroll() end):SetPoint("TOPRIGHT", 0, 0)
     end
     row.slot:SetText(gearSlot and Gearwise.slotNames[gearSlot] or "All slots")
+    local profile = Gearwise.profile
+    row.build:SetText(profile.label and ("Score gain for " .. profile.label .. " " .. (profile.className or "")) or "Gearwise score gain")
     y = y + 33
     if InCombatLockdown() then return ns:Note("nearby.status", "Gear comparisons resume after combat.", y) end
 
     local scan = self.scan
-    if not scan or scan.mapID ~= mapID or scan.slot ~= gearSlot or (scan.time and GetTime() - scan.time > 30) then
-        self:StartUpgrades(gearSlot, ScanFinished)
+    if not scan or scan.mapID ~= mapID or scan.slot ~= gearSlot or not SameBuild(scan, Gearwise.profile)
+        or (scan.time and GetTime() - scan.time > 30) then
+        self:StartUpgrades(gearSlot, ScanFinished, NearbyVisible)
         scan = self.scan
     end
     if not scan.nearby then return ns:Note("nearby.status", "Checking gear sources against your equipped items…", y) end
+    scan:retry()
     local localCount, outsideCount
     y, localCount = RenderGearGroup("local", E.MapName(E.Zone(mapID)) or "Current zone", scan.nearby, y)
-    y, outsideCount = RenderGearGroup("outside", "Upgrades in other zones", scan.elsewhere, y)
-    if localCount + outsideCount == 0 then y = ns:Note("nearby.empty", "No upgrades found for this selection.", y) end
+    y, outsideCount = RenderGearGroup("outside", "Other zones · selected upgrades", scan.elsewhere, y)
+    y = RenderGearGroup("sets", "Local set options with pieces you own", scan.setOptions, y)
+    y = RenderGearGroup("procs", "Local on-hit effects with an unknown rate", scan.procOptions, y)
+    if scan.checkingElsewhere then
+        y = ns:Note("nearby.status", "Checking other zones…", y)
+    elseif localCount + outsideCount == 0 and not next(scan.pending) then
+        y = ns:Note("nearby.empty", "No scored upgrades found among the known sources checked.", y)
+    end
     if next(scan.pending) then y = ns:Note("nearby.pending", "Waiting for item data for some gear. Results update as it arrives.", y) end
     return y
 end

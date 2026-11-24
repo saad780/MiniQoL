@@ -80,15 +80,15 @@ local function Finite(value)
 	return type(value) == "number" and value == value and value > -math.huge and value < math.huge
 end
 
--- The layer belongs to the session. Where the view was moved to (its centre and
--- zoom) is kept a shorter time, measured from when it last moved, even if the map
--- is closed. After that the map shows the player's whole zone again, the way the
--- game's own map opens.
+-- The layer belongs to the session. A view the user moved to (its centre and
+-- zoom) stays while the map is open, whatever the time: someone may be looking
+-- something up. Closed, it is kept for a while. Opened after that, or never
+-- moved, the map shows the player's whole zone, the way the game's own map opens.
 local POSITION_MEMORY = 45
 local POSITION_EPSILON = 0.00001
 local ZOOM_EPSILON = 0.0001 -- (a share of the zoom)
 local sessionView
-local positionDeadline, observedU, observedV, observedZoom, returnQueued
+local remembering, positionDeadline, observedU, observedV, observedZoom
 
 local function Tracking()
 	return ns.Navigation and ns.Navigation:IsTracking()
@@ -99,22 +99,6 @@ local function PlayerPoint()
 	if not mapID then return end
 	local u, v = api.WorldFromMap(mapID, x, y)
 	if Finite(u) and Finite(v) then return u, v end
-end
-
--- The player's zone (or the city they are in) whole, as the game's map opens on
--- it: the map the game picks for them, or the nearest one above it that the
--- continuous map shows.
-local function ZoneView()
-	local mapID = MapUtil and MapUtil.GetDisplayableMapForPlayer and MapUtil.GetDisplayableMapForPlayer()
-		or C_Map.GetBestMapForUnit("player")
-	local mod = Controller()
-	for _ = 1, 6 do
-		if not mapID then return end
-		local u, v, zoom = mod.FitView(mapID)
-		if u then return u, v, zoom end
-		local info = C_Map.GetMapInfo(mapID)
-		mapID = info and info.parentMapID
-	end
 end
 
 local function ViewChanged(u, v, zoom, previousU, previousV, previousZoom)
@@ -130,62 +114,34 @@ local function Observed(u, v, zoom)
 	end
 end
 
-local function QueueReturn(delay)
-	if returnQueued then return end
-	returnQueued = true
-	C_Timer.After(delay, function()
-		returnQueued = nil
-		if not positionDeadline or Tracking() or not api.IsStitched() or not WorldMapFrame:IsShown() then return end
-		local remaining = positionDeadline - GetTime()
-		if remaining > 0 then
-			QueueReturn(remaining)
-			return
-		end
-		local mod = Controller()
-		if mod.Animating() or (ns.Navigation and ns.Navigation:IsMapInputHeld()) then
-			QueueReturn(0.25)
-			return
-		end
-		local u, v, zoom = ZoneView()
-		if not u then
-			QueueReturn(1)
-			return
-		end
-		local currentU, currentV, currentZoom = mod.ViewNow()
-		if ViewChanged(u, v, zoom, currentU, currentV, currentZoom) then
-			mod.ShowNow(u, v, zoom)
-		end
-		positionDeadline = nil
-		Observed(mod.ViewNow())
-	end)
-end
-
 local function ObservePosition(u, v, zoom)
 	if not Finite(u) or not Finite(v) or not Finite(zoom) then return end
 	if observedU and not ViewChanged(u, v, zoom, observedU, observedV, observedZoom) then return end
 	local hadView = observedU ~= nil
-	observedU, observedV, observedZoom = u, v, zoom
-	if not hadView or Tracking() then return end
-	positionDeadline = GetTime() + POSITION_MEMORY
-	QueueReturn(POSITION_MEMORY)
+	Observed(u, v, zoom)
+	if hadView and not Tracking() then remembering = true end
 end
 
 function Continuous:ClearPositionMemory()
-	positionDeadline = nil
+	remembering, positionDeadline = false, nil
 end
 
+-- The map closing: the view is kept for POSITION_MEMORY seconds from now, if it
+-- is one the user moved to.
 function Continuous:SaveView()
-	if not self:IsActive() then return end
-	local u, v, zoom = Controller().ViewNow()
-	if not Finite(u) or not Finite(v) or not Finite(zoom) or zoom < 1 then return end
-	ObservePosition(u, v, zoom)
-	local _, terrain = engine.MapStitch.GetCityView()
-	sessionView = { u = u, v = v, zoom = zoom, terrain = terrain == true }
+	local u, v, zoom
+	if self:IsActive() then u, v, zoom = Controller().ViewNow() end
+	if Finite(u) and Finite(v) and Finite(zoom) and zoom >= 1 then
+		ObservePosition(u, v, zoom)
+		local _, terrain = engine.MapStitch.GetCityView()
+		sessionView = { u = u, v = v, zoom = zoom, terrain = terrain == true }
+	end
+	positionDeadline = remembering and sessionView and GetTime() + POSITION_MEMORY or nil
 end
 
--- The view an opening puts up: the one left, while it is remembered, or the
--- player followed at the zoom left. Otherwise nil, and the map shows whole what
--- the game opened it on, the player's zone.
+-- The view an opening puts up: the one left, while it is kept, or the player
+-- followed at the zoom left. Otherwise nil, and the map shows whole what the
+-- game opened it on, the player's zone.
 function Continuous:SavedView()
 	local saved = sessionView
 	if type(saved) ~= "table" then return end
@@ -195,10 +151,10 @@ function Continuous:SavedView()
 		if u then return u, v, saved.zoom end
 		return saved.u, saved.v, saved.zoom
 	end
-	if positionDeadline and GetTime() < positionDeadline then
+	if remembering and positionDeadline and GetTime() < positionDeadline then
 		return saved.u, saved.v, saved.zoom
 	end
-	positionDeadline = nil
+	remembering, positionDeadline = false, nil
 end
 
 -- A capital's two layers: the button's label for each, then the same in a
@@ -317,9 +273,54 @@ function Continuous:SuspendOpenMap()
 	end
 end
 
+-- The game's Gamepad UI (its controller mode) and the continuous map don't mix: the UI sets the
+-- controller's buttons on the map again on every map change, and on the continuous map those changes
+-- (and the view they read) are addon code, so the buttons carry its taint and closing the map with B
+-- is blocked (upstream OpenMap's 95092ae). With the Gamepad UI on, the map is left to Blizzard,
+-- touched not at all, until the UI goes back to mouse and keyboard; turned on later, a /reload
+-- gives the map back to Blizzard.
+local function GamepadUI()
+	return InputUtil and InputUtil.IsGamepadUIEnabled and InputUtil.IsGamepadUIEnabled() and true or false
+end
+Continuous.GamepadUI = GamepadUI
+
+function Continuous:WatchGamepadUI()
+	if self.watchingPad then return end
+	self.watchingPad = true
+	local function Changed()
+		if GamepadUI() then
+			if self.started and not self.padReloadNoted then
+				self.padReloadNoted = true
+				ns.Print("The Gamepad UI is on: /reload to leave the world map to Blizzard while it is (the continuous map can block closing it with the controller).")
+			end
+		elseif self.padWaits and not self.started then
+			if InCombatLockdown() then self.padAfterCombat = true return end   -- (set up out of combat)
+			self.padWaits = nil
+			self:Start()
+			if self.started then ns.Print("The Gamepad UI is off: the continuous map is back.") end
+		end
+	end
+	-- (registering an event the client doesn't have is an error: asked first where the game can say)
+	local valid = C_EventUtils and C_EventUtils.IsEventValid
+	if not valid or valid("INPUT_DEVICE_INTERFACE_TRANSITION") then
+		pcall(ns.RegisterEvent, ns, "INPUT_DEVICE_INTERFACE_TRANSITION", Changed)
+	end
+	ns:RegisterEvent("PLAYER_REGEN_ENABLED", function()
+		if self.padAfterCombat then self.padAfterCombat = nil; Changed() end
+	end)
+end
+
 function Continuous:Start()
 	if self.started or not ns:GetSetting("continuousMap") then return end
 	if not C_Map.GetMapRectOnMap or not C_Map.GetMapInfoAtPosition then return end
+	self:WatchGamepadUI()
+	if GamepadUI() then
+		if not self.padWaits then
+			self.padWaits = true
+			ns.Print("The Gamepad UI is on, so the continuous map leaves the world map to Blizzard (with it, the game blocks closing the map with the controller). It comes back when you switch to mouse and keyboard.")
+		end
+		return
+	end
 	local map = WorldMapFrame
 	local sc = map and map.ScrollContainer
 	local fl = map and map.GetPinFrameLevelsManager and map:GetPinFrameLevelsManager()
@@ -333,12 +334,7 @@ function Continuous:Start()
 	mod.enabled = true
 	mod.SavedView = function() return self:SavedView() end
 	mod.OnMapHidden = function() self:SaveView() end
-	mod.OnMapShown = function()
-		Observed(mod.ViewNow())
-		if positionDeadline and not Tracking() then
-			QueueReturn(math.max(0, positionDeadline - GetTime()))
-		end
-	end
+	mod.OnMapShown = function() Observed(mod.ViewNow()) end
 	mod.OnOpenedView = function() Observed(mod.ViewNow()) end
 	mod.OnSwitched = function() ns.MapPins:RefreshNow() end
 	mod.OnStitchedChanged = function(on)

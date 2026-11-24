@@ -284,4 +284,175 @@ while #timers > 0 do table.remove(timers, 1)() end
 local nearby = ns.rows["explorer.gear.local.1"].result
 assert(nearby.name == "Local Blade" and nearby.source[1] == "drop", "nearby gear retains a viable same-zone source")
 assert(ns.rows["explorer.gear.outside.1"].result.slot == 11, "a regional fallback combines equivalent ring slots")
+
+-- An equipped item can also be the missing input for a candidate. Deliver
+-- both client item events and check that only the waiting comparison runs.
+local calls, equippedReady = {}, false
+function GetInventoryItemID(_, slot) if slot == 16 then return 555 end end
+local compare = gear.Compare.Get
+gear.Compare.Get = function(self, link)
+    calls[link] = (calls[link] or 0) + 1
+    if link == "item:123" and not equippedReady then return { status = "pending" } end
+    return compare(self, link)
+end
+local function drain() while #timers > 0 do table.remove(timers, 1)() end end
+local explorer = ns.Explorer
+explorer:CancelUpgrades()
+ns:Render()
+drain()
+assert(explorer.scan.pending[123] and #explorer.scan.nearby == 0)
+equippedReady = true
+explorer:UpgradeItemArrived(555)
+explorer:UpgradeItemArrived(555)
+drain()
+assert(calls["item:123"] == 2 and calls["item:456"] == 1, "retry pending gear once without rescanning resolved items")
+assert(#explorer.scan.nearby == 1 and not next(explorer.scan.pending))
+explorer:CancelUpgrades()
+ns:Render()
+ns:ShowPage("home")
+drain()
+assert(not explorer.scan and calls["item:123"] == 2, "leaving the page cancels scheduled comparisons")
+
+-- The first local pass saw six uncached pieces. If those resolve before the
+-- regional batch, it should publish the six locals without touching remote gear.
+local items, loaded, remoteReads = {}, false, 0
+for id = 1, 7 do
+    items[id] = { "Piece " .. id, 58, 60, { { "drop", id == 7 and 2 or 1, 0.5, 0.5, "Mob" } } }
+end
+explorer.gear = { items = items }
+gear.Compare.Get = function(self, link)
+    if link == "item:7" then remoteReads = remoteReads + 1 end
+    if not loaded then return { status = "pending" } end
+    return compare(self, link)
+end
+SlashCmdList.MINIQOL("nearby")
+table.remove(timers, 1)()
+assert(explorer.scan.checkingElsewhere)
+loaded = true
+for id = 1, 6 do explorer:UpgradeItemArrived(id) end
+drain()
+assert(remoteReads == 0 and #explorer.scan.nearby == 6, "resolved local gear ends the regional fallback")
+
+local rows, total = explorer:Search("innkeeper", "npc", 1)
+assert(#rows == 1 and total == 2 and rows[1].mapID == 1, "result limits preserve the count and nearest result")
+function UnitFactionGroup() return "Alliance" end
+rows, total = explorer:Search("test innkeeper", "npc", 40)
+assert(total == 1 and rows[1].name == "Innkeeper Test", "cached text respects faction and unordered search words")
 print("World search ranking, faction filtering, gear comparison and waypoint integration passed")
+
+-- The score stub makes availability and cross-slot ordering independent of
+-- stat weights. Gearwise's comparison and tooltip suites exercise the scores.
+do
+    local level, classID, raceID = 26, 3, 6
+    function UnitLevel() return level end
+    function UnitClass() return "Hunter", "HUNTER", classID end
+    function UnitRace() return "Tauren", "Tauren", raceID end
+    function UnitFactionGroup() return "Horde" end
+    local function source(id, suggested, group)
+        return { "quest", 1, 0.4, 0.5, "Quest", suggested, "Horde", id, 14, {}, group }
+    end
+    local function drop(zone) return { "drop", zone, 0.5, 0.5, "Mob" } end
+    explorer.npcs = { maps = { [1] = { { [8] = {
+        { 6129, "Curing the Sick", 14, 14, "Horde", 1024, {}, {}, 32 },
+        { 90, "Active", 14, 40, "Horde", 0, {}, {}, 0 },
+        { 91, "Chain", 14, 20, "Horde", 0, {}, {}, 0 },
+        { 92, "Faction races", 14, 20, "Horde", 0, {}, {}, 178 },
+        { 93, "High race bit", 14, 20, "Horde", 0, {}, {}, 2^33 },
+        { 94, "Repeatable", 14, 20, "Horde", 0, {}, {}, 0 },
+    } } } } }
+    explorer.gear = { items = {
+        [6469] = { "Venomstrike", 19, 24, { drop(1) } },
+        [15866] = { "Veildust Medicine Bag", 0, 15, { source(6129, 14) } },
+        [100] = { "Minor gain", 24, 26, { drop(1) } },
+        [101] = { "Unlisted item level", 0, 0, { source(90, 40, { 4 }) } },
+        [102] = { "Earlier quest", 0, 0, { source(91, 20, { -7 }) } },
+        [103] = { "Missing giver record", 0, 0, { source(89, 20) } },
+        [104] = { "Alternate drop", 24, 26, { source(6129, 14), drop(2) } },
+        [105] = { "Faction quest", 0, 0, { source(92, 20) } },
+        [106] = { "Race-specific quest", 0, 0, { source(93, 20) } },
+        [107] = { "Repeatable quest", 0, 0, { source(94, 20) } },
+    } }
+    local log = {
+        IsOnQuest = function(id) return id == 90 end,
+        IsQuestFlaggedCompleted = function(id) assert(id > 0); return id == 7 or id == 94 end,
+        IsRepeatableQuest = function(id) return id == 94 end,
+    }
+    C_QuestLog = log
+    gear.profile = { key = "test", weights = { agi = 1 } }
+    gear.Compare.Get = function(_, link)
+        local result = { status = "upgrade", slot = 11, delta = 2, percent = 200, item = {} }
+        if link == "item:6469" then
+            result.delta, result.percent, result.empty, result.effects = 20, nil, true, true
+        end
+        return result
+    end
+    local function scan()
+        local found = {}
+        explorer:CancelUpgrades()
+        ns:Render()
+        drain()
+        for _, group in ipairs({ explorer.scan.nearby, explorer.scan.elsewhere }) do
+            for _, item in ipairs(group) do found[item.itemID] = item end
+        end
+        return found
+    end
+    local found = scan()
+    assert(found[6469] and explorer.scan.nearby[1].itemID == 6469, "an older empty-slot upgrade wins by score gain")
+    local row = ns.rows["explorer.gear.local.1"]
+    row.scripts.OnEnter(row)
+    assert(row.gain:GetText() == "+20.0 score" and tip:find("empty slot") and tip:find("outside the score"))
+    assert(not found[15866] and not found[106], "enforce class and race restrictions on the quest")
+    assert(found[101] and not found[101].note, "an accepted quest overrides estimated difficulty and prerequisites")
+    assert(found[102] and not found[102].note, "check signed group prerequisites by their positive quest ID")
+    assert(found[103].note == "Check quest eligibility" and found[107], "qualify missing records and allow repeatables")
+    local oldScan = explorer.scan
+    gear.profile = { key = "test", weights = { agi = 1 } }
+    ns:Render()
+    assert(explorer.scan == oldScan, "rebuilding identical weights preserves a scan")
+    gear.profile = { key = "test", weights = { agi = 2 } }
+    ns:Render()
+    assert(explorer.scan ~= oldScan, "changing a weight immediately invalidates ranked results")
+    drain()
+    classID, raceID = 11, 2
+    assert(not scan()[15866], "a druid of the wrong race cannot get this quest reward")
+    raceID = 6
+    assert(scan()[15866], "the eligible druid still sees it")
+    raceID = 34
+    found = scan()
+    assert(found[105] and found[106], "support high race bits and old faction-wide race masks")
+    C_QuestLog = nil
+    found = scan()
+    assert(found[102].note == "Check quest eligibility", "missing quest APIs leave the result unconfirmed")
+    assert(found[104] and found[104].mapID == 2, "an inaccessible quest cannot hide a reachable alternate drop")
+    C_QuestLog = log
+    local locked = {}
+    for id = 1, 7 do locked[id] = { "Locked reward", 0, 0, { source(91, 20, { 8 }) } } end
+    locked[7][4][2] = drop(2)
+    locked[8] = { "Distant ring", 24, 26, { drop(2) } }
+    explorer.gear = { items = locked }
+    found = scan()
+    assert(#explorer.scan.nearby == 6 and found[1].note == "Earlier quest required")
+    assert(found[7] and found[7].mapID == 2 and not found[7].note,
+        "six locked sources cannot suppress a usable regional alternate for an older reward")
+end
+print("Nearby upgrade level coverage, quest eligibility, score ranking and build changes passed")
+
+-- A set possibility or an unknown proc rate must never turn the individual
+-- item into a confirmed upgrade, even when the list needs regional fallback.
+explorer.gear = {items = {
+    [501] = {"Set chest", 25, 26, {{"drop",1,0.3,0.4,"Mob"}}},
+    [502] = {"Proc bow", 25, 26, {{"drop",1,0.3,0.4,"Mob"}}},
+}}
+gear.Compare.Get = function(_, link)
+    return { status = "downgrade", slot = 5, item = {}, delta = -5,
+        setPlan = link == "item:501" and 10 or nil, breakEven = link == "item:502" and 1.5 or nil,
+        effectNotes = {"Example estimate"} }
+end
+explorer:CancelUpgrades()
+ns:Render()
+drain()
+assert(#explorer.scan.nearby == 0 and #explorer.scan.elsewhere == 0)
+assert(ns.rows["explorer.gear.sets.1"].gain:GetText() == "Set option")
+local procRow = ns.rows["explorer.gear.procs.1"]
+procRow.scripts.OnEnter(procRow)
+assert(procRow.gain:GetText() == "1.50/min" and tip:find("Example estimate"))

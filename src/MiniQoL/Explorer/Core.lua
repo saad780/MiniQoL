@@ -24,7 +24,11 @@ function Explorer.MapName(mapID)
     return info and info.name
 end
 
+local zones = {}
 function Explorer.Zone(mapID)
+    if not mapID then return end
+    if zones[mapID] then return zones[mapID] end
+    local original = mapID
     local zone = mapID
     for _ = 1, 8 do
         local info = MapInfo(mapID)
@@ -32,6 +36,7 @@ function Explorer.Zone(mapID)
         zone = mapID
         mapID = info.parentMapID
     end
+    zones[original] = zone
     return zone
 end
 

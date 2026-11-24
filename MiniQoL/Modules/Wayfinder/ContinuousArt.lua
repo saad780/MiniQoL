@@ -45,22 +45,39 @@ function S.ArtSize(id)
 	local layer = layers and layers[1]
 	if layer then return layer.layerWidth, layer.layerHeight, layer end
 end
+-- A city's map is its continent's child in the game's tables, and the continent gives it for any
+-- point in its whole rectangle, which reaches well out over its zone: around Kharanos the map
+-- underneath went to Ironforge, a click zoomed into the city, and Dun Morogh was never in the chain
+-- (upstream's 0e4e670). So a city's zone comes before it, and the city counts only in the middle of
+-- its rectangle: CITY_EDGE is the share of each side left to its zone
+local CITY_EDGE = 0.25
+local function CityMiddle(x, y)
+	return math.min(x, 1 - x) >= CITY_EDGE and math.min(y, 1 - y) >= CITY_EDGE
+end
 function S.ChainAt(u, v)
 	local chain, id, x, y = { S.WORLD }, S.WORLD, u, v
 	if not u or not v or not C_Map.GetMapInfoAtPosition then return chain end
+	-- (the game errors on a point that isn't one: NaN or infinite)
+	if u ~= u or v ~= v or math.abs(u) == math.huge or math.abs(v) == math.huge then return chain end
 	for _ = 1, 6 do
 		local info = C_Map.GetMapInfoAtPosition(id, x, y)
 		if not info or info.mapID == id or (info.mapType ~= Enum.UIMapType.Continent
 			and info.mapType ~= Enum.UIMapType.Zone) then break end
 		local l, r, t, b = C_Map.GetMapRectOnMap(info.mapID, id)
 		if not l or r <= l or b <= t then break end
-		id, x, y = info.mapID, (x - l) / (r - l), (y - t) / (b - t)
+		local cx, cy = (x - l) / (r - l), (y - t) / (b - t)
+		local zone = CITIES[info.mapID]
+		if zone then
+			if chain[#chain] ~= zone and S.Rect(zone) then chain[#chain + 1] = zone end
+			if not CityMiddle(cx, cy) then break end
+		end
+		id, x, y = info.mapID, cx, cy
 		chain[#chain + 1] = id
 	end
-	-- Some clients report the outdoor zone even inside a capital's footprint.
+	-- Some clients report the outdoor zone even inside a capital's footprint (in its middle, as above).
 	for city, parent in pairs(CITIES) do
 		local l, r, t, b = S.Rect(city)
-		if l and u >= l and u <= r and v >= t and v <= b then
+		if l and u >= l and u <= r and v >= t and v <= b and CityMiddle((u - l) / (r - l), (v - t) / (b - t)) then
 			local last = chain[#chain]
 			if last == parent then chain[#chain + 1] = city end
 		end

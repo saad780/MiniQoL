@@ -1,9 +1,17 @@
 # Map mask provenance
 
-These files were copied from the locally installed OpenMap 0.5.0-beta:
+These files were copied from OpenMap:
 
-- `MapTerritory/*.tga`: masks traced from Blizzard's zone-map shapes. Upstream
-  generators: `tools/map-grade` and `tools/map-preview`.
+- `MapTerritory/*.tga`: masks traced from Blizzard's zone-map shapes, from
+  OpenMap v0.8.13 (https://github.com/openmap-world/openmap, commit 6c2299f,
+  `OpenMap/Media/Textures/Forever/MapTerritory`). That version's territories
+  leave out the lettering a zone map prints near its edges (the sea's names and
+  its neighbours') and share overlapping borders between neighbours, so names
+  are no longer cut off where zones blend. Upstream generator:
+  `tools/map-preview/render.py --bake-territory`.
+The rest are from the locally installed OpenMap 0.5.0-beta, unchanged upstream
+since:
+
 - `MapCityMask/1454.tga`, `1456.tga`, `1458.tga`: Orgrimmar, Thunder Bluff and
   Undercity masks traced from Blizzard's city artwork. Upstream generator:
   `tools/map-preview/banners.py`.
