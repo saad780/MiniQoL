@@ -66,6 +66,7 @@ Modules\Wayfinder\Walking.lua
 Modules\Wayfinder\Vendor\PolestarWalking\Walking.xml
 Modules\Wayfinder\Data\TravelNetwork.lua
 Modules\Wayfinder\Travel.lua
+Modules\Wayfinder\FlightHighlight.lua
 Modules\Wayfinder\Navigation.lua
 Modules\Wayfinder\TomTom.lua
 Modules\Wayfinder\Polestar.lua

@@ -177,6 +177,15 @@ local function settings()
 		items = { [9173] = hasItem(9173) } }
 end
 
+-- The active selectable flight, including the final stop of a multi-hop taxi.
+-- Opening the taxi map may precede completion of the background route search.
+function Travel:GetRecommendedFlight()
+	local j = journey
+	if not j or j.pending or not ns:GetSetting("travelFlights") or j.target ~= ns.Navigation:GetWaypoint() then return end
+	local action = j.action
+	if action and action.kind == "fly" then return action.from, action.to end
+end
+
 function Travel:Reset()
 	journey, rejected = nil, nil
 end

@@ -102,11 +102,19 @@ T:RememberTaxi(77)
 bind, stone, duration = "Camp Taurajo", 1, 0
 local hearthToCamp = "Use Hearthstone to Camp Taurajo"
 local flyToCamp = "Fly to Camp Taurajo, The Barrens"
+local waypoint = quest
+ns.Navigation = { GetWaypoint = function() return waypoint end }
 local _, campAction = route(quest, bluff)
 assert(campAction == hearthToCamp, "ready Taurajo hearth: " .. tostring(campAction))
+assert(not T:GetRecommendedFlight(), "the taxi map must agree with the hearth recommendation")
 
 duration, now = 3600, now + 4
 assert(select(2, route(quest, bluff)) == flyToCamp, "take the known flight while the hearth cools")
+local boardAt, flyTo = T:GetRecommendedFlight()
+assert(boardAt.taxi == 22 and flyTo.taxi == 77, "highlight Camp Taurajo at the Thunder Bluff master")
+waypoint = nil
+assert(not T:GetRecommendedFlight(), "clearing the waypoint invalidates the taxi recommendation immediately")
+waypoint = quest
 duration, now = 0, now + 4
 assert(select(2, route(quest, bluff)) == hearthToCamp, "reconsider a ready hearth before takeoff")
 
