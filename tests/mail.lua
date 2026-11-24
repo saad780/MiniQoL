@@ -67,7 +67,9 @@ function methods:SetBackdropBorderColor() RequiresBackdrop(self, "SetBackdropBor
 function CreateFrame(kind, name, parent, template)
     local frame = NewFrame(kind, parent, template)
     if parent then parent.children[#parent.children + 1] = frame end
-    if name then _G[name] = frame end
+    if name then _G[name] = frame; frame.GetName = function() return name end end
+    if template == "BasicFrameTemplateWithInset" then frame.TitleText = frame:CreateFontString() end
+    if template == "UICheckButtonTemplate" then frame.Text = frame:CreateFontString() end
     return frame
 end
 
@@ -775,3 +777,66 @@ equal(box.empty:IsShown(), true, "the box says how names come to be there")
 assert(features["mail.known"].get():find("Nobody is listed yet", 1, true), "and so does the settings page")
 
 print("Mail: new mail and waiting mail said once with who from, sales marked, quiet at the mailbox; alts by full name, people mailed lately, a click to address")
+
+-- Alt Mail's picker and free-text field edit the same group recipient.
+tinsert, UISpecialFrames, SlashCmdList = table.insert, {}, {}
+strtrim = function(text) return text:match("^%s*(.-)%s*$") end
+strlower = string.lower
+ItemLocation = { CreateEmpty = function() return {} end }
+function methods:SetDefaultText(value) self.defaultText = value end
+function methods:SetupMenu(generate) self.generate = generate end
+function methods:SetEnabled(value) self.enabled = value end
+function methods:IsEnabled() return self.enabled end
+function methods:SetText(value)
+    self.text = value
+    if self.scripts.OnTextChanged then self.scripts.OnTextChanged(self) end
+end
+
+local ns = { Mail = M, RegisterFeature = noop }
+assert(loadfile(root .. "/AltMail/Categories.lua"))("MiniQoL", ns)
+local altMail = ns.AltMail
+altMail.GetMarkedItems = function() return {} end
+altMail.GetMarkShortcut, altMail.IsSending, altMail.IsMailboxOpen = noop, noop, noop
+assert(loadfile(root .. "/AltMail/Panel.lua"))("MiniQoL", ns)
+altMail.TogglePanel()
+local picker, input, saveButton
+for _, widget in ipairs(MiniQoLAltMailPanel.children) do
+    if widget.defaultText == "Choose alt" then picker = widget end
+    if widget.kind == "EditBox" and widget.scripts.OnEnterPressed then input = widget end
+    if widget.text == "Save" then saveButton = widget end
+end
+local function openPicker()
+    local menu = { names = {}, actions = {} }
+    function menu:CreateTitle(text) self.title = text end
+    function menu:CreateButton(name, selectAlt)
+        self.names[#self.names + 1] = name
+        self.actions[name] = selectAlt
+    end
+    function menu:SetScrollMode(height) self.scroll = height end
+    picker.generate(picker, menu)
+    return menu
+end
+equal(openPicker().title, "No known alts yet", "empty roster")
+input:SetText("Custom Name")
+click(saveButton)
+local group = altMail.GetGroup(1)
+equal(altMail.GetRoute(nil, group).recipient, "Custom Name", "custom names work with an empty roster")
+
+local others = { "Ada Mail", "Bea Mail" }
+for i = 1, 12 do others[#others + 1] = "Alt " .. i end
+for _, name in ipairs(others) do
+    db.characters[name] = { name = name, realm = player.realm }
+end
+local menu = openPicker()
+equal(#menu.names, #others, "all alts are available, including beyond the mailbox sidebar limit")
+assert(menu.scroll and not menu.actions[M.me], "long rosters scroll and exclude the sender")
+menu.actions["Ada Mail"]()
+equal(input:GetText(), "Ada Mail", "picking an alt fills the full name")
+equal(altMail.GetRoute(nil, group).recipient, "Custom Name", "picking waits for Save")
+assert(saveButton:IsEnabled())
+click(saveButton)
+equal(altMail.GetRoute(nil, group).recipient, "Ada Mail", "saves the selected alt")
+input:SetText("Another Name")
+click(saveButton)
+equal(altMail.GetRoute(nil, group).recipient, "Another Name", "a custom name can replace a picked alt")
+print("Alt Mail recipient picker: empty and long rosters, full names, custom entries and explicit saving passed")

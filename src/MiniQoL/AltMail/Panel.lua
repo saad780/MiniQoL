@@ -34,14 +34,14 @@ end
 
 Label("Mail group", 17, -39)
 local dropdown = CreateFrame("DropdownButton", nil, panel, "WowStyle1DropdownTemplate")
-dropdown:SetSize(229, 24)
-dropdown:SetPoint("TOPLEFT", 174, -34)
+dropdown:SetSize(310, 24)
+dropdown:SetPoint("TOPLEFT", 93, -34)
 dropdown:SetDefaultText("Choose a mail group")
 
-local function EditBox(y, maxBytes)
+local function EditBox(y, width, maxBytes)
   local box = CreateFrame("EditBox", nil, panel, "InputBoxTemplate")
-  box:SetSize(217, 23)
-  box:SetPoint("TOPLEFT", 179, y)
+  box:SetSize(width, 23)
+  box:SetPoint("TOPLEFT", 98, y)
   box:SetAutoFocus(false)
   box:SetMaxBytes(maxBytes)
   box:SetScript("OnEscapePressed", box.ClearFocus)
@@ -49,9 +49,28 @@ local function EditBox(y, maxBytes)
 end
 
 local nameLabel = Label("Group name", 17, -75)
-local groupName = EditBox(-69, 48)
+local groupName = EditBox(-69, 298, 48)
 Label("Recipient", 17, -110)
-local recipient = EditBox(-104, 96)
+local recipient = EditBox(-104, 183, 96)
+local altPicker = CreateFrame("DropdownButton", nil, panel, "WowStyle1DropdownTemplate")
+altPicker:SetPoint("TOPLEFT", 294, -104)
+altPicker:SetSize(109, 24)
+altPicker:SetDefaultText("Choose alt")
+altPicker:SetupMenu(function(_, root)
+  local alts = ns.Mail:Alts()
+  if #alts == 0 then
+    root:CreateTitle("No known alts yet")
+    return
+  end
+  for _, alt in ipairs(alts) do
+    root:CreateButton(alt.name, function()
+      if addon.IsSending() then return end
+      recipient:SetText(alt.name)
+      recipient:ClearFocus()
+    end)
+  end
+  if #alts > 12 and root.SetScrollMode then root:SetScrollMode(320) end
+end)
 
 local automatic = CreateFrame("CheckButton", nil, panel, "UICheckButtonTemplate")
 automatic:SetPoint("TOPLEFT", 12, -138)
@@ -144,6 +163,7 @@ function addon.RefreshMailControls()
     and (automatic:GetChecked() == true) == route.automatic
     and (not isGroup or label == category.name)
   local busy = addon.IsSending()
+  altPicker:SetEnabled(not busy and usable)
   save:SetEnabled(not busy and usable and addon.Trim(recipient:GetText()) ~= "" and not saved
     and (not isGroup or label ~= ""))
   unlink:SetEnabled(not busy and route ~= nil)
@@ -173,13 +193,13 @@ function addon.RefreshMailControls()
       status:SetText("")
     end
   elseif isGroup then
-    status:SetText("Enter your alt's name and save to start marking items.")
+    status:SetText("Choose an alt or type a name, then save to start marking items.")
   elseif route and route.automatic then
     status:SetText("Linked. Drag items into the category to include them. Hold Shift when opening a mailbox to skip automatic sending.")
   elseif route then
     status:SetText("Linked. Drag items into the category, then click Send Now at a mailbox.")
   else
-    status:SetText("Enter your alt's character name and save. Only items you drag into the category are eligible.")
+    status:SetText("Choose an alt or type a name, then save. Drag items into this category to include them.")
   end
 end
 
@@ -226,6 +246,7 @@ panel:SetScript("OnShow", function()
   end
   LoadCategory()
   dropdown:GenerateMenu()
+  altPicker:GenerateMenu()
 end)
 
 recipient:SetScript("OnTextChanged", addon.RefreshMailControls)
