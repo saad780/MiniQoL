@@ -80,12 +80,15 @@ local function Finite(value)
 	return type(value) == "number" and value == value and value > -math.huge and value < math.huge
 end
 
--- Zoom and layer belong to the session. The last panned position has a shorter
--- life, measured from when the centre last moved, even if the map is closed.
+-- The layer belongs to the session. Where the view was moved to (its centre and
+-- zoom) is kept a shorter time, measured from when it last moved, even if the map
+-- is closed. After that the map shows the player's whole zone again, the way the
+-- game's own map opens.
 local POSITION_MEMORY = 45
 local POSITION_EPSILON = 0.00001
+local ZOOM_EPSILON = 0.0001 -- (a share of the zoom)
 local sessionView
-local positionDeadline, observedU, observedV, returnQueued
+local positionDeadline, observedU, observedV, observedZoom, returnQueued
 
 local function Tracking()
 	return ns.Navigation and ns.Navigation:IsTracking()
@@ -98,8 +101,33 @@ local function PlayerPoint()
 	if Finite(u) and Finite(v) then return u, v end
 end
 
-local function PositionChanged(u, v, previousU, previousV)
+-- The player's zone (or the city they are in) whole, as the game's map opens on
+-- it: the map the game picks for them, or the nearest one above it that the
+-- continuous map shows.
+local function ZoneView()
+	local mapID = MapUtil and MapUtil.GetDisplayableMapForPlayer and MapUtil.GetDisplayableMapForPlayer()
+		or C_Map.GetBestMapForUnit("player")
+	local mod = Controller()
+	for _ = 1, 6 do
+		if not mapID then return end
+		local u, v, zoom = mod.FitView(mapID)
+		if u then return u, v, zoom end
+		local info = C_Map.GetMapInfo(mapID)
+		mapID = info and info.parentMapID
+	end
+end
+
+local function ViewChanged(u, v, zoom, previousU, previousV, previousZoom)
 	return math.abs(u - previousU) + math.abs(v - previousV) > POSITION_EPSILON
+		or math.abs(zoom - previousZoom) > ZOOM_EPSILON * previousZoom
+end
+
+local function Observed(u, v, zoom)
+	if Finite(u) and Finite(v) and Finite(zoom) then
+		observedU, observedV, observedZoom = u, v, zoom
+	else
+		observedU, observedV, observedZoom = nil, nil, nil
+	end
 end
 
 local function QueueReturn(delay)
@@ -118,30 +146,26 @@ local function QueueReturn(delay)
 			QueueReturn(0.25)
 			return
 		end
-		local u, v = PlayerPoint()
+		local u, v, zoom = ZoneView()
 		if not u then
 			QueueReturn(1)
 			return
 		end
-		local currentU, currentV, zoom = mod.ViewNow()
-		if PositionChanged(u, v, currentU, currentV) then
+		local currentU, currentV, currentZoom = mod.ViewNow()
+		if ViewChanged(u, v, zoom, currentU, currentV, currentZoom) then
 			mod.ShowNow(u, v, zoom)
 		end
-		observedU, observedV = mod.ViewNow()
+		positionDeadline = nil
+		Observed(mod.ViewNow())
 	end)
 end
 
-local function ObservePosition(u, v)
-	if not Finite(u) or not Finite(v) then return end
-	if observedU and not PositionChanged(u, v, observedU, observedV) then return end
+local function ObservePosition(u, v, zoom)
+	if not Finite(u) or not Finite(v) or not Finite(zoom) then return end
+	if observedU and not ViewChanged(u, v, zoom, observedU, observedV, observedZoom) then return end
 	local hadView = observedU ~= nil
-	observedU, observedV = u, v
+	observedU, observedV, observedZoom = u, v, zoom
 	if not hadView or Tracking() then return end
-	local playerU, playerV = PlayerPoint()
-	if playerU and not PositionChanged(u, v, playerU, playerV) then
-		positionDeadline = nil
-		return
-	end
 	positionDeadline = GetTime() + POSITION_MEMORY
 	QueueReturn(POSITION_MEMORY)
 end
@@ -154,20 +178,27 @@ function Continuous:SaveView()
 	if not self:IsActive() then return end
 	local u, v, zoom = Controller().ViewNow()
 	if not Finite(u) or not Finite(v) or not Finite(zoom) or zoom < 1 then return end
-	ObservePosition(u, v)
+	ObservePosition(u, v, zoom)
 	local _, terrain = engine.MapStitch.GetCityView()
 	sessionView = { u = u, v = v, zoom = zoom, terrain = terrain == true }
 end
 
+-- The view an opening puts up: the one left, while it is remembered, or the
+-- player followed at the zoom left. Otherwise nil, and the map shows whole what
+-- the game opened it on, the player's zone.
 function Continuous:SavedView()
 	local saved = sessionView
 	if type(saved) ~= "table" then return end
 	engine.MapStitch.SetCityView(saved.terrain)
-	if Tracking() or (positionDeadline and GetTime() >= positionDeadline) then
+	if Tracking() then
 		local u, v = PlayerPoint()
 		if u then return u, v, saved.zoom end
+		return saved.u, saved.v, saved.zoom
 	end
-	return saved.u, saved.v, saved.zoom
+	if positionDeadline and GetTime() < positionDeadline then
+		return saved.u, saved.v, saved.zoom
+	end
+	positionDeadline = nil
 end
 
 -- A capital's two layers: the button's label for each, then the same in a
@@ -303,11 +334,12 @@ function Continuous:Start()
 	mod.SavedView = function() return self:SavedView() end
 	mod.OnMapHidden = function() self:SaveView() end
 	mod.OnMapShown = function()
-		observedU, observedV = mod.ViewNow()
+		Observed(mod.ViewNow())
 		if positionDeadline and not Tracking() then
 			QueueReturn(math.max(0, positionDeadline - GetTime()))
 		end
 	end
+	mod.OnOpenedView = function() Observed(mod.ViewNow()) end
 	mod.OnSwitched = function() ns.MapPins:RefreshNow() end
 	mod.OnStitchedChanged = function(on)
 		if not on and ns.DetailView:IsFollowingMap() then ns.DetailView:Exit(true) end

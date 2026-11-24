@@ -92,14 +92,19 @@ function map:OnCanvasScaleChanged()
     for _, provider in ipairs(self.providers) do provider:OnCanvasScaleChanged() end
 end
 function map:SetMapID(id)
-    self.mapID, sc.mapID = id, id
+    -- (the game's canvas: putting up the map that is already up changes nothing)
+    if self.mapID == id and self.drawn then return end
+    self.mapID, sc.mapID, self.drawn = id, id, true
     sc:OnCanvasSizeChanged()
     for _, provider in ipairs(self.providers) do provider:OnMapChanged() end
 end
+-- WorldMapMixin:OnShow: the player's map, the data providers' OnShow, and only
+-- then the zoom reset.
 function map:Open(id)
     self.shown = true
     self:SetMapID(id)
     for _, provider in ipairs(self.providers) do provider:OnShow() end
+    sc:ResetZoom()
 end
 function map:Close()
     self.shown = false
@@ -121,6 +126,7 @@ ns.Readable = function() return true end
 local playerMap, playerX, playerY = 1001, 0.5, 0.5
 local tracking, held
 function ns.GetPlayerWorld() return 1, 0, 0, playerMap, playerX, playerY end
+C_Map.GetBestMapForUnit = function(unit) return unit == "player" and playerMap or nil end
 ns.Navigation = {
     IsTracking = function() return tracking end,
     IsMapInputHeld = function() return held end,
@@ -226,34 +232,46 @@ assert(tracked == nil, "a closed map places nothing")
 map:Open(1002); draw()
 S.TrackView = nil
 
--- Reopening before the deadline shows the pan and does not extend its life.
+-- Reopening before the deadline shows the pan and does not extend its life. At
+-- the deadline the open map shows the player's zone whole, the way the game's
+-- map opens, rather than the player at the zoom left.
 controller.ShowNow(0.66, 0.58, 24); draw()
 advance(44)
 map:Close(); map:Open(1001); draw()
 expect(0.66, 0.58, 24)
 advance(1); draw()
-expect(0.2, 0.3, 24)
+expect(0.2, 0.3, 3.75)
 
--- An expired view stays centered on the current player on later reopens,
--- using the remembered zoom rather than the new zone's fit.
+-- Expired, a reopen shows the zone the player is in by then, whole.
 map:Close()
 playerMap = 1002
 map:Open(1002); draw()
-expect(0.7, 0.6, 24)
+expect(0.7, 0.6, 3.75)
 
--- A new pan renews the deadline. Changing zoom around the same center does
--- not. An expiry while closed puts the player in view on the next opening.
+-- A pan renews the deadline, and so does a zoom on the same centre.
+map:Close(); playerMap = 1001; map:Open(1001); draw()
+expect(0.2, 0.3, 3.75)
 controller.ShowNow(0.54, 0.46, 24); draw()
 advance(30)
 controller.ShowNow(0.56, 0.48, 24); draw()
-advance(15)
+advance(30)
 expect(0.56, 0.48, 24)
 controller.ShowNow(0.56, 0.48, 36); draw()
-map:Close()
 advance(30)
-playerX = 0.25
+expect(0.56, 0.48, 36)
+
+-- An expiry while closed opens on the player's zone, though the canvas still
+-- holds the old view when the map's OnShow runs (the game resets the zoom only
+-- after it). That opening is where the map starts, not a move to remember: the
+-- player crossing into another zone before 45 s more gets that zone next time.
+map:Close()
+advance(20)
+map:Open(1001); draw()
+expect(0.2, 0.3, 3.75)
+map:Close()
+playerMap = 1002
 map:Open(1002); draw()
-expect(0.65, 0.6, 36)
+expect(0.7, 0.6, 3.75)
 
 -- Yield to an active drag at the deadline and catch up when it ends.
 controller.ShowNow(0.52, 0.48, 32); draw()
@@ -262,17 +280,22 @@ advance(45); draw()
 expect(0.52, 0.48, 32)
 held = false
 advance(0.25); draw()
-expect(0.65, 0.6, 32)
+expect(0.7, 0.6, 3.75)
 
--- A tracking reopen uses the player's current position even within 45 s.
+-- A tracking reopen uses the player's current position even within 45 s, at
+-- the zoom left.
 controller.ShowNow(0.55, 0.5, 24); draw()
 tracking = true
 continuous:ClearPositionMemory()
 map:Close()
-playerY = 0.25
+playerX, playerY = 0.25, 0.25
 map:Open(1002); draw()
 expect(0.65, 0.55, 24)
+
+-- Tracking off, with the map not moved since, the next opening shows the zone.
 tracking = false
+map:Close(); map:Open(1002); draw()
+expect(0.7, 0.6, 3.75)
 
 -- A fresh load of the module -- what a reload or a relog gives you -- starts
 -- with no remembered view at all.
@@ -286,4 +309,4 @@ MiniQoLRuntime.Execute = previousExecute
 assert(reloaded.ContinuousMap:SavedView() == nil, "a new session must not inherit the last one's view")
 assert(ns.db.mapViews == nil, "nothing about the view belongs in saved variables")
 
-print("Map memory: 45-second position expiry across reopens, preserved zoom and layers, and tracking reopen passed")
+print("Map memory: 45-second view expiry back to the player's whole zone, across reopens, preserved layers, and tracking reopen passed")

@@ -10,9 +10,10 @@ module lives there, so the game's AddOns list holds a single **Mini QoL** entry
 whose only job is to open the panel. Other addons keep their own settings and
 minimap icons.
 
-The continuous map remembers where you panned for 45 seconds, even while the
-map is closed. It then returns to your character at the same zoom. Zoom and
-map layer are remembered for the play session. **Track my location** follows
+The continuous map remembers where you panned and zoomed for 45 seconds after
+you last moved it, even while the map is closed. It then shows the whole zone
+you are in (or your city), the way the game's own map opens. The map layer is
+remembered for the play session. **Track my location** follows
 your character across map reopens until you click the button again. Dragging
 the map pauses tracking until you release it.
 

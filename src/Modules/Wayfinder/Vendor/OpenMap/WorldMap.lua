@@ -646,10 +646,11 @@ local function ResetView(self)
 	userMoved = false
 	anim = nil
 	if live and map:IsShown() then beforeReset = { live[1], live[2], live[3], at = GetTime() } end
+	local opening = not live                        -- (no view drawn yet: the map is opening)
 	local u, v, zoom
 	if live and map:IsShown() and (math.abs(sc:GetWidth() - live[4]) > 0.5 or math.abs(sc:GetHeight() - live[5]) > 0.5) then
 		u, v, zoom = live[1], live[2], live[3]
-	elseif not live and mod.SavedView then          -- (no view drawn yet: the map is opening)
+	elseif opening and mod.SavedView then
 		u, v, zoom = mod.SavedView(self.mapID)
 	end
 	if not u and mod.ReturnView then u, v, zoom = mod.ReturnView(self.mapID) end   -- (out of a dungeon's map: Dungeons.lua)
@@ -660,10 +661,13 @@ local function ResetView(self)
 			ShowWorld(u, v, zoom)
 		end
 		userMoved = true
-		return
+	else
+		local aw, ah = S.ArtSize(self.mapID)
+		SetView(math.min(self:GetWidth() / aw, self:GetHeight() / ah), 0.5, 0.5)
 	end
-	local aw, ah = S.ArtSize(self.mapID)
-	SetView(math.min(self:GetWidth() / aw, self:GetHeight() / ah), 0.5, 0.5)
+	-- Wayfinder: the view an opening puts up is where the map starts, not a move of the
+	-- user's. (The game resets the zoom after the map's OnShow, so this comes after it)
+	if opening and mod.OnOpenedView then mod.OnOpenedView() end
 end
 
 -- pan anywhere on the world, not just this map. Zoomed right out the world is centred;
@@ -1027,6 +1031,14 @@ function mod.FollowTo(u, v)
 end
 function mod.Animating() return anim ~= nil end
 function mod.FitZoom(mapID) return FitZoom(mapID) end
+-- Wayfinder: the view the game's own zoom reset gives `mapID`, all of it fitted to the
+-- window (ResetView's), as centre (normalized) and zoom; nil for a map that isn't stitched
+function mod.FitView(mapID)
+	if not sc or not Stitchable(mapID) then return end
+	local aw, ah = S.ArtSize(mapID)
+	local u, v = ToWorld(mapID, 0.5, 0.5)
+	return u, v, ZoomFor(mapID, math.min(sc:GetWidth() / aw, sc:GetHeight() / ah))
+end
 -- the deepest zoom (the menu's slider and the options): the zoom levels are rebuilt for it
 function mod.SetMaxZoom(v)
 	mod.db.maxZoom = math.max(MAX_ZOOM[1], math.min(MAX_ZOOM[2], v))
