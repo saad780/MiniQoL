@@ -28,8 +28,8 @@ dock, zeppelin tower, tram or portal when a transfer is quicker. At the stop it
 names the ride or flight to take. After arrival it continues toward your original
 pin. Flights use this character's discoveries. A new departure can be learned
 on the way. The arrow also calls out an undiscovered flight master you pass on foot.
-A ready Hearthstone is suggested when it saves at least two minutes
-on a trip of three minutes or more. Hearthstones, flights and transports each
+A ready Hearthstone is suggested whenever the cast and the remaining trip
+from your bound inn beat the quickest route from here. Hearthstones, flights and transports each
 have a default-on switch under **Maps & travel → Waypoints**.
 
 When you release your spirit, the waypoint arrow points at your corpse. Coming

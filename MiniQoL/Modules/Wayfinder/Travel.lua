@@ -6,6 +6,7 @@ local _, ns = ...
 local Travel = ns:NewModule("Travel")
 local network = ns.TravelNetwork
 local huge = math.huge
+local HEARTH_SECONDS = 15 -- casting and loading into the inn
 local labels = { boat = "boat", zeppelin = "zeppelin", airship = "airship", tram = "tram", portal = "portal" }
 local graph, journey, known, bound, rejected
 local revision = 0
@@ -153,8 +154,8 @@ local function plan(g, start, goal, inn, opts, pause)
 	end
 	local best, action = from(start, opts.skip)
 	if inn then
-		local via = from(inn) + 15
-		if via < huge and best >= 180 and via + 120 <= best then return { kind = "hearth", to = inn } end
+		local via = HEARTH_SECONDS + from(inn)
+		if via < best then return { kind = "hearth", to = inn } end
 	end
 	if action and action.kind == "fly" then
 		-- The taxi map accepts the final known stop of a connected flight.
@@ -293,6 +294,10 @@ function Travel:Aim(target, c, x, y, map)
 		return
 	end
 	local arrived = a and near(a.to, c, x, y, a.kind == "portal" and 36 or 85)
+	if arrived and a.kind == "hearth" then
+		-- Starting near the inn does not mean the suggested cast already landed.
+		arrived = not near(a.to, j.start.c, j.start.x, j.start.y, 85)
+	end
 	if j and (j.inFlight or arrived) then
 		self:Reset()
 		j, a = nil, nil
@@ -314,7 +319,11 @@ function Travel:Aim(target, c, x, y, map)
 			end
 		end
 		local leftBlockedArea = check and rejected and not near(rejected.start, c, x, y, 150)
-		if not committed and (j.revision ~= revision or detour or leftBlockedArea or (check and readyInn(graph) ~= j.inn)) then
+		-- A taxi is committed only after takeoff (handled above). While the
+		-- player stands at its master, a newly ready hearth can still win.
+		local canHearth = not committed or a.kind == "fly"
+		local hearthChanged = check and canHearth and readyInn(graph) ~= j.inn
+		if hearthChanged or (not committed and (j.revision ~= revision or detour or leftBlockedArea)) then
 			self:Reset()
 			j, a = nil, nil
 		elseif check then
@@ -322,7 +331,8 @@ function Travel:Aim(target, c, x, y, map)
 		end
 	end
 	if not j then
-		if near(target, c, x, y, 100) and land(c, x, y, map) == land(target.c, target.x, target.y, target.m) then return end
+		-- Even on foot, the estimated walk over 80 yards takes less than a hearth cast and load.
+		if near(target, c, x, y, 80) and land(c, x, y, map) == land(target.c, target.x, target.y, target.m) then return end
 		begin(target, c, x, y, map)
 		j = journey
 	end

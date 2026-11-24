@@ -91,6 +91,39 @@ events.HEARTHSTONE_BOUND()
 assert(select(2, route(brill, org)) == "Use Hearthstone to Newly opened inn")
 stone, now = 0, now + 4
 
+-- Thunder Bluff flight master to a quest outside Camp Taurajo. The flight
+-- is known and short, but a ready hearth lands closer and gets there sooner.
+local bluff = spot(1, -1197.2, 29.7, 1456)
+local taurajo = spot(1, -2376.4, -1995.9, 1413)
+local quest = spot(1, -2500, -2195, 1413)
+T:RememberTaxi(22)
+T:RememberTaxi(77)
+bind, stone, duration = "Camp Taurajo", 1, 0
+local hearthToCamp = "Use Hearthstone to Camp Taurajo"
+local flyToCamp = "Fly to Camp Taurajo, The Barrens"
+local _, campAction = route(quest, bluff)
+assert(campAction == hearthToCamp, "ready Taurajo hearth: " .. tostring(campAction))
+
+duration, now = 3600, now + 4
+assert(select(2, route(quest, bluff)) == flyToCamp, "take the known flight while the hearth cools")
+duration, now = 0, now + 4
+assert(select(2, route(quest, bluff)) == hearthToCamp, "reconsider a ready hearth before takeoff")
+
+bind, now = "Thunder Bluff", now + 4
+assert(select(2, route(quest, bluff)) == flyToCamp, "a ready bind back in Thunder Bluff loses to the flight")
+bind = "Camp Taurajo"
+setting("travelHearth", false)
+assert(select(2, route(quest, bluff)) == flyToCamp)
+flying = true
+setting("travelHearth", true)
+assert(select(2, aim(quest, bluff)) == "In flight", "do not suggest casting a hearthstone in flight")
+flying = false
+assert(select(2, route(quest, bluff)) == hearthToCamp)
+duration = 3600
+local onward, afterHearth = route(quest, taurajo)
+assert(not onward and not afterHearth, "walk from the inn to the original quest pin")
+stone, duration = 0, 0
+
 -- Only confirmed destinations are usable. A new departure can be
 -- learned in person. Opening the taxi map only records current/reachable.
 setting("travelTransports", false)

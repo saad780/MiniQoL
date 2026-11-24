@@ -100,7 +100,7 @@ feature({ id = "wayfinder.routeStyle", page = "maps", group = "Waypoints", label
     available = mapReady,
     tooltip = "Direct favors the shortest walkable route. Balanced uses roads when the detour is small. Roads Always strongly favors roads and avoids steep terrain.\n\nWalking maps cover Eastern Kingdoms, Kalimdor, and Zephras Isle. Elsewhere, the arrow points straight at the waypoint." })
 wayfinder("travelHearth", "Waypoints", "Use Hearthstone in travel routes",
-    "Suggest your ready Hearthstone when the route through your bound inn saves at least two minutes on a trip of three minutes or more.")
+    "Suggest your ready Hearthstone when casting it and traveling from your bound inn gets you to the waypoint sooner.")
 wayfinder("travelFlights", "Waypoints", "Use flight points in travel routes",
     "Guide you to the flight master and name the destination to select. If a useful departure is new, the arrow prompts you to learn it.")
 wayfinder("travelTransports", "Waypoints", "Use boats, zeppelins and other transports",
