@@ -1033,14 +1033,6 @@ function mod.FollowTo(u, v)
 end
 function mod.Animating() return anim ~= nil end
 function mod.FitZoom(mapID) return FitZoom(mapID) end
--- Wayfinder: the view the game's own zoom reset gives `mapID`, all of it fitted to the
--- window (ResetView's), as centre (normalized) and zoom; nil for a map that isn't stitched
-function mod.FitView(mapID)
-	if not sc or not Stitchable(mapID) then return end
-	local aw, ah = S.ArtSize(mapID)
-	local u, v = ToWorld(mapID, 0.5, 0.5)
-	return u, v, ZoomFor(mapID, math.min(sc:GetWidth() / aw, sc:GetHeight() / ah))
-end
 -- the deepest zoom (the menu's slider and the options): the zoom levels are rebuilt for it
 function mod.SetMaxZoom(v)
 	mod.db.maxZoom = math.max(MAX_ZOOM[1], math.min(MAX_ZOOM[2], v))
