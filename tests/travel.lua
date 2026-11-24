@@ -7,6 +7,7 @@ function ns:GetSetting(key) return cfg[key] end
 function ns:GetCharacterKey() return "tester" end
 function ns:NewModule(name) self[name] = {}; return self[name] end
 function ns:On(event, fn) events[event] = fn end
+function ns:Fire(event, ...) if events[event] then events[event](...) end end
 function ns:RegisterEvent(event, fn) events[event] = fn end
 function ns.Readable(value) return value ~= nil end
 function ns.Distance(x, y, a, b) return math.sqrt((x-a)^2 + (y-b)^2) end
@@ -57,7 +58,7 @@ assert(tower and caption:find("zeppelin to Undercity"), tostring(caption))
 local count = searches
 for i=1,200 do aim(uc, org) end
 assert(searches == count and steps > 10, "unchanged arrow updates should reuse the budgeted plan")
-assert(select(2, aim(uc, tower)) == "Take the zeppelin to Undercity")
+assert(select(2, route(uc, tower)) == "Take the zeppelin to Undercity")
 assert(select(2, T:Aim(uc, nil)) == "Take the zeppelin to Undercity", "retain the ride during a loading screen")
 local dock = spot(0, 2064, 288.6, 1420)
 assert(route(uc, dock) == nil, "walk to the final pin after the crossing")
@@ -183,4 +184,97 @@ assert(allianceDock and allianceDock.n == "Dalaran")
 local darn = spot(1, 9947.5, 2630, 1457)
 local rut = spot(1, 8643.6, 841, 1438)
 assert(select(2, route(rut, darn)) == "Take the portal to Rut'theran Village")
-print("Waypoint travel: faction crossings, timed rides, hearth availability, flight knowledge, landing and cancellation passed")
+-- Take a different portal while waiting to sail. The old boat instruction
+-- must disappear on the first usable position, even within its boarding grace period.
+local sw = spot(0, -8900, 600, 1453)
+local auberdine = spot(1, 6544.8, 930.2, 1439)
+local harbor = spot(0, -8651, 1332.3, 1453)
+local destination = spot(1, 6200, 100, 1439)
+assert(select(2, route(destination, harbor)):find("Take the boat"))
+local before = searches
+aim(destination, sw) -- move inside the same map without a loading screen
+drain()
+local backToDock, staleBoard = aim(destination, sw)
+assert(searches == before + 1 and backToDock and not staleBoard, "replan immediately after a same-map relocation")
+assert(select(2, route(destination, harbor)):find("Take the boat"))
+T:Aim(destination, nil)
+local onFoot, staleRide = route(destination, spot(1, 6180, 350, 1439))
+assert(not onFoot and not staleRide, "unexpected landing resumes the trip from the actual position")
+
+-- A flight taken on a walking route can cross multiple zones. Search once
+-- after landing. A loading screen or zoning in flight must not start a search.
+before = searches
+flying = true
+aim(destination, auberdine)
+events.ZONE_CHANGED_NEW_AREA()
+now = now + 1
+aim(destination, rut)
+T:Aim(destination, nil)
+assert(searches == before)
+flying = false
+route(destination, rut)
+assert(searches == before + 1, "replan after an unplanned flight")
+
+-- An unplanned same-zone ship can move continuously without a loading
+-- screen. With zero personal speed it is the deck carrying the player.
+local speed = 0
+function GetUnitSpeed() return speed, 7 end
+T:Reset()
+route(destination, auberdine)
+before = searches
+for i=1,6 do
+	now = now + 1
+	local _, instruction = aim(destination, spot(1, auberdine.x - 8*i, auberdine.y, 1439))
+	if i >= 3 then assert(instruction == "Riding transport", "wait for the actual dock") end
+end
+assert(searches == before, "a moving ship should not launch walking searches")
+now = now + 1
+route(destination, spot(1, auberdine.x - 48, auberdine.y, 1439))
+assert(searches == before + 1, "the ship stopped in the same zone")
+
+-- Coalesce a burst of zone events. Ordinary steps and camera updates reuse
+-- the route until a meaningful position change.
+speed = 7
+before = searches
+events.ZONE_CHANGED()
+events.ZONE_CHANGED_INDOORS()
+events.ZONE_CHANGED_NEW_AREA()
+now = now + 1
+route(destination, spot(1, auberdine.x - 49, auberdine.y, 1439))
+assert(searches == before + 1, "one search for the zone transition")
+for i=1,20 do
+	now = now + 0.5
+	aim(destination, spot(1, auberdine.x - 49 - i*3, auberdine.y, 1439))
+end
+assert(searches == before + 1, "ordinary movement should reuse the plan")
+
+-- The player can also move on deck. Reaching a different dock in the same
+-- zone refreshes even when the ship wasn't a leg and no zone event fired.
+setting("travelTransports", false)
+local mainland = spot(1, -4346.9, 2430.2, 1444)
+local island = spot(1, -4209.4, 3290.6, 1444)
+local islandQuest = spot(1, -4400, 3550, 1444)
+route(islandQuest, mainland)
+before = searches
+for i=1,24 do
+	now = now + 0.5
+	local here = spot(1, mainland.x + (island.x-mainland.x)*i/24,
+		mainland.y + (island.y-mainland.y)*i/24, 1444)
+	route(islandQuest, here)
+end
+assert(searches == before + 1, "one search on arrival at an unplanned dock")
+for i=1,8 do now = now + 0.5; route(islandQuest, island) end
+assert(searches == before + 1, "staying at the dock reuses the route")
+
+-- A location change can interrupt a search between frame slices. Its
+-- old departure must never be published after arriving in another zone.
+setting("travelTransports", true)
+local goal = spot(0, -9000, 700, 1453)
+aim(goal, darn)
+assert(job and coroutine.resume(job))
+aim(goal, sw)
+drain()
+local stopAfterJump, instructionAfterJump = route(goal, sw)
+assert(not stopAfterJump and not instructionAfterJump, "walk from the new position after cancelling the old search")
+
+print("Waypoint travel: faction crossings, hearth, flights, loading screens, alternate landings and zone changes passed")

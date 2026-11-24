@@ -352,3 +352,12 @@ Navigation:UpdateArrow()
 equal(arrow.label.text, "Take the zeppelin to Undercity", "shows the boarding instruction")
 equal(Navigation:GetWaypoint(), trip, "the destination survives boarding")
 assert(requests[#requests].cancelled and not arrow.head.shown, "no walking route or bearing during the ride")
+
+boarded = false
+Navigation:UpdateArrow()
+local oldApproach = requests[#requests]
+ns:Fire("TRAVEL_ORIGIN_CHANGED")
+assert(oldApproach.cancelled, "relocation cancels a walk calculated from the old position")
+Navigation:UpdateArrow()
+assert(requests[#requests] ~= oldApproach and Navigation:GetWaypoint() == trip,
+    "calculate a new approach even when the next stop and final pin are identical")

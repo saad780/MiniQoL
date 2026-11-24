@@ -9,6 +9,7 @@ local labels = { boat = "boat", zeppelin = "zeppelin", airship = "airship", tram
 local graph, journey, known, bound, rejected
 local revision = 0
 local undiscovered, nextHintCheck, nearby = {}, 0, nil
+local position = { samples = 0 } -- last valid position observed while guiding
 
 -- These landmasses share Kalimdor's instance but require a crossing. Rut'theran
 -- is at sea level below Teldrassil. Its world bounds come from Polestar's crossing data.
@@ -35,7 +36,7 @@ local function available(mask)
 end
 
 local function buildGraph()
-	local g = { nodes = {}, taxi = {}, inns = {}, incoming = {} }
+	local g = { nodes = {}, taxi = {}, inns = {}, incoming = {}, docks = {} }
 	local function add(p)
 		local i = #g.nodes + 1
 		g.nodes[i], g.incoming[i], p.index = p, {}, i
@@ -60,6 +61,8 @@ local function buildGraph()
 	for _, r in ipairs(network.transports) do
 		if available(r.faction) then
 			local a, b = add(endpoint(r.a)), add(endpoint(r.b))
+			g.docks[#g.docks + 1] = a
+			g.docks[#g.docks + 1] = b
 			edge(r.kind, a, b, r.waitA + r.ab)
 			edge(r.kind, b, a, r.waitB + r.ba)
 		end
@@ -265,28 +268,98 @@ local function begin(target, c, x, y, map)
 	end)
 end
 
+-- Ships and zeppelins have no taxi flag. While standing on a moving deck,
+-- world coordinates advance even though the player's own speed is zero.
+-- Two successive samples exclude one-off coordinate corrections or knockbacks.
+local function carriedBetweenSamples(distance2)
+	if distance2 < 4 or not GetUnitSpeed then return false end
+	local speed = GetUnitSpeed("player")
+	if not ns.Readable(speed) or speed ~= 0 then return false end
+	local falling = IsFalling and IsFalling()
+	return not (ns.Readable(falling) and falling)
+end
+
+-- Recognize the actual port even if the player ran around on a ship's deck
+-- or the client never supplied usable speed. Separate enter/leave radii keep
+-- waves or a few steps near the dock from repeatedly triggering the search.
+local function observedDock(c, x, y, previous)
+	if previous and near(previous, c, x, y, 100) then return previous end
+	for _, dock in ipairs(graph.docks) do
+		if near(dock, c, x, y, 55) then return dock end
+	end
+	return false
+end
+
+local function locationChanged(c, x, y, map, taxi, now)
+	local p = position
+	if not c or taxi then
+		p.gap = p.c ~= nil
+		if taxi then p.carried, p.samples = false, 0 end
+		return false
+	end
+	local dx, dy = x - (p.x or x), y - (p.y or y)
+	local distance2 = dx*dx + dy*dy
+	local elapsed = now - (p.at or now)
+	-- A short portal hop can stay on the same map. Allow for normal motion
+	-- between samples, including frames delayed by the client.
+	local jumpYards = math.max(40, math.min(100, elapsed * 40))
+	local jump = distance2 > jumpYards*jumpYards
+	local transition = p.gap or (p.c and (p.c ~= c or p.map ~= map or jump))
+	local zoneEvent = p.zoneAt and now >= p.zoneAt
+	if p.at and elapsed < 0.5 and not transition and not zoneEvent then return false end
+
+	local wasCarried = p.carried
+	if p.gap or p.c ~= c or jump then
+		p.samples = 0 -- resume observing the ride on the far side of a loading screen
+	elseif elapsed >= 0.5 then
+		if carriedBetweenSamples(distance2) then
+			p.samples = p.samples + 1
+			p.carried = wasCarried or p.samples >= 2
+		else
+			p.samples, p.carried = 0, false
+		end
+	end
+	local dockChanged
+	if graph and (p.dock == nil or distance2 > 0 or p.c ~= c) then
+		local dock = observedDock(c, x, y, p.dock)
+		-- Also reconsider if the player walked away after being told to board.
+		dockChanged = p.dock ~= nil and dock ~= p.dock and (dock or (journey and journey.boarded))
+		p.dock = dock
+	end
+	local changed = p.c and (transition or zoneEvent or dockChanged or (wasCarried and not p.carried))
+	p.c, p.x, p.y, p.map, p.at, p.gap = c, x, y, map, now, nil
+	if transition or zoneEvent then p.zoneAt = nil end
+	return changed
+end
+
 -- Returns the boarding waypoint to walk to, or an instruction while waiting
 -- or riding. A fresh search from the landing naturally handles missed stops.
 function Travel:Aim(target, c, x, y, map)
+	local now = GetTime()
+	local taxi = ns.Walking.Compat.IsOnTaxi()
+	local relocated = locationChanged(c, x, y, map, taxi, now)
+	if relocated and not position.carried then
+		self:Reset()
+		ns:Fire("TRAVEL_ORIGIN_CHANGED")
+	end
 	local dead = UnitIsDeadOrGhost("player")
 	if target.source == "Polestar" or target.source == "corpse" or (ns.Readable(dead) and dead)
 		or (not ns:GetSetting("travelFlights") and not ns:GetSetting("travelHearth") and not ns:GetSetting("travelTransports")) then
 		journey = nil
 		return
 	end
-	local taxi = ns.Walking.Compat.IsOnTaxi()
 	local j = journey
 	if j and j.target ~= target then
 		self:Reset()
 		j = nil
 	end
 	local a = j and j.action
-	if taxi then
-		if j then j.inFlight = true end
-		return nil, j and j.riding or "In flight"
+	if taxi then return nil, j and j.riding or "In flight" end
+	if position.carried then
+		local namedRide = a and j.boarded and labels[a.kind] and a.kind ~= "portal"
+		return nil, namedRide and j.instruction or "Riding transport"
 	end
 	if not c then return nil, j and j.boarded and j.instruction or nil end
-	local now = GetTime()
 	if near(target, c, x, y, 10) and land(c, x, y, map) == land(target.c, target.x, target.y, target.m) then
 		self:Reset()
 		return
@@ -296,7 +369,7 @@ function Travel:Aim(target, c, x, y, map)
 		-- Starting near the inn does not mean the suggested cast already landed.
 		arrived = not near(a.to, j.start.c, j.start.x, j.start.y, 85)
 	end
-	if j and (j.inFlight or arrived) then
+	if arrived then
 		self:Reset()
 		j, a = nil, nil
 	elseif j and not j.pending then
@@ -309,7 +382,7 @@ function Travel:Aim(target, c, x, y, map)
 		local detour = false
 		if check and not committed and now - j.at > 30 then
 			local dest = a and a.from or target
-			if c ~= j.start.c then
+			if not near(j.start, c, x, y, 600) then
 				detour = true
 			elseif dest.c == c then
 				local via = ns.Distance(j.start.x, j.start.y, x, y) + ns.Distance(x, y, dest.x, dest.y)
@@ -334,7 +407,10 @@ function Travel:Aim(target, c, x, y, map)
 		begin(target, c, x, y, map)
 		j = journey
 	end
-	if not j then return end
+	if not j then
+		if ns.Background:Has("waypoint travel") then return nil, "Planning travel…" end
+		return
+	end
 	if j.pending then return nil, "Planning travel…" end
 	if j.unreachable then return nil, "No known route" end
 	if not a then return nil, nil, flightHint(c, x, y, now) end
@@ -356,6 +432,14 @@ function Travel:Aim(target, c, x, y, map)
 end
 
 function Travel:OnLogin()
+	local function zoneChanged()
+		-- Several events can describe one arrival. Read the coordinates on
+		-- the arrow's next settled update, after the game switches maps.
+		if position.c then position.zoneAt = GetTime() + 0.35 end
+	end
+	for _, event in ipairs({ "PLAYER_ENTERING_WORLD", "ZONE_CHANGED_NEW_AREA", "ZONE_CHANGED", "ZONE_CHANGED_INDOORS" }) do
+		ns:RegisterEvent(event, zoneChanged)
+	end
 	ns.db.knownFlights = ns.db.knownFlights or {}
 	local key = ns:GetCharacterKey()
 	ns.db.knownFlights[key] = ns.db.knownFlights[key] or {}
