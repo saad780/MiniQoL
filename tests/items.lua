@@ -235,7 +235,15 @@ Syndicator = {API={GetCurrentCharacter=function() return "Test-Realm" end, GetCh
 end}}
 r, notes = check(10410)
 assert(r.setPlan == 10 and notes:find("Footpads of the Fang %(bank, last seen%)"))
+local snapshot = { bankSeen = 123, bankLinks = {} }
+MiniQoL = { Characters = { Current = function() return snapshot end } }
+r = check(10410)
+assert(not r.setPlan, "a verified empty personal bank supersedes Syndicator")
 Syndicator = nil
+snapshot.bankLinks[10411] = true
+r, notes = check(10410)
+assert(r.setPlan == 10 and notes:find("Footpads of the Fang %(bank, last seen%)"), "native bank history without Syndicator")
+MiniQoL = nil
 banked[10411], banked[6473] = 1, 1
 -- A three-piece as the first threshold needs two stored partners at once.
 ITEMS[10410].lines = {"Embrace of the Viper (0/5)", "(3) Set: +10 Attack Power."}

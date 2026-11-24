@@ -158,6 +158,7 @@ end
 MiniQoLDB = {}
 local printed, features, refreshes = {}, {}, 0
 local sent -- what the game was last asked to send
+local directory
 local function Session(character)
     player = character
     SendMail = function(recipient, subject, body) sent = { recipient, subject, body } end
@@ -167,13 +168,17 @@ local function Session(character)
     function ns:RegisterFeature(spec) features[spec.id] = spec end
     function ns:Refresh() refreshes = refreshes + 1 end
     assert(loadfile(root .. "/Theme.lua"))("MiniQoL", ns)
+    assert(loadfile(root .. "/Characters.lua"))("MiniQoL", ns)
+    directory = ns.Characters
+    directory:Start()
     assert(loadfile(root .. "/Mail.lua"))("MiniQoL", ns)
     ns.Mail:Start()
     return ns.Mail
 end
 local function fire(M, event, ...)
-    assert(M.events.events[event], "listens for " .. event)
-    M.events.scripts.OnEvent(M.events, event, ...)
+    assert(M.events.events[event] or directory.events.events[event], "listens for " .. event)
+    if directory.events.events[event] then directory.events.scripts.OnEvent(directory.events, event, ...) end
+    if M.events.events[event] then M.events.scripts.OnEvent(M.events, event, ...) end
 end
 local function equal(actual, expected, label)
     assert(actual == expected, label .. ": " .. tostring(actual) .. " ~= " .. tostring(expected))
@@ -216,7 +221,7 @@ local db = MiniQoLDB.mail
 equal(db.notify, true, "saying when mail arrives is on to start with")
 equal(db.sound, true, "with its sound")
 equal(db.contacts, true, "and the box beside the Send Mail tab")
-local me = db.characters["firouzi asman@Realm Four"]
+local me = MiniQoLDB.characters["firouzi asman@Realm Four"]
 assert(me, "the character is written down")
 equal(me.name, "Firouzi Asman", "with its surname, as mail is addressed")
 equal(me.realm, "Realm Four", "its realm")
@@ -225,7 +230,7 @@ equal(me.faction, "Horde", "its faction")
 equal(me.level, 20, "and its level")
 player.level = 21
 fire(M, "PLAYER_LEVEL_UP", 21)
-equal(db.characters["firouzi asman@Realm Four"].level, 21, "kept up as it levels")
+equal(MiniQoLDB.characters["firouzi asman@Realm Four"].level, 21, "kept up as it levels")
 advance(10)
 quiet("logging in with no mail says nothing")
 
@@ -456,11 +461,11 @@ fire(M, "PLAYER_ENTERING_WORLD", true, false)
 equal(names(M:Alts()), "Firouzi Asman", "one of yours that has logged in is listed for the others")
 M = Session(reco)
 fire(M, "PLAYER_ENTERING_WORLD", true, false)
-equal(MiniQoLDB.mail.characters["reco veri@Realm Four"].name, "Reco Veri", "a name the game gives whole is kept whole")
+equal(MiniQoLDB.characters["reco veri@Realm Four"].name, "Reco Veri", "a name the game gives whole is kept whole")
 equal(names(M:Alts()), "Azonei Murtaba, Firouzi Asman", "the highest level first")
 M = Session(chaku)
 fire(M, "PLAYER_ENTERING_WORLD", true, false)
-equal(MiniQoLDB.mail.characters["chaku inya@Realm Six"].name, "Chaku Inya", "a surname given twice over is written once")
+equal(MiniQoLDB.characters["chaku inya@Realm Six"].name, "Chaku Inya", "a surname given twice over is written once")
 equal(names(M:Alts()), "", "a character on another realm is not offered to this one")
 
 -- Syndicator has written some down already, by ruleset rather than realm.
@@ -488,8 +493,9 @@ equal(names(M:Alts()), "Azonei Murtaba, Reco Veri, Chaku Inya",
 equal(M:Alts()[1].level, 31, "what the character wrote down itself is kept")
 equal(M:Alts()[3].class, "ROGUE", "and Syndicator's are given their class")
 Syndicator.API.GetCurrentCharacter = function() error("not ready") end
-equal(names(M:Alts()), "Azonei Murtaba, Reco Veri", "a Syndicator that can't answer costs nothing but its names")
+equal(names(M:Alts()), "Azonei Murtaba, Reco Veri, Chaku Inya", "imported names survive an unavailable source")
 Syndicator = nil
+MiniQoLDB.characters["chaku inya@Realm Four"] = nil -- isolate the sending-history fixtures below
 
 ---------------------------------------------------------------------------
 -- 6. Sending: who mail goes to is remembered once the game says it went
@@ -540,11 +546,11 @@ equal(MiniQoLDB.mail.sent["Realm Four"]["\195\169owyn of rohan"].name, "\195\169
 equal(names(M:People()), "Carla Cook, Bob Builder, \195\169owyn Of Rohan, Aaron Able",
     "the people mailed lately, the most mailed first, then the most lately; your own characters not among them")
 -- One of yours whose name isn't spelled the way a typed one is tidied.
-MiniQoLDB.mail.characters["ana deluca@Realm Four"] = { name = "Ana DeLuca", realm = "Realm Four", class = "ROGUE", level = 5 }
+MiniQoLDB.characters["ana deluca@Realm Four"] = { name = "Ana DeLuca", address = true, realm = "Realm Four", class = "ROGUE", level = 5 }
 SendMail("ana deluca", "Hi", "")
 fire(M, "MAIL_SEND_SUCCESS")
 equal(MiniQoLDB.mail.sent["Realm Four"]["ana deluca"].name, "Ana DeLuca", "one of yours keeps its own spelling")
-MiniQoLDB.mail.characters["ana deluca@Realm Four"], MiniQoLDB.mail.sent["Realm Four"]["ana deluca"] = nil, nil
+MiniQoLDB.characters["ana deluca@Realm Four"], MiniQoLDB.mail.sent["Realm Four"]["ana deluca"] = nil, nil
 equal(names(M:Alts()), "Reco Veri, Azonei Murtaba", "one of yours you mail comes first among yours")
 equal(MiniQoLDB.mail.sent["Realm Four"]["reco veri"].name, "Reco Veri", "under the name it gave itself")
 equal(M:People()[2].count, 2, "with how often")
@@ -769,8 +775,9 @@ equal(rowTexts(M), "Azonei Murtaba, Reco Veri", "your own characters stay listed
 equal(features["mail.forget"].available(), false, "with nobody left to forget")
 
 -- Nobody at all: the box says how names get there.
-MiniQoLDB.mail.characters = {}
-M:RememberMe()
+MiniQoLDB.characters = {}
+directory:Initialize()
+directory:Observe()
 M:PaintBox()
 equal(rowTexts(M), "", "with nobody to list")
 equal(box.empty:IsShown(), true, "the box says how names come to be there")
@@ -847,7 +854,9 @@ do
     playerGUID = "SECRET"
     equal(names(M:Alts()), "Cora Vale, Local Address", "explicit realm keys work when the player's GUID is hidden")
     QuestieConfig.char["Cora Vale - Realm Four"] = nil
-    equal(names(M:Alts()), "Local Address", "an unqualified key needs a readable player realm ID")
+    equal(names(M:Alts()), "Cora Vale, Local Address", "previously verified addresses remain available")
+    MiniQoLDB.characters["cora vale@Realm Four"] = nil
+    MiniQoLDB.characters["local address@Realm Four"] = nil
     UnitGUID, QuestieConfig, db.sent[player.realm] = nil, nil, nil
 end
 equal(labelInput:GetText(), "", "the label starts blank")
@@ -862,11 +871,11 @@ assert(labelInput:GetText() == "" and not saveButton:IsEnabled(), "the default d
 local others = { "Ada Mail", "Bea Mail" }
 for i = 1, 12 do others[#others + 1] = "Alt " .. i end
 for _, name in ipairs(others) do
-    db.characters[name] = { name = name, realm = player.realm }
+    MiniQoLDB.characters[directory.Fold(name) .. "@" .. player.realm] = { name = name, realm = player.realm, address = true }
 end
 local menu = openPicker()
 equal(#menu.names, #others, "all alts are available, including beyond the mailbox sidebar limit")
-assert(menu.scroll and not menu.actions[M.me], "long rosters scroll and exclude the sender")
+assert(menu.scroll and not menu.actions[directory.PlayerName()], "long rosters scroll and exclude the sender")
 menu.actions["Ada Mail"]()
 equal(input:GetText(), "Ada Mail", "picking an alt fills the full name")
 equal(altMail.GetRoute(nil, group).recipient, "Custom Name", "picking waits for Save")

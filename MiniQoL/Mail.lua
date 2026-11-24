@@ -48,32 +48,9 @@ local function Lower(text)
     return (text:gsub("[A-Z]", string.lower))
 end
 
--- Names compare without regard to capitals or doubled spaces.
-local function Fold(name)
-    return (Lower(name):gsub("%s+", " "))
-end
-
-local function Realm()
-    return Text(GetRealmName and GetRealmName()) or ""
-end
-
-local function Separator()
-    local consts = Constants and Constants.CharacterNameSeparatorConsts
-    local separator = consts and consts.CHARACTERNAME_SURNAME_SEPARATOR
-    return type(separator) == "string" and separator ~= "" and separator or " "
-end
-
--- The player's name as mail is addressed: with the surname, which the game
--- gives either as part of the name or beside it.
-local function PlayerName()
-    local name, surname = UnitName("player")
-    name, surname = Text(name), Text(surname)
-    if not name or name == UNKNOWNOBJECT then return nil end
-    if not surname then return name end
-    local tail = Separator() .. surname
-    return name:sub(-#tail) == tail and name or name .. tail
-end
-Mail.PlayerName = PlayerName
+local Characters = ns.Characters
+local Fold, Realm = Characters.Fold, Characters.Realm
+Mail.PlayerName = Characters.PlayerName
 
 -- A name as typed into the To field, tidied: "reco  veri " is "Reco Veri".
 -- Only a plain small letter at the start of a word is raised; anything else
@@ -99,7 +76,6 @@ function Mail:Initialize()
     for key, default in pairs({ notify = true, sound = true, contacts = true }) do
         if self.db[key] == nil then self.db[key] = default end
     end
-    if type(self.db.characters) ~= "table" then self.db.characters = {} end
     if type(self.db.sent) ~= "table" then self.db.sent = {} end
     self.known = { has = false, senders = {} }
     -- Quiet from the start: the game may tell of mail before it says the
@@ -137,78 +113,6 @@ end
 ---------------------------------------------------------------------------
 -- Your characters
 ---------------------------------------------------------------------------
--- Writes this character down under its full name. Asked again on entering the
--- world, for a name the game wasn't ready with at login.
-function Mail:RememberMe()
-    if not self.db then return false end
-    local name, realm = PlayerName(), Realm()
-    if not name or realm == "" then return false end
-    local _, class = UnitClass("player")
-    self.me = name
-    self.db.characters[Fold(name) .. "@" .. realm] = {
-        name = name,
-        realm = realm,
-        class = Text(class),
-        faction = Text(UnitFactionGroup and UnitFactionGroup("player")),
-        level = UnitLevel and UnitLevel("player") or nil,
-        seen = time(),
-    }
-    return true
-end
-
--- The characters Syndicator has written down that share this one's ruleset:
--- their full names, with nothing needing each to log in first.
-function Mail:SyndicatorCharacters()
-    local list = {}
-    local api = Syndicator and Syndicator.API
-    if not (api and api.GetAllCharacters and api.GetByCharacterFullName and api.GetCurrentCharacter) then return list end
-    pcall(function()
-        local mine = api.GetByCharacterFullName(api.GetCurrentCharacter())
-        local home = type(mine) == "table" and type(mine.details) == "table" and mine.details.realmNormalized
-        if not home then return end
-        for _, key in ipairs(api.GetAllCharacters()) do
-            local record = api.GetByCharacterFullName(key)
-            local details = type(record) == "table" and record.details
-            if type(details) == "table" and details.realmNormalized == home and Text(details.character) then
-                list[#list + 1] = { name = details.character, class = Text(details.className),
-                    faction = Text(details.faction) }
-            end
-        end
-    end)
-    return list
-end
-
--- Questie's AceDB keys include the realm on standard realms. On Forever
--- the key is just the full name, so use the realm ID in the player GUID.
-local function GuidRealmID(guid)
-    return guid and guid:match("^Player%-(%d+)%-%x+$")
-end
-
-local function QuestieName(key, guid, realm, playerGUID, playerRealmID)
-    if guid and guid == playerGUID then return end
-    local name, recordRealm = key:match("^(.+) %- (.+)$")
-    if recordRealm then return recordRealm == realm and name or nil end
-    if playerRealmID and GuidRealmID(guid) == playerRealmID then return key end
-end
-
-local function AddQuestieCharacters(byName, realm)
-    local characters = type(QuestieConfig) == "table" and QuestieConfig.char
-    if type(characters) ~= "table" then return end
-    local playerGUID = UnitGUID and Text(UnitGUID("player"))
-    local playerRealmID = GuidRealmID(playerGUID)
-    for key, record in pairs(characters) do
-        if Text(key) and type(record) == "table" then
-            local name = QuestieName(key, Text(record.guid), realm, playerGUID, playerRealmID)
-            if name then
-                local folded = Fold(name)
-                local alt = byName[folded] or { name = name }
-                alt.class = alt.class or Text(record.townsfolkClass)
-                byName[folded] = alt
-            end
-        end
-    end
-end
-
 function Mail:Book()
     return self.db and self.db.sent[Realm()] or {}
 end
@@ -216,25 +120,13 @@ end
 -- Everyone of yours on this realm but the one you are on: the most mailed
 -- first, then the highest level.
 function Mail:Alts()
-    local me, realm, byName = self.me and Fold(self.me), Realm(), {}
-    for _, record in pairs(self.db and self.db.characters or {}) do
-        if type(record) == "table" and record.realm == realm and Text(record.name) then
-            byName[Fold(record.name)] = { name = record.name, class = record.class, faction = record.faction,
-                level = record.level }
-        end
-    end
-    for _, alt in ipairs(self:SyndicatorCharacters()) do
-        if not byName[Fold(alt.name)] then byName[Fold(alt.name)] = alt end
-    end
-    AddQuestieCharacters(byName, realm)
     local book, list = self:Book(), {}
-    for key, alt in pairs(byName) do
-        if key ~= me then
-            local entry = book[key]
-            alt.key, alt.alt = key, true
-            alt.count, alt.last = type(entry) == "table" and entry.count or 0, type(entry) == "table" and entry.last or 0
-            list[#list + 1] = alt
-        end
+    for _, record in ipairs(Characters:Alts()) do
+        local folded = Fold(record.name)
+        local entry = book[folded]
+        list[#list + 1] = { key = folded, name = record.name, class = record.class, faction = record.faction,
+            level = record.level, alt = true, count = type(entry) == "table" and entry.count or 0,
+            last = type(entry) == "table" and entry.last or 0 }
     end
     table.sort(list, function(a, b)
         if a.count ~= b.count then return a.count > b.count end
@@ -273,7 +165,8 @@ end
 -- most lately.
 function Mail:People(alts)
     local mine, list, now = {}, {}, time()
-    if self.me then mine[Fold(self.me)] = true end
+    local me = Characters.PlayerName()
+    if me then mine[Fold(me)] = true end
     for _, alt in ipairs(alts or self:Alts()) do mine[alt.key] = true end
     for key, entry in pairs(self:Book()) do
         if type(entry) == "table" and Text(entry.name) and not mine[key]
@@ -751,7 +644,6 @@ function Mail:OnEvent(event, ...)
         self:CheckSoon()
     elseif event == "PLAYER_ENTERING_WORLD" then
         local isInitialLogin = ...
-        self:RememberMe()
         self.quietUntil = GetTime() + QUIET
         if isInitialLogin then
             C_Timer.After(QUIET, function() self:Check(true) end)
@@ -776,8 +668,6 @@ function Mail:OnEvent(event, ...)
         self.pending = nil
     elseif event == "CHAT_MSG_SYSTEM" then
         self:OnSystemMessage((...))
-    elseif event == "PLAYER_LEVEL_UP" then
-        self:RememberMe()
     end
 end
 
@@ -785,11 +675,10 @@ end
 function Mail:Start()
     self:Initialize()
     self:RegisterPage()
-    self:RememberMe()
     self:HookSending()
     local events = CreateFrame("Frame")
     for _, event in ipairs({ "PLAYER_ENTERING_WORLD", "UPDATE_PENDING_MAIL", "MAIL_SHOW", "MAIL_CLOSED",
-        "MAIL_SEND_SUCCESS", "MAIL_FAILED", "CHAT_MSG_SYSTEM", "PLAYER_LEVEL_UP" }) do
+        "MAIL_SEND_SUCCESS", "MAIL_FAILED", "CHAT_MSG_SYSTEM" }) do
         events:RegisterEvent(event)
     end
     events:SetScript("OnEvent", function(_, event, ...) self:OnEvent(event, ...) end)

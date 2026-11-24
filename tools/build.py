@@ -409,7 +409,7 @@ def build(addons, account, destination, refresh=False, outrider_data=None):
         credits.append("\n## Local World Search and Nearby Upgrades data\n\n"
                        "Imported from the installed Outrider data packs for personal use. "
                        "See each folder in `Explorer/PrivateData` for the original sources and notices.\n")
-    entries += ["AltGear.lua", "Mail.lua", "Regen.lua", "Dialogue.lua", "Integrations.lua", "Panel.lua", "Minimap.lua"]
+    entries += ["Characters.lua", "AltGear.lua", "Mail.lua", "Regen.lua", "Dialogue.lua", "Integrations.lua", "Panel.lua", "Minimap.lua"]
     entries += ["AltMail\\Categories.lua", "AltMail\\Mail.lua", "AltMail\\Panel.lua", "AltMail\\Backpack.lua"]
     saved, per_char = {"MiniQoLDB"}, set(ALT_MAIL_SAVED)
     for m in modules.values():

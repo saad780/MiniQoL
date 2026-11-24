@@ -3,7 +3,7 @@ local _, ns = ...
 -- any other character on the account can look at it on the character sheet.
 -- An Alts button there picks a character; their gear then covers your own
 -- slots, with the usual item tooltips, until you pick yourself again or close
--- the sheet. Kept in MiniQoLDB.altGear, which every character shares.
+-- the sheet. Gear lives in MiniQoL's shared character records.
 local AltGear = {}
 ns.AltGear = AltGear
 local T = ns.Theme
@@ -58,25 +58,8 @@ local saveToken = 0
 ---------------------------------------------------------------------------
 -- Small helpers
 ---------------------------------------------------------------------------
-local function HomeRealm()
-    return (GetRealmName and GetRealmName()) or ""
-end
-
--- "Name-Realm", the realm without its spaces and hyphens. It is worked out
--- from the realm's own name every time: the game's ready-made short form
--- stops answering as it logs out, and the full name in its place filed the
--- save on the way out under a second key, as a second character. The fishing
--- outfit keys its records the same way.
-local function ShortRealm(realm)
-    return type(realm) == "string" and (realm:gsub("[%s%-]", "")) or ""
-end
-
-local function CharacterKey()
-    local name, realm = UnitName("player"), ShortRealm(HomeRealm())
-    if realm == "" and GetNormalizedRealmName then realm = GetNormalizedRealmName() or "" end
-    if not name or name == "" or name == UNKNOWNOBJECT or realm == "" then return nil end
-    return name .. "-" .. realm
-end
+local Characters = ns.Characters
+local HomeRealm, CharacterKey = Characters.Realm, Characters.PlayerKey
 AltGear.CharacterKey = CharacterKey
 
 local function HasGear(record)
@@ -167,33 +150,9 @@ function AltGear:Initialize()
     local db = ns.db
     if type(db.altGear) ~= "table" then db.altGear = {} end
     self.db = db.altGear
-    if type(self.db.characters) ~= "table" then self.db.characters = {} end
     if self.db.enabled == nil then self.db.enabled = true end
-    self:Tidy()
     self.retries = 0
     return self
-end
-
--- Saves on the way out were filed under the realm's full name, beside the
--- character's own entry and mostly with nothing worn. Each is folded back into
--- that entry: the one with gear written down is kept, else the newer.
-function AltGear:Tidy()
-    local characters, strays = self.db.characters, {}
-    for key, record in pairs(characters) do
-        if type(record) == "table" and record.name and record.realm then
-            local own = record.name .. "-" .. ShortRealm(record.realm)
-            if own ~= key then strays[#strays + 1] = { key = key, own = own } end
-        end
-    end
-    for _, stray in ipairs(strays) do
-        local record, kept = characters[stray.key], characters[stray.own]
-        characters[stray.key] = nil
-        if type(kept) ~= "table" or (HasGear(record) and not HasGear(kept))
-            or (HasGear(record) == HasGear(kept) and (record.saved or 0) > (kept.saved or 0)) then
-            characters[stray.own] = record
-        end
-    end
-    return #strays
 end
 
 function AltGear:Enabled()
@@ -208,8 +167,8 @@ function AltGear:SetEnabled(value)
 end
 
 function AltGear:Record(key)
-    local record = self.db and self.db.characters[key]
-    return type(record) == "table" and record or nil
+    local record = Characters.records and Characters.records[key]
+    return type(record) == "table" and record.items and record or nil
 end
 
 -- What is worn in every slot. An item the game is still describing comes back
@@ -262,28 +221,14 @@ end
 -- a level-up the game still reports the old one.
 function AltGear:Save(level)
     if not self:Enabled() then return false end
-    local key = CharacterKey()
-    if not key then return false end
-    local old = self:Record(key)
-    local items, incomplete = self:ReadWorn(old and old.items)
+    local record = Characters:Observe(level)
+    if not record then return false end
+    local items, incomplete = self:ReadWorn(record.items)
     -- As the game logs out it can stop answering about equipment, and every
     -- slot reads bare. That is not news about the character: gear written
     -- down is never replaced by a read that found nothing worn at all.
-    if not next(items) and old and HasGear(old) then return false end
-    local className, class = UnitClass("player")
-    local race = UnitRace("player")
-    self.db.characters[key] = {
-        name = UnitName("player"),
-        realm = HomeRealm(),
-        class = class,
-        className = className,
-        race = race,
-        level = level or UnitLevel("player"),
-        faction = UnitFactionGroup and UnitFactionGroup("player") or nil,
-        itemLevel = AverageItemLevel(items),
-        items = items,
-        saved = time(),
-    }
+    if not next(items) and HasGear(record) then return false end
+    record.items, record.itemLevel, record.saved = items, AverageItemLevel(items), time()
     if incomplete and self.retries < RETRIES then
         self.retries = self.retries + 1
         self:SaveSoon(RETRY_DELAY)
@@ -305,8 +250,8 @@ end
 -- Everyone but you, this realm first, then highest level.
 function AltGear:Others()
     local me, home, list = CharacterKey(), HomeRealm(), {}
-    for key, record in pairs(self.db and self.db.characters or {}) do
-        if key ~= me and type(record) == "table" then list[#list + 1] = { key = key, record = record } end
+    for key, record in pairs(Characters.records or {}) do
+        if key ~= me and type(record) == "table" and record.items then list[#list + 1] = { key = key, record = record } end
     end
     table.sort(list, function(a, b)
         local aHome, bHome = a.record.realm == home, b.record.realm == home
@@ -321,7 +266,7 @@ end
 function AltGear:Forget(key)
     local record = self:Record(key)
     if not record or key == CharacterKey() then return false end
-    self.db.characters[key] = nil
+    record.items, record.itemLevel, record.saved = nil, nil, nil
     if viewing == key then self:View(nil) end
     ns:Print(("Forgot %s's gear. It is written down again the next time that character logs in.")
         :format(record.name or key))
@@ -332,7 +277,7 @@ end
 function AltGear:ForgetOthers()
     local count = 0
     for _, alt in ipairs(self:Others()) do
-        self.db.characters[alt.key] = nil
+        alt.record.items, alt.record.itemLevel, alt.record.saved = nil, nil, nil
         count = count + 1
     end
     self:View(nil)
@@ -467,6 +412,14 @@ local function PaintCard(card, record)
         lines[#lines + 1] = Hex(T.GOLD) .. "Item level " .. math.floor(record.itemLevel) .. "|r"
     end
     lines[#lines + 1] = Hex(T.FAINT) .. "Saved " .. Ago(record.saved) .. "|r"
+    if record.location and record.location.zone then lines[#lines + 1] = "Last seen in " .. record.location.zone end
+    if record.bagsSeen then
+        local total = 0
+        for _, bag in pairs(record.bags) do
+            for _, count in pairs(bag) do total = total + count end
+        end
+        lines[#lines + 1] = ("Bags: %d items"):format(total)
+    end
     card.details:SetText(table.concat(lines, "\n"))
 end
 
@@ -551,7 +504,7 @@ function AltGear:OpenMenu(owner)
     GameTooltip:Hide()
     MenuUtil.CreateContextMenu(owner, function(_, root)
         root:CreateTitle("Show the gear of")
-        root:CreateRadio(Hex(T.GOLD) .. (UnitName("player") or "You") .. "|r  " .. Hex(T.MUTED) .. "you|r",
+        root:CreateRadio(Hex(T.GOLD) .. (Characters.PlayerName() or "You") .. "|r  " .. Hex(T.MUTED) .. "you|r",
             function() return viewing == nil end,
             function() self:View(nil); return Close() end)
         if #others == 0 then

@@ -205,6 +205,8 @@ local function Session(character)
     function ns:RegisterFeature(spec) features[spec.id] = spec end
     function ns:Refresh() refreshes = refreshes + 1 end
     assert(loadfile(root .. "/Theme.lua"))("MiniQoL", ns)
+    assert(loadfile(root .. "/Characters.lua"))("MiniQoL", ns)
+    ns.Characters:Start()
     assert(loadfile(root .. "/AltGear.lua"))("MiniQoL", ns)
     ns.AltGear:Start()
     return ns.AltGear
@@ -213,7 +215,10 @@ local function fire(A, event, ...)
     assert(A.events.events[event], "listens for " .. event)
     A.events.scripts.OnEvent(A.events, event, ...)
 end
-local function Record(key) return MiniQoLDB.altGear.characters[key] end
+local function Record(key)
+    local character = MiniQoLDB.characters[key]
+    return character and character.items and character
+end
 local function equal(actual, expected, label)
     assert(actual == expected, label .. ": " .. tostring(actual) .. " ~= " .. tostring(expected))
 end
@@ -234,7 +239,7 @@ ClearSheet()
 local A = Session(thrall)
 assert(not A.hooked, "no sheet to put a button on yet")
 fire(A, "PLAYER_ENTERING_WORLD")
-local record = Record("Thrall-Realm")
+local record = Record("thrall@Realm")
 assert(record, "logging in writes the character down")
 equal(record.items[1], thrall.items[1], "with what is on the head")
 equal(record.items[18], thrall.items[18], "and in every other slot")
@@ -274,19 +279,19 @@ local oldHelm = thrall.items[1]
 thrall.items[1] = link(201, "Helm of the Fallen Champion", 4)
 fire(A, "PLAYER_EQUIPMENT_CHANGED", 1, false)
 fire(A, "PLAYER_EQUIPMENT_CHANGED", 1, true)
-equal(Record("Thrall-Realm").items[1], oldHelm, "written once the swap settles")
+equal(Record("thrall@Realm").items[1], oldHelm, "written once the swap settles")
 local saves = refreshes
 runTimers()
 equal(refreshes - saves, 1, "one write for the whole swap")
-equal(Record("Thrall-Realm").items[1], thrall.items[1], "then the new helm is down")
-equal(Record("Thrall-Realm").saved, CLOCK, "as of now")
+equal(Record("thrall@Realm").items[1], thrall.items[1], "then the new helm is down")
+equal(Record("thrall@Realm").saved, CLOCK, "as of now")
 
 -- The game knows the item but has not described it yet.
 local chest = thrall.items[5]
 thrall.items[5], thrall.loading[5] = nil, 105
 fire(A, "PLAYER_EQUIPMENT_CHANGED", 5, true)
 runTimers()
-equal(Record("Thrall-Realm").items[5], chest, "an item still loading keeps the link written before")
+equal(Record("thrall@Realm").items[5], chest, "an item still loading keeps the link written before")
 equal(#timers, 1, "and the save is tried again")
 thrall.items[5], thrall.loading[5] = chest, nil
 runTimers()
@@ -295,26 +300,26 @@ equal(#timers, 0, "until everything is described")
 thrall.items[10] = "|cnIQ3:|Hitem:110::::::::60:::::|h[]|h|r"
 fire(A, "PLAYER_EQUIPMENT_CHANGED", 10, false)
 runTimers()
-equal(Record("Thrall-Realm").items[10], thrall.items[10], "a new item is kept as the game gave it")
+equal(Record("thrall@Realm").items[10], thrall.items[10], "a new item is kept as the game gave it")
 thrall.items[10] = link(110, "Gauntlets of Ten Storms", 4)
 runTimers()
-equal(Record("Thrall-Realm").items[10], thrall.items[10], "and named on the next try")
+equal(Record("thrall@Realm").items[10], thrall.items[10], "and named on the next try")
 
 thrall.loading[8] = 108
 fire(A, "PLAYER_EQUIPMENT_CHANGED", 8, false)
 runTimers()
-equal(Record("Thrall-Realm").items[8], "item:108", "with no link at all, the item is still known")
+equal(Record("thrall@Realm").items[8], "item:108", "with no link at all, the item is still known")
 for _ = 1, 10 do runTimers() end
 equal(#timers, 0, "and it gives up asking after a few tries")
 thrall.loading[8] = nil
 
 fire(A, "PLAYER_LEVEL_UP", 61)
-equal(Record("Thrall-Realm").level, 61, "a level-up counts before the game reports it")
+equal(Record("thrall@Realm").level, 61, "a level-up counts before the game reports it")
 thrall.level = 61
 
 thrall.items[15] = link(115, "Cloak of the Shrouded Mists", 3)
 fire(A, "PLAYER_LOGOUT")
-equal(Record("Thrall-Realm").items[15], thrall.items[15], "logging out writes the last change at once")
+equal(Record("thrall@Realm").items[15], thrall.items[15], "logging out writes the last change at once")
 
 ---------------------------------------------------------------------------
 -- 3. Uther, on another realm, with the sheet loaded before Mini QoL starts
@@ -327,8 +332,8 @@ local uther = { name = "Uther", realm = "Argent Dawn", class = "PALADIN", classN
 local B = Session(uther)
 assert(B.hooked and not B.events.events.ADDON_LOADED, "a sheet that is already there is used at once")
 fire(B, "PLAYER_ENTERING_WORLD")
-assert(Record("Uther-ArgentDawn"), "each character has its own entry")
-equal(Record("Uther-ArgentDawn").realm, "Argent Dawn", "under its realm")
+assert(Record("uther@Argent Dawn"), "each character has its own entry")
+equal(Record("uther@Argent Dawn").realm, "Argent Dawn", "under its realm")
 
 -- Logging out. The game stops giving the realm's short name, and stops
 -- answering about equipment: every slot reads bare. This was saved as a
@@ -339,9 +344,9 @@ GetNormalizedRealmName = function() return nil end
 uther.items, GetAverageItemLevel = {}, function() return 0, 0 end
 CLOCK = CLOCK + 60
 fire(B, "PLAYER_LOGOUT")
-equal(MiniQoLDB.altGear.characters["Uther-Argent Dawn"], nil, "no second Uther under the realm's full name")
-equal(Record("Uther-ArgentDawn").items[1], crown, "and the one Uther keeps his crown")
-equal(Record("Uther-ArgentDawn").itemLevel, 70, "and his item level")
+equal(MiniQoLDB.characters["Uther-Argent Dawn"], nil, "no second Uther under the realm's full name")
+equal(Record("uther@Argent Dawn").items[1], crown, "and the one Uther keeps his crown")
+equal(Record("uther@Argent Dawn").itemLevel, 70, "and his item level")
 GetNormalizedRealmName = normalized
 uther.items = { [1] = crown }
 
@@ -355,23 +360,25 @@ local jaina = { name = "Jaina", realm = "Realm", class = "MAGE", className = "Ma
     items = { [1] = link(50, "Hat", 2), [16] = link(60, "Staff", 3) } }
 -- Entries a logout already filed under a realm's full name: an empty one
 -- newer than Uther's own, and a Thrall with gear newer than his.
-local characters = MiniQoLDB.altGear.characters
+local characters = {}
+MiniQoLDB.altGear.characters = characters
 characters["Uther-Argent Dawn"] = { name = "Uther", realm = "Argent Dawn", class = "PALADIN", level = 70,
     itemLevel = 0, items = {}, saved = CLOCK }
 local newerThrall = { name = "Thrall", realm = "Realm", class = "SHAMAN", level = 61, itemLevel = 59,
     items = { [1] = link(202, "Helm of the Newer Save", 4) }, saved = CLOCK }
 characters["Thrall-Realm "] = newerThrall
-local thrallBefore = characters["Thrall-Realm"]
+local thrallBefore = {}
+for key, value in pairs(Record("thrall@Realm")) do thrallBefore[key] = value end
 local C = Session(jaina)
 fire(C, "PLAYER_ENTERING_WORLD")
-equal(characters["Uther-Argent Dawn"], nil, "the empty Uther is folded away")
-equal(Record("Uther-ArgentDawn").items[1], crown, "keeping the one with his gear")
-equal(characters["Thrall-Realm "], nil, "the second Thrall too")
-equal(Record("Thrall-Realm"), newerThrall, "the newer of two with gear is kept")
-characters["Thrall-Realm"] = thrallBefore
+equal(MiniQoLDB.altGear.characters, nil, "the empty Uther is folded away")
+equal(Record("uther@Argent Dawn").items[1], crown, "keeping the one with his gear")
+equal(MiniQoLDB.characters["Thrall-Realm "], nil, "the second Thrall too")
+equal(Record("thrall@Realm").items, newerThrall.items, "the newer of two with gear is kept")
+MiniQoLDB.characters["thrall@Realm"] = thrallBefore
 -- With no item level from the game, it is worked out the game's way: the
 -- staff fills both hands, out of the sixteen slots this sheet counts.
-near(Record("Jaina-Realm").itemLevel, (50 + 60 + 60) / 16, "an item level of her own")
+near(Record("jaina@Realm").itemLevel, (50 + 60 + 60) / 16, "an item level of her own")
 button = C.button
 
 click(button, "RightButton")
@@ -389,7 +396,7 @@ assert(Find(menu, "Forget a character"), "and a way to forget one")
 equal(radios[2].select(), "close", "picking one closes the menu")
 local overlay = C.overlay
 assert(overlay and overlay.shown, "Thrall's gear goes on show")
-equal(select(2, C:Viewing()), "Thrall-Realm", "Thrall is the one viewed")
+equal(select(2, C:Viewing()), "thrall@Realm", "Thrall is the one viewed")
 equal(button.label.text, "Thrall", "the button names who is on show")
 equal(#overlay.slots, 18, "one slot for each the sheet has")
 local function SlotFor(id)
@@ -444,24 +451,24 @@ assert(not overlay.shown, "closing the sheet puts your own gear back")
 equal(button.label.text, "Alts", "and the button says so")
 CharacterFrame:Show()
 
-C:View("Uther-ArgentDawn")
+C:View("uther@Argent Dawn")
 assert(card.details.text:find("Argent Dawn", 1, true), "another realm is named on the card")
 click(card.close)
 assert(not overlay.shown, "the card's close button goes back to your own gear")
 
-C:View("Thrall-Realm")
+C:View("thrall@Realm")
 click(button)
 Radios()[1].select()
 assert(not overlay.shown, "choosing yourself does too")
-equal(C:View("Jaina-Realm"), false, "you are never shown as an alt")
+equal(C:View("jaina@Realm"), false, "you are never shown as an alt")
 equal(C:View("Nobody-Realm"), false, "nor is someone never seen")
 
 -- A client without the game's menus: each click moves to the next character.
 MenuUtil = nil
 click(button)
-equal(select(2, C:Viewing()), "Thrall-Realm", "first one")
+equal(select(2, C:Viewing()), "thrall@Realm", "first one")
 click(button)
-equal(select(2, C:Viewing()), "Uther-ArgentDawn", "then the next")
+equal(select(2, C:Viewing()), "uther@Argent Dawn", "then the next")
 click(button)
 equal(select(2, C:Viewing()), nil, "then back to you")
 MenuUtil = Menus
@@ -486,36 +493,36 @@ features["altGear.forget"].run()
 equal(popup, "MINIQOL_ALTGEAR_FORGET", "forgetting them all asks first")
 
 -- Forget one from the menu.
-C:View("Uther-ArgentDawn")
+C:View("uther@Argent Dawn")
 click(button)
 local forget = Find(menu, "Forget a character")
 equal(Find(forget, "Uther").click(), "closeAll", "forgetting closes the menu and its submenu")
-equal(Record("Uther-ArgentDawn"), nil, "Uther is forgotten")
+equal(Record("uther@Argent Dawn"), nil, "Uther is forgotten")
 assert(not overlay.shown, "and no longer on show")
 assert(printed[#printed]:find("Uther", 1, true), "and it says so")
 click(button)
 equal(#Radios(), 2, "the menu is down to you and Thrall")
 
 -- Off: no button, nothing written.
-C:View("Thrall-Realm")
+C:View("thrall@Realm")
 features["altGear.enabled"].set(false)
 equal(features["altGear.enabled"].get(), false, "turned off")
 assert(features["altGear.where"].get():find("^Turn this on"), "the page says how to get the button back")
 assert(not button.shown, "the button goes")
 assert(not overlay.shown, "and your own gear is back")
-local before = Record("Jaina-Realm").saved
+local before = Record("jaina@Realm").saved
 CLOCK = CLOCK + 60
 jaina.items[1] = link(301, "Better Hat", 2)
 fire(C, "PLAYER_EQUIPMENT_CHANGED", 1, true)
 runTimers()
-equal(Record("Jaina-Realm").saved, before, "changes are not written down")
-equal(C:View("Thrall-Realm"), false, "and no one can be shown")
+equal(Record("jaina@Realm").saved, before, "changes are not written down")
+equal(C:View("thrall@Realm"), false, "and no one can be shown")
 features["altGear.enabled"].set(true)
 assert(button.shown, "on again: the button is back")
-equal(Record("Jaina-Realm").items[1], jaina.items[1], "and you are written down at once")
+equal(Record("jaina@Realm").items[1], jaina.items[1], "and you are written down at once")
 
 StaticPopupDialogs.MINIQOL_ALTGEAR_FORGET.OnAccept()
-assert(Record("Jaina-Realm") and not Record("Thrall-Realm"), "forgetting the others keeps you")
+assert(Record("jaina@Realm") and not Record("thrall@Realm"), "forgetting the others keeps you")
 equal(features["altGear.forget"].available(), false, "then there is no one left to forget")
 assert(features["altGear.known"].get():find("^1 character: Jaina"), "and the page says so")
 

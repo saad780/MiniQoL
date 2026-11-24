@@ -39,6 +39,9 @@ tracking.execute((root / "tests/minimap_tracking.lua").read_text(), str(package)
 fishing = LuaRuntime(unpack_returned_tuples=True)
 fishing.execute((root / "tests/fishing.lua").read_text(), str(shell).replace("\\", "/"))
 
+LuaRuntime(unpack_returned_tuples=True).execute(
+    (root / "tests/characters.lua").read_text(), package.resolve().as_posix())
+
 alt_gear = LuaRuntime(unpack_returned_tuples=True)
 alt_gear.execute((root / "tests/alt_gear.lua").read_text(), str(shell).replace("\\", "/"))
 

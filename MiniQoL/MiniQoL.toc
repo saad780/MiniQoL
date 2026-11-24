@@ -95,6 +95,7 @@ Explorer\Core.lua
 Explorer\Search.lua
 Explorer\Upgrades.lua
 Explorer\Page.lua
+Characters.lua
 AltGear.lua
 Mail.lua
 Regen.lua

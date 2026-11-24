@@ -189,6 +189,7 @@ events:SetScript("OnEvent", function(_, event, name)
         ns:RegisterSettings()
         if ns.Dialogue then ns.Dialogue:Initialize() end
         if ns.Fishing then ns.Fishing:Start() end
+        if ns.Characters then ns.Characters:Start() end
         if ns.AltGear then ns.AltGear:Start() end
         if ns.Mail then ns.Mail:Start() end
         if ns.Regen then ns.Regen:Start() end

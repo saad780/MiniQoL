@@ -190,10 +190,13 @@ local function CountOwned(key, includeBank)
     if ok and ns.Number(n) then return n end
 end
 
--- The user's bank may have been read by Syndicator on a previous login.
--- Only this character's personal bank bags/tabs are relevant here.
+-- Use the player's last complete MiniQoL bank visit, including an empty
+-- bank. Syndicator can fill the gap before that first visit.
 local function RecordedBank()
     if BankFrame and BankFrame:IsShown() then return end
+    local characters = MiniQoL and MiniQoL.Characters
+    local current = characters and characters:Current()
+    if current and current.bankSeen then return current.bankLinks end
     if Effects.bank then return Effects.bank end
     local api = Syndicator and Syndicator.API
     if not (api and api.GetCurrentCharacter and api.GetCharacter) then return end
