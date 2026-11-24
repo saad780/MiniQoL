@@ -191,6 +191,11 @@ addon folders. A normal build contains defaults, not personal settings. The
 optional `--account` import creates a private local profile snapshot; keep those
 builds, account backups and `WTF` data out of source control and releases.
 
+For a personal build with **Nearby upgrades** (`/mqol nearby`) and **World search**
+(`/mqol find [name]`), pass `--outrider-data "<WoW AddOns directory>"` to the build
+command. This imports the installed Outrider data packs with their source notices.
+Outrider can stay disabled in game. Keep the resulting data in your local build.
+
 Offline checks cover scope, Lua compilation, source references, settings, panel
 navigation, NPC shortcuts, native map API mixin lookups during player sampling
 and session-only map views. In-game validation of the combined addon remains

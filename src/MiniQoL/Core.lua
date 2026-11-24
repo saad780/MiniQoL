@@ -8,6 +8,10 @@ ns.features, ns.providers = {}, {}
 ns.pages = {
     { id = "home", label = "Overview",
       description = "Pinned settings and the state of every module." },
+    { id = "nearby", label = "Nearby upgrades", group = "Explore",
+      description = "Gear upgrades from vendors, quests, drops and dungeons in your area." },
+    { id = "worldsearch", label = "World search", group = "Explore",
+      description = "Find NPCs, creatures, quests, items, gathering spots and places." },
     { id = "maps", label = "Maps & travel", group = "Modules", module = "Wayfinder",
       description = "Exploration, service icons, navigation and travel." },
     { id = "bags", label = "Gear advice", group = "Modules", module = "Gearwise",
@@ -193,9 +197,11 @@ end)
 
 SLASH_MINIQOL1, SLASH_MINIQOL2 = "/mqol", "/miniqol"
 SlashCmdList.MINIQOL = function(input)
-    input = (input or ""):lower():match("^%s*(.-)%s*$")
+    input = (input or ""):match("^%s*(.-)%s*$")
     local command, rest = input:match("^(%S*)%s*(.-)$")
+    command = command:lower()
     if command == "fish" then
+        rest = rest:lower()
         -- The whole point is one action: into the fishing outfit, then back.
         if not ns.Fishing or not ns.Fishing.db then return end
         if rest == "show" then ns.Fishing:ToggleBar()
@@ -204,10 +210,14 @@ SlashCmdList.MINIQOL = function(input)
         else ns.Fishing:ToggleGear() end
     elseif command == "regen" then
         if ns.Regen and ns.Regen.db then ns.Regen:Report() end
-    elseif input == "icon" then
+    elseif command == "find" then
+        ns.Explorer:OpenSearch(rest)
+    elseif command == "nearby" then
+        ns:ShowPage("nearby")
+    elseif command == "icon" and rest == "" then
         ns.db.minimap.hide = false
         ns:UpdateMinimapButton()
-    elseif input == "resetpos" then
+    elseif command == "resetpos" and rest == "" then
         ns.db.position, ns.db.minimap.angle = nil, 220
         if ns.panel then ns.panel:ClearAllPoints(); ns.panel:SetPoint("CENTER") end
         ns:UpdateMinimapButton()

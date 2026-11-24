@@ -54,7 +54,7 @@ function methods:GetValue() return self.sliderValue or 0 end
 local noops = { "SetJustifyH", "SetJustifyV", "SetWordWrap", "SetTextColor", "SetColorTexture", "SetAllPoints", "SetTexture", "SetTexCoord",
     "SetBackdrop", "SetBackdropColor", "SetBackdropBorderColor", "SetClampedToScreen", "SetFrameStrata", "SetMovable",
     "EnableMouse", "RegisterForDrag", "SetHighlightTexture", "SetAutoFocus", "SetMaxLetters", "SetScrollChild",
-    "SetAlpha", "StartMoving", "StopMovingOrSizing", "ClearFocus", "SetFrameLevel", "RegisterForClicks",
+    "SetAlpha", "StartMoving", "StopMovingOrSizing", "ClearFocus", "SetFocus", "SetFrameLevel", "RegisterForClicks", "SetNormalTexture",
     -- Widgets the themed panel adds: sliders, drawn carets and the plain edit box.
     "SetFontObject", "SetTextInsets", "SetOrientation", "SetObeyStepOnDrag", "SetThumbTexture",
     "SetMinMaxValues", "SetValueStep", "SetThickness", "SetStartPoint", "SetEndPoint",
@@ -104,6 +104,9 @@ local ns = {}
 assert(loadfile(root .. "/Core.lua"))("MiniQoL", ns)
 assert(loadfile(root .. "/Theme.lua"))("MiniQoL", ns)
 ns:Initialize()
+for _, file in ipairs({ "Core", "Search", "Upgrades", "Page" }) do
+    assert(loadfile(root .. "/Explorer/" .. file .. ".lua"))("MiniQoL", ns)
+end
 assert(loadfile(root .. "/Integrations.lua"))("MiniQoL", ns)
 assert(loadfile(root .. "/Panel.lua"))("MiniQoL", ns)
 assert(loadfile(root .. "/Minimap.lua"))("MiniQoL", ns)
@@ -234,3 +237,51 @@ end
 ns:Toggle()
 assert(not ns.panel:IsShown(), "panel closes")
 print("Panel navigation, search, favorites, minimap controls and stat values passed")
+
+-- Exercise both new pages through their slash commands using two zones and
+-- multiple sources for the same item and NPC.
+local timers = {}
+C_Timer = { After = function(_, fn) timers[#timers + 1] = fn end }
+function GetTime() return 10 end
+function UnitFactionGroup() return "Horde" end
+local maps = { [1] = { name = "Barrens", mapType = 3 }, [2] = { name = "Durotar", mapType = 3 } }
+C_Map = { GetMapInfo = function(id) return maps[id] end, GetBestMapForUnit = function() return 1 end,
+    GetPlayerMapPosition = function() return { GetXY = function() return 0.4, 0.4 end } end }
+C_QuestLog = { IsQuestFlaggedCompleted = function(id) return id == 77 end }
+local pin
+Wayfinder.db = {}
+Wayfinder.MapToWorld = function(map, x, y) return 1, map * 1000 + x * 300, y * 300 end
+Wayfinder.Navigation = { SetWaypointOnMap = function(_, map, x, y, name) pin = { map, x, y, name } end }
+ns.Explorer.loaders.npcs = function()
+    return { maps = {
+        [1] = { { 20, "inn", 0.5, 0.5, "Innkeeper Byula", "Innkeeper", "Horde" },
+                { 21, "inn", 0.3, 0.2, "Innkeeper Test", "Innkeeper", "Alliance" } },
+        [2] = { { 20, "inn", 0.4, 0.4, "Innkeeper Byula", "Innkeeper", "Horde" } },
+    } }
+end
+ns.Explorer.loaders.gear = function()
+    return { items = {
+        [123] = { "Local Blade", 57, 60, { { "vendor", 2, 0.5, 0.5, "Remote Vendor" },
+            { "quest", 1, 0.3, 0.3, "Done Quest", 58, nil, 77 }, { "drop", 1, 0.6, 0.6, "Local Mob" } } },
+        [456] = { "Regional Ring", 58, 62, { { "vendor", 2, 0.5, 0.5, "Remote Vendor" } } },
+        [789] = { "Enemy Blade", 57, 60, { { "vendor", 1, 0.5, 0.5, "Enemy Vendor", nil, "Alliance" } } },
+    } }
+end
+SlashCmdList.MINIQOL("find Innkeeper")
+local npc = ns.rows["explorer.search.1"]
+assert(npc.result.name == "Innkeeper Byula" and npc.result.mapID == 1, "world search prefers local faction matches")
+assert(ns.rows["explorer.search.2"].result.mapID == 2 and not ns.rows["explorer.search.3"], "other known spawn maps remain searchable")
+npc.waypoint.scripts.OnClick()
+assert(pin[1] == 1 and pin[2] == 0.5 and pin[4] == "Innkeeper Byula", "results use Wayfinder's waypoint entry point")
+Gearwise = gear
+Gearwise.profile = {}
+Gearwise.Compare = { Get = function(_, link)
+    assert(link ~= "item:789", "excluded faction items must not be scored")
+    return { status = "upgrade", slot = link == "item:456" and 12 or 16, percent = 20, delta = 5, item = { icon = 1234 } }
+end }
+SlashCmdList.MINIQOL("nearby")
+while #timers > 0 do table.remove(timers, 1)() end
+local nearby = ns.rows["explorer.gear.local.1"].result
+assert(nearby.name == "Local Blade" and nearby.source[1] == "drop", "nearby gear retains a viable same-zone source")
+assert(ns.rows["explorer.gear.outside.1"].result.slot == 11, "a regional fallback combines equivalent ring slots")
+print("World search ranking, faction filtering, gear comparison and waypoint integration passed")

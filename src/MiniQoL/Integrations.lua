@@ -190,6 +190,11 @@ feature({ id = "wayfinder.eraseExploration", page = "maps", group = "Map data", 
 ---------------------------------------------------------------------------
 local function gearReady() return Gearwise and Gearwise.db and true or false end
 
+feature({ id = "gearwise.nearby", page = "bags", group = "Find gear", label = "Nearby upgrades",
+    addon = "Gearwise", kind = "action", button = "Open", available = gearReady,
+    run = function() ns:ShowPage("nearby") end,
+    tooltip = "Find upgrades from local quests, vendors and drops." })
+
 feature({ id = "gearwise.status", page = "bags", group = "Build", label = "Reading your talents...",
     addon = "Gearwise", kind = "info", available = gearReady,
     get = function()

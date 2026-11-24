@@ -275,7 +275,36 @@ def validate_entries(output, entries):
     return len(visited)
 
 
-def build(addons, account, destination, refresh=False):
+def import_explorer_data(addons, output):
+    """Put locally installed data into lazy, private Mini QoL loaders."""
+    entries = []
+    packs = {
+        "Gear": ("gear", "Outrider_DataGear"), "NPC": ("npcs", "Outrider_DataNPC"),
+        "Mobs": ("creatures", "Outrider_DataMobs"), "Nodes": ("nodes", "Outrider_DataNodes"),
+        "Dungeons": ("dungeons", "Outrider_DataDungeons"),
+    }
+    for name, (key, global_name) in packs.items():
+        folder = addons / f"Outrider_Data_{name}"
+        source = (folder / "Data.lua").read_bytes().removeprefix(b"\xef\xbb\xbf")
+        assignment = re.compile(rb"^" + global_name.encode() + rb"\s*=\s*(?=\{)", re.M)
+        source, count = assignment.subn(b"return ", source, count=1)
+        if count != 1:
+            raise ValueError(f"Unrecognized Outrider data format: {folder}")
+        code = (f"local _, ns = ...\nns.Explorer.loaders.{key} = function()\n".encode()
+                + source + b"\nend\n")
+        ok, error = LUA_COMPILER(code)
+        if not ok:
+            raise ValueError(f"Outrider data failed to compile: {folder}: {error!r}")
+        target = output / "Explorer" / "PrivateData" / name
+        target.mkdir(parents=True, exist_ok=True)
+        (target / "Data.lua").write_bytes(code)
+        for notice in ("LICENSE-DATA.txt", "gpl-3.0.md"):
+            shutil.copy2(folder / notice, target / notice)
+        entries.append(f"Explorer\\PrivateData\\{name}\\Data.lua")
+    return entries
+
+
+def build(addons, account, destination, refresh=False, outrider_data=None):
     output = destination / "MiniQoL"
     if output.exists() and not refresh:
         raise ValueError(f"Use a fresh output directory; refusing to overwrite {output}")
@@ -374,6 +403,12 @@ def build(addons, account, destination, refresh=False):
         licence_files = [str(p.relative_to(target)) for p in target.rglob("*") if p.is_file() and re.search(r"licen[sc]e|copying", p.name, re.I)]
         credits.append(f"\n## {name}\n\nAuthor: {meta.get('Author', 'See retained source headers')}\n\nVersion: {meta.get('Version', 'unknown')}\n\nManifest: Modules/{name}/{toc.name}\n\nLicences: {', '.join(licence_files) or 'See retained source headers; no root licence supplied'}\n")
     entries += ["Fishing\\Core.lua", "Fishing\\Catches.lua", "Fishing\\Sound.lua", "Fishing\\Character.lua", "Fishing\\Lures.lua", "Fishing\\Stats.lua", "Fishing\\EasyCast.lua", "Fishing\\Gear.lua", "Fishing\\Outfit.lua", "Fishing\\Page.lua", "Fishing\\Bar.lua"]
+    entries += ["Explorer\\Core.lua", "Explorer\\Search.lua", "Explorer\\Upgrades.lua", "Explorer\\Page.lua"]
+    if outrider_data is not None:
+        entries += import_explorer_data(outrider_data, output)
+        credits.append("\n## Local World Search and Nearby Upgrades data\n\n"
+                       "Imported from the installed Outrider data packs for personal use. "
+                       "See each folder in `Explorer/PrivateData` for the original sources and notices.\n")
     entries += ["AltGear.lua", "Mail.lua", "Regen.lua", "Dialogue.lua", "Integrations.lua", "Panel.lua", "Minimap.lua"]
     entries += ["AltMail\\Categories.lua", "AltMail\\Mail.lua", "AltMail\\Panel.lua", "AltMail\\Backpack.lua"]
     saved, per_char = {"MiniQoLDB"}, set(ALT_MAIL_SAVED)
@@ -408,7 +443,8 @@ def build(addons, account, destination, refresh=False):
     report = {"modules": len(modules), "wrapped_lua_files": lua_count, "selected_source_files": source_files,
               "order": order, "saved_variables": len(saved), "character_saved_variables": len(per_char),
               "game_dependencies": external_dependencies,
-              "private_profile_snapshot": account.is_dir(), "source_addons": str(addons), "output": str(output)}
+              "private_profile_snapshot": account.is_dir(), "private_explorer_data": outrider_data is not None,
+              "source_addons": str(addons), "output": str(output)}
     (destination / "build-report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(json.dumps({k: v for k, v in report.items() if k != "order"}, indent=2))
     return report
@@ -420,5 +456,6 @@ if __name__ == "__main__":
     parser.add_argument("--account", type=Path, default=DEFAULT_ACCOUNT)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--refresh", action="store_true", help="Refresh an existing generated build from original sources")
+    parser.add_argument("--outrider-data", type=Path, help="Local WoW AddOns directory containing the Outrider data packs")
     args = parser.parse_args()
-    build(args.addons, args.account, args.output, args.refresh)
+    build(args.addons, args.account, args.output, args.refresh, args.outrider_data)

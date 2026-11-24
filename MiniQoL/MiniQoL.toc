@@ -87,6 +87,10 @@ Fishing\Gear.lua
 Fishing\Outfit.lua
 Fishing\Page.lua
 Fishing\Bar.lua
+Explorer\Core.lua
+Explorer\Search.lua
+Explorer\Upgrades.lua
+Explorer\Page.lua
 AltGear.lua
 Mail.lua
 Regen.lua

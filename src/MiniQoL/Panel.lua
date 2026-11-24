@@ -101,7 +101,7 @@ function ns:CreatePanel()
     search:SetScript("OnTextChanged", function() ns:Render() end)
     search:SetScript("OnEditFocusGained", function() searchFrame:SetBackdropBorderColor(T.Color(T.BORDER_HI)) end)
     search:SetScript("OnEditFocusLost", function() searchFrame:SetBackdropBorderColor(T.Color(T.BORDER)) end)
-    self.searchHint = T:Text(search, "Search every setting...", "GameFontDisableSmall", 170, T.FAINT)
+    self.searchHint = T:Text(search, "Search settings…", "GameFontDisableSmall", 170, T.FAINT)
     self.searchHint:SetPoint("LEFT", 9, 0)
     local clear = T:CloseButton(searchFrame, function() search:SetText(""); search:ClearFocus() end)
     clear:SetSize(18, 18)
@@ -154,16 +154,16 @@ end
 function ns:CreateSidebar()
     local panel = self.panel
     self.tabs = {}
-    local y, group = HEADER + 12, nil
+    local y, group = HEADER + 8, nil
     for _, page in ipairs(self.pages) do
         if page.group and page.group ~= group then
             group = page.group
             local header = T:Text(panel, page.group:upper(), "GameFontDisableSmall", 150, T.FAINT)
-            header:SetPoint("TOPLEFT", 19, -(y + 8))
-            y = y + 26
+            header:SetPoint("TOPLEFT", 19, -(y + 6))
+            y = y + 21
         end
         local tab = CreateFrame("Button", nil, panel)
-        tab:SetSize(SIDEBAR - 16, 28)
+        tab:SetSize(SIDEBAR - 16, 25)
         tab:SetPoint("TOPLEFT", 8, -y)
         tab.fill = tab:CreateTexture(nil, "BACKGROUND")
         tab.fill:SetAllPoints()
@@ -195,7 +195,7 @@ function ns:CreateSidebar()
             ns:Render()
         end)
         self.tabs[page.id] = tab
-        y = y + 29
+        y = y + 26
     end
 end
 
@@ -604,6 +604,8 @@ function ns:Render()
         end
     end
 
+    local explorer = not searching and self.Explorer
+    local customPage = explorer and (page.id == "nearby" or page.id == "worldsearch")
     local y = 0
     if page.id == "home" and not searching then
         y = self:Section("modules", "Modules", y)
@@ -626,6 +628,9 @@ function ns:Render()
         end
         features = pinned
         y = self:FeatureBlock(features, y, true)
+    elseif customPage then
+        if page.id == "nearby" then y = explorer:RenderNearby(y)
+        else y = explorer:RenderSearch(y) end
     elseif searching then
         if #features > 0 then
             y = self:Section("controls", "Search results", y)
@@ -669,7 +674,7 @@ function ns:Render()
             .. "\nSee LICENSE, CREDITS.md and module notices.", y)
     end
 
-    if #features == 0 and shown == 0 and (searching or page.id ~= "home") then
+    if not customPage and #features == 0 and shown == 0 and (searching or page.id ~= "home") then
         y = self:Note("empty", searching and ("Nothing matches \"" .. query .. "\".")
             or "Nothing to configure on this page yet.", y + 4)
     end
