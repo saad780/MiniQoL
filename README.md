@@ -120,7 +120,8 @@ nudge). **Reset** puts the look and size back.
 
 **Alt Mail** opens from the envelope by the bags, the Mini QoL **Mail** page, or
 `/altmail`. For each group, pick a character from **Choose alt** or type a custom
-recipient name, then click **Save**. Hover over a stack and press
+recipient name, then click **Save**. The group displays the recipient’s name
+unless you enter an optional label. Hover over a stack and press
 **Ctrl+Shift+1** or **Ctrl+Shift+2** to mark it. The numbered envelope follows
 that stack in stock bags, Bagnon, or Baganator. Enable automatic sending per
 group, or use **Send Now** at a mailbox.

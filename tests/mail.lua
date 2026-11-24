@@ -799,11 +799,14 @@ altMail.GetMarkedItems = function() return {} end
 altMail.GetMarkShortcut, altMail.IsSending, altMail.IsMailboxOpen = noop, noop, noop
 assert(loadfile(root .. "/AltMail/Panel.lua"))("MiniQoL", ns)
 altMail.TogglePanel()
-local picker, input, saveButton
+local picker, input, labelInput, saveButton, unlinkButton
 for _, widget in ipairs(MiniQoLAltMailPanel.children) do
     if widget.defaultText == "Choose alt" then picker = widget end
-    if widget.kind == "EditBox" and widget.scripts.OnEnterPressed then input = widget end
+    if widget.kind == "EditBox" then
+        if widget.scripts.OnEnterPressed then input = widget else labelInput = widget end
+    end
     if widget.text == "Save" then saveButton = widget end
+    if widget.text == "Unlink" then unlinkButton = widget end
 end
 local function openPicker()
     local menu = { names = {}, actions = {} }
@@ -817,10 +820,14 @@ local function openPicker()
     return menu
 end
 equal(openPicker().title, "No known alts yet", "empty roster")
+equal(labelInput:GetText(), "", "the label starts blank")
 input:SetText("Custom Name")
+assert(saveButton:IsEnabled(), "only a recipient is required")
 click(saveButton)
 local group = altMail.GetGroup(1)
 equal(altMail.GetRoute(nil, group).recipient, "Custom Name", "custom names work with an empty roster")
+equal(group.name, "Custom Name", "the recipient is the default display name")
+assert(labelInput:GetText() == "" and not saveButton:IsEnabled(), "the default display name stays out of the label field")
 
 local others = { "Ada Mail", "Bea Mail" }
 for i = 1, 12 do others[#others + 1] = "Alt " .. i end
@@ -836,7 +843,19 @@ equal(altMail.GetRoute(nil, group).recipient, "Custom Name", "picking waits for 
 assert(saveButton:IsEnabled())
 click(saveButton)
 equal(altMail.GetRoute(nil, group).recipient, "Ada Mail", "saves the selected alt")
+equal(altMail.GetGroup(1).name, "Ada Mail", "the display name follows recipient changes")
+labelInput:SetText("Blacksmith")
+assert(saveButton:IsEnabled(), "a label-only edit can be saved")
+click(saveButton)
 input:SetText("Another Name")
 click(saveButton)
 equal(altMail.GetRoute(nil, group).recipient, "Another Name", "a custom name can replace a picked alt")
+equal(altMail.GetGroup(1).name, "Blacksmith", "an explicit label survives a recipient change")
+labelInput:SetText("   ")
+assert(saveButton:IsEnabled(), "clearing the label can be saved")
+click(saveButton)
+equal(altMail.GetGroup(1).name, "Another Name", "clearing the label restores the current recipient")
+click(unlinkButton)
+equal(altMail.GetGroup(1).name, "Mail Group 1", "an unlinked, unlabeled group returns to its numbered name")
+assert(not saveButton:IsEnabled(), "a recipient is still required")
 print("Alt Mail recipient picker: empty and long rosters, full names, custom entries and explicit saving passed")

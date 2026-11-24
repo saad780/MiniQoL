@@ -159,7 +159,10 @@ local reads = 0
 local numericProfile = { name = "First-Last", read = function()
     reads = reads + 1
     return {
-        settings = { [1] = { name = "Cloth", recipient = "Other Alt", automatic = true } },
+        settings = {
+            [1] = { name = "Cloth", recipient = "Other Alt", automatic = true },
+            [2] = { name = "Mail Group 2", recipient = "Bank Alt" },
+        },
         stackMarks = { ["Item-legacy"] = { slot = 1, itemID = 100 } },
     }, { DEFAULT = { ["2"] = { name = "Legacy", recipient = "Other Alt" } } }
 end }
@@ -173,7 +176,8 @@ addon.RestoreLegacySettings()
 assert(reads == 0)
 playerName = "First Last"
 addon.RestoreLegacySettings()
-assert(reads == 1 and addon.GetGroup(1).name == "Cloth")
+assert(reads == 1 and addon.GetGroup(1).name == "Cloth" and addon.GetGroup(1).label == "Cloth")
+assert(addon.GetGroup(2).name == "Bank Alt" and addon.GetGroup(2).label == "", "legacy placeholders follow the recipient")
 assert(addon.GetRoute(nil, addon.GetGroup(1)).automatic)
 assert(addon.GetMark("Item-legacy").slot == 1)
 assert(addon.GetRoute("DEFAULT", { id = "2", name = "Legacy" }).recipient == "Other Alt")
@@ -181,6 +185,7 @@ assert(addon.GetRoute("DEFAULT", { id = "2", name = "Legacy" }).recipient == "Ot
 -- A later UI session reads the persisted MiniQoL groups and never reapplies a
 -- retired snapshot over a recipient or mark the player deliberately cleared.
 addon.SaveRoute(nil, addon.GetGroup(1), nil, false)
+assert(addon.GetGroup(1).name == "Cloth", "unlinking preserves a custom label")
 addon.ClearMark("Item-legacy")
 addon = SetupRecovery(profiles)
 addon.RestoreLegacySettings()

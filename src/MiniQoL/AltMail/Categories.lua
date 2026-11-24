@@ -87,11 +87,17 @@ function addon.RestoreLegacySettings()
 end
 
 function addon.GetGroup(slot)
-  local settings = Groups().settings[slot]
+  local settings = Groups().settings[slot] or {}
+  local defaultName = "Mail Group " .. slot
+  local label = settings.label
+  -- Older versions saved the numbered placeholder even when no name was entered.
+  if label == nil and settings.name ~= defaultName then label = settings.name end
+  label = addon.Trim(label)
   return {
     id = "altmail:" .. slot,
     slot = slot,
-    name = settings and settings.name or "Mail Group " .. slot,
+    label = label,
+    name = label ~= "" and label or settings.recipient or defaultName,
   }
 end
 
@@ -135,8 +141,9 @@ end
 
 function addon.SaveRoute(profileName, category, recipient, automatic, label)
   if category.slot then
+    label = addon.Trim(label or category.label)
     Groups().settings[category.slot] = {
-      name = label or category.name, recipient = recipient, automatic = automatic == true,
+      label = label ~= "" and label or nil, recipient = recipient, automatic = automatic == true,
     }
     return
   end

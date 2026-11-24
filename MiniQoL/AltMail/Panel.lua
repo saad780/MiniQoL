@@ -48,12 +48,10 @@ local function EditBox(y, width, maxBytes)
   return box
 end
 
-local nameLabel = Label("Group name", 17, -75)
-local groupName = EditBox(-69, 298, 48)
-Label("Recipient", 17, -110)
-local recipient = EditBox(-104, 183, 96)
+Label("Recipient", 17, -75)
+local recipient = EditBox(-69, 183, 96)
 local altPicker = CreateFrame("DropdownButton", nil, panel, "WowStyle1DropdownTemplate")
-altPicker:SetPoint("TOPLEFT", 294, -104)
+altPicker:SetPoint("TOPLEFT", 294, -69)
 altPicker:SetSize(109, 24)
 altPicker:SetDefaultText("Choose alt")
 altPicker:SetupMenu(function(_, root)
@@ -71,6 +69,9 @@ altPicker:SetupMenu(function(_, root)
   end
   if #alts > 12 and root.SetScrollMode then root:SetScrollMode(320) end
 end)
+
+local nameLabel = Label("Optional label", 17, -110, "GameFontNormalSmall")
+local groupName = EditBox(-104, 298, 48)
 
 local automatic = CreateFrame("CheckButton", nil, panel, "UICheckButtonTemplate")
 automatic:SetPoint("TOPLEFT", 12, -138)
@@ -161,11 +162,10 @@ function addon.RefreshMailControls()
   local label = addon.Trim(groupName:GetText())
   local saved = route ~= nil and addon.Trim(recipient:GetText()) == route.recipient
     and (automatic:GetChecked() == true) == route.automatic
-    and (not isGroup or label == category.name)
+    and (not isGroup or label == category.label)
   local busy = addon.IsSending()
   altPicker:SetEnabled(not busy and usable)
-  save:SetEnabled(not busy and usable and addon.Trim(recipient:GetText()) ~= "" and not saved
-    and (not isGroup or label ~= ""))
+  save:SetEnabled(not busy and usable and addon.Trim(recipient:GetText()) ~= "" and not saved)
   unlink:SetEnabled(not busy and route ~= nil)
   send:SetEnabled(not busy and usable and saved and addon.IsMailboxOpen() == true)
   local shortcut
@@ -212,7 +212,7 @@ local function LoadCategory()
   groupName:SetShown(isGroup)
   helpHeading:SetShown(isGroup)
   help:SetShown(isGroup)
-  groupName:SetText(isGroup and category.name or "")
+  groupName:SetText(isGroup and category.label or "")
   recipient:SetText(route and route.recipient or "")
   automatic:SetChecked(route and route.automatic or false)
   addon.RefreshMarks()
@@ -280,6 +280,7 @@ unlink:SetScript("OnClick", function()
   if category and not addon.IsSending() then
     addon.SaveRoute(name, category)
     LoadCategory()
+    dropdown:GenerateMenu()
   end
 end)
 
