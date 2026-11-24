@@ -820,6 +820,36 @@ local function openPicker()
     return menu
 end
 equal(openPicker().title, "No known alts yet", "empty roster")
+-- A bank alt known only to Questie is available in both address selectors.
+do
+    local playerGUID = "Player-71-000000AA"
+    UnitGUID = function() return playerGUID end
+    QuestieConfig = { char = {
+        ["Cora Vale"] = { guid = "Player-71-000000B0", townsfolkClass = "MAGE" },
+        ["Cora Vale - Realm Four"] = {},
+        ["Former Name"] = { guid = playerGUID },
+        ["Far Away"] = { guid = "Player-710-000000B1" },
+        ["Other Address - Realm Six"] = { guid = "Player-71-000000B2" },
+        ["Unverified"] = {},
+        ["Invalid"] = { guid = "Pet-71-000000B3" },
+        ["Local Address - Realm Four"] = {},
+    } }
+    equal(table.concat(openPicker().names, ", "), "Cora Vale, Local Address", "only verified local addresses, once each")
+    openPicker().actions["Cora Vale"]()
+    equal(input:GetText(), "Cora Vale", "the dropdown uses the full Questie name")
+    local book = { ["cora vale"] = { name = "Cora Vale", count = 2, last = CLOCK } }
+    db.sent[player.realm] = book
+    M:PaintBox()
+    equal(rowTexts(M), "Cora Vale, Local Address", "the mailbox lists a recovered alt once, under Your characters")
+    assert(box.rows[1].entry.alt and box.rows[1].entry.count == 2, "keeps the alt's sending history")
+    click(box.rows[1])
+    equal(SendMailNameEditBox:GetText(), "Cora Vale", "the mailbox uses the same full name")
+    playerGUID = "SECRET"
+    equal(names(M:Alts()), "Cora Vale, Local Address", "explicit realm keys work when the player's GUID is hidden")
+    QuestieConfig.char["Cora Vale - Realm Four"] = nil
+    equal(names(M:Alts()), "Local Address", "an unqualified key needs a readable player realm ID")
+    UnitGUID, QuestieConfig, db.sent[player.realm] = nil, nil, nil
+end
 equal(labelInput:GetText(), "", "the label starts blank")
 input:SetText("Custom Name")
 assert(saveButton:IsEnabled(), "only a recipient is required")

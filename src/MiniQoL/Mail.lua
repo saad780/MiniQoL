@@ -16,8 +16,8 @@ local _, ns = ...
 -- people you have mailed in the last month, the ones mailed most first. A
 -- click puts a name in the To field. Characters on this game carry a surname
 -- and mail is addressed with it ("Ana Smith"), so each of yours is written
--- down in full as it logs in; the ones Syndicator already knows are listed
--- before they have. Kept in MiniQoLDB.mail, which every character shares.
+-- down in full as it logs in. Syndicator and Questie can also supply names
+-- before those characters log in with MiniQoL.
 local Mail = {}
 ns.Mail = Mail
 local T = ns.Theme
@@ -35,7 +35,7 @@ local BOX_W, HEADER_H, HEAD_H, ROW_H, PAD, GAP = 172, 22, 16, 18, 8, 6
 local NEWS = { 1, 0.82, 0 } -- the game's own colour for a line of news
 
 local function Readable(value)
-    return value ~= nil and not (issecretvalue and issecretvalue(value))
+    return not (issecretvalue and issecretvalue(value)) and value ~= nil
 end
 
 local function Text(value)
@@ -178,6 +178,37 @@ function Mail:SyndicatorCharacters()
     return list
 end
 
+-- Questie's AceDB keys include the realm on standard realms. On Forever
+-- the key is just the full name, so use the realm ID in the player GUID.
+local function GuidRealmID(guid)
+    return guid and guid:match("^Player%-(%d+)%-%x+$")
+end
+
+local function QuestieName(key, guid, realm, playerGUID, playerRealmID)
+    if guid and guid == playerGUID then return end
+    local name, recordRealm = key:match("^(.+) %- (.+)$")
+    if recordRealm then return recordRealm == realm and name or nil end
+    if playerRealmID and GuidRealmID(guid) == playerRealmID then return key end
+end
+
+local function AddQuestieCharacters(byName, realm)
+    local characters = type(QuestieConfig) == "table" and QuestieConfig.char
+    if type(characters) ~= "table" then return end
+    local playerGUID = UnitGUID and Text(UnitGUID("player"))
+    local playerRealmID = GuidRealmID(playerGUID)
+    for key, record in pairs(characters) do
+        if Text(key) and type(record) == "table" then
+            local name = QuestieName(key, Text(record.guid), realm, playerGUID, playerRealmID)
+            if name then
+                local folded = Fold(name)
+                local alt = byName[folded] or { name = name }
+                alt.class = alt.class or Text(record.townsfolkClass)
+                byName[folded] = alt
+            end
+        end
+    end
+end
+
 function Mail:Book()
     return self.db and self.db.sent[Realm()] or {}
 end
@@ -195,6 +226,7 @@ function Mail:Alts()
     for _, alt in ipairs(self:SyndicatorCharacters()) do
         if not byName[Fold(alt.name)] then byName[Fold(alt.name)] = alt end
     end
+    AddQuestieCharacters(byName, realm)
     local book, list = self:Book(), {}
     for key, alt in pairs(byName) do
         if key ~= me then
@@ -239,10 +271,10 @@ end
 
 -- Whoever else was mailed in the last month: the most mailed first, then the
 -- most lately.
-function Mail:People()
+function Mail:People(alts)
     local mine, list, now = {}, {}, time()
     if self.me then mine[Fold(self.me)] = true end
-    for _, alt in ipairs(self:Alts()) do mine[alt.key] = true end
+    for _, alt in ipairs(alts or self:Alts()) do mine[alt.key] = true end
     for key, entry in pairs(self:Book()) do
         if type(entry) == "table" and Text(entry.name) and not mine[key]
             and now - (entry.last or 0) <= RECENT_DAYS * DAY then
@@ -276,12 +308,13 @@ function Mail:ForgetPeople()
 end
 
 function Mail:Summary()
-    local alts, people = #self:Alts(), #self:People()
-    if alts == 0 and people == 0 then
+    local alts = self:Alts()
+    local people = self:People(alts)
+    if #alts == 0 and #people == 0 then
         return "Nobody is listed yet. Your other characters are added as they log in, and people as you send them mail."
     end
     return ("%d of your other characters and %d other %s you have mailed in the last %d days are listed.")
-        :format(alts, people, people == 1 and "person" or "people", RECENT_DAYS)
+        :format(#alts, #people, #people == 1 and "person" or "people", RECENT_DAYS)
 end
 
 -- The game's own sending is watched for who a mail goes to; the name is kept
@@ -503,7 +536,8 @@ end
 function Mail:PaintBox()
     local box = self.box
     if not box then return end
-    local groups = { self:Alts(), self:People() }
+    local alts = self:Alts()
+    local groups = { alts, self:People(alts) }
     local limits = { MAX_ALTS, MAX_PEOPLE }
     local y, used = -(HEADER_H + GAP), 0
     for index, list in ipairs(groups) do
