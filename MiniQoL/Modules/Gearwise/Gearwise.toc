@@ -10,6 +10,8 @@
 
 Core.lua
 Profiles.lua
+EffectData.lua
+Effects.lua
 Items.lua
 Compare.lua
 Display.lua

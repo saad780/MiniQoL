@@ -34,6 +34,6 @@ The values behind the advice can be changed. The Gear advice page lists what one
 - `/gw tooltip on|off` controls tooltip comparisons.
 - `/gw debug` reports visible item comparison states and the latest item-data errors.
 
-Scores and changes estimate item stats, not final character-sheet totals, simulated damage, special effects, or set bonuses. Wearable items unsuited to the selected build are not marked as physically unusable.
+Scores use your build's stat weights. Simple weapon procs use the live effect amount and a tooltip or WoWSims Forever trigger rate. An unknown rate can show the frequency needed to beat your equipped weapon. Comparisons include supported set bonuses gained or lost and can preview additional swaps with pieces in your bags or personal bank. Tooltips identify estimates and effects that need manual review.
 
 Copy the addon files and `Media` folder to `World of Warcraft/_classic_beta_/Interface/AddOns/Gearwise/`, then type `/reload` in game. This version targets interface 16001. Automated checks use Lua 5.1 with a simulated game API; final appearance and protected equip behavior require in-game verification.

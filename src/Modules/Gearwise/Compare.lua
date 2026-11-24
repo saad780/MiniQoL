@@ -21,7 +21,28 @@ local weaponTypes = {
 	WARLOCK = { 7, 10, 15, 19 }, DRUID = { 4, 5, 6, 10, 13, 15 },
 }
 
-function Compare:Clear() wipe(self.cache) end
+function Compare:Clear()
+	wipe(self.cache)
+	self.wornSets = nil
+	if ns.Effects then ns.Effects.bank, ns.Effects.bagLinks = nil, nil end
+end
+
+-- An Explorer scan can discard the wrong slot or class before requesting
+-- stats or building the tooltip. Unknown instant info still gets a full read.
+function Compare:MayFit(id, slot)
+	local instant = C_Item and C_Item.GetItemInfoInstant or GetItemInfoInstant
+	if not instant then return true end
+	local _, _, _, loc, _, class, subclass = instant(id)
+	if not ns.Text(loc) then return true end
+	local targets = slots[loc]
+	if not targets and not hands[loc] then return false end
+	if slot then
+		if targets and slot ~= targets[1] and slot ~= targets[2] then return false end
+		if hands[loc] and slot ~= 16 and slot ~= 17 then return false end
+	end
+	if not ns.Number(class) or not ns.Number(subclass) or not ns.profile then return true end
+	return self:CanEquip({ level = 0, loc = loc, classID = class, subclassID = subclass }, ns.profile)
+end
 
 function Compare:CanEquip(item, profile)
 	if item.level > profile.level then return false, "Requires level " .. item.level end
@@ -99,6 +120,42 @@ local function DualWield(profile)
 	if IsSpellKnown and IsSpellKnown(674) then return true end
 	return profile.class == "ROGUE" and profile.level >= 10
 		or ((profile.class == "WARRIOR" or profile.class == "HUNTER") and profile.level >= 20)
+end
+
+function Compare:ReserveSetSlot(piece, profile, reserved)
+	if not self:CanEquip(piece, profile) then return false end
+	local loc, targets = piece.loc, slots[piece.loc]
+	if hands[loc] then
+		if loc == "INVTYPE_2HWEAPON" then
+			if profile.shield or reserved[16] or reserved[17] then return false end
+			reserved[16], reserved[17] = piece, piece
+			return 16
+		end
+		if loc == "INVTYPE_WEAPONMAINHAND" then targets = {16}
+		elseif loc == "INVTYPE_WEAPON" then targets = DualWield(profile) and not profile.shield and {16,17} or {16}
+		elseif loc == "INVTYPE_WEAPONOFFHAND" and (not DualWield(profile) or profile.shield) then return false
+		else targets = {17} end
+	end
+	for _, slot in ipairs(targets or {}) do
+		if not reserved[slot] and not (slot == 17 and reserved[16] and reserved[16].loc == "INVTYPE_2HWEAPON") then
+			reserved[slot] = piece
+			return slot
+		end
+	end
+	return false
+end
+
+-- Read the rest of the loadout once, only for comparisons involving a set.
+function Compare:WornSets()
+	if self.wornSets then return self.wornSets end
+	local worn = {}
+	for slot = 1, 19 do
+		local item, status = Equipped(slot)
+		if status == "pending" then return end
+		if item then worn[slot] = item end
+	end
+	self.wornSets = worn
+	return worn
 end
 
 local function UniqueAllowed(item, replaced, equipped)
@@ -201,23 +258,63 @@ function Compare:Evaluate(link)
 	for index, alternative in ipairs(alternatives) do
 		if index == 2 and mainFirst and best and best.status == "upgrade" then break end
 		if UniqueAllowed(item, alternative.replaced, equipped) then
-			local oldScore = 0
-			for slot, old in pairs(alternative.old) do oldScore = oldScore + self:Score(old, slot, profile) end
+			local oldScore, notes, review = 0, {}, item.effects
+			local hasSet, plan, perPPM = item.setKey, nil, nil
+			local estimatedProc = false
+			local otherUnscored = item.effects
+			for slot, old in pairs(alternative.old) do
+				oldScore = oldScore + self:Score(old, slot, profile)
+				hasSet, review = hasSet or old.setKey, review or old.effects
+				if old.proc then
+					local extra, text, unknown = ns.Effects:Proc(old, slot, profile)
+					oldScore, review = oldScore + extra, review or unknown
+					estimatedProc = estimatedProc or extra > 0
+					otherUnscored = otherUnscored or unknown
+					if text then notes[#notes+1] = "Replacing " .. old.name .. " — " .. text end
+				end
+				otherUnscored = otherUnscored or old.effects
+			end
 			local newScore = self:Score(item, alternative.slot, profile)
+			if item.proc then
+				local extra, text, unknown, unitGain = ns.Effects:Proc(item, alternative.slot, profile)
+				perPPM = unitGain
+				newScore, review = newScore + extra, review or unknown
+				estimatedProc = estimatedProc or extra > 0
+				if text then notes[#notes+1] = item.name .. " — " .. text end
+			end
+			if hasSet then
+				local worn = self:WornSets()
+				if not worn then return { status = "pending" } end
+				local lost, gained, unknown, potential = ns.Effects:Sets(item, alternative, worn, profile, notes)
+				-- A bonus-only estimate has a value but no projected score for the other swaps.
+				if type(potential) == "number" then potential = { value = potential } end
+				oldScore, newScore = oldScore + lost, newScore + gained
+				review, plan = review or unknown, potential
+				otherUnscored = otherUnscored or unknown
+			end
 			local delta = newScore - oldScore
+			if plan and plan.extraDelta and not review then
+				local net = delta + plan.extraDelta
+				notes[#notes+1] = ("With %s too, estimated combined change %+.1f score%s."):format(plan.names, net,
+					plan.base and " (base stats for stored gear)" or "")
+				if net <= 0 then plan = nil end
+			end
+			local breakEven
+			if delta <= 0 and perPPM and perPPM > 0 and not otherUnscored then
+				breakEven = -delta / perPPM
+				notes[#notes+1] = ("Ties the equipped gear at %.2f procs/min. A higher rate wins."):format(breakEven)
+			end
 			if not best or delta > best.delta then
 				local oldStats = TotalStats(alternative.old)
 				local newStats = TotalStats({ item })
 				local changes = {}
 				for key, value in pairs(newStats) do changes[key] = value - (oldStats[key] or 0) end
 				for key, value in pairs(oldStats) do if newStats[key] == nil then changes[key] = -value end end
-				local effects = item.effects or (ns.Number(item.setID) and item.setID > 0)
 				local oldLinks = {}
 				for oldSlot = 1, 19 do
 					local old = alternative.old[oldSlot]
 					if old then
 						oldLinks[#oldLinks + 1] = old.link
-						effects = effects or old.effects or (ns.Number(old.setID) and old.setID > 0)
 					end
 				end
 				-- Armor has a small score weight, especially for casters. A real
@@ -226,7 +323,8 @@ function Compare:Evaluate(link)
 				best = { status = delta > threshold and "upgrade" or (delta < -threshold and "downgrade" or "equal"),
 					item = item, slot = alternative.slot, delta = delta, oldScore = oldScore, newScore = newScore,
 					percent = oldScore > 0 and delta / oldScore * 100 or nil, changes = changes,
-					oldLinks = oldLinks, effects = effects, empty = #oldLinks == 0 }
+					oldLinks = oldLinks, effects = review, effectNotes = #notes > 0 and notes or nil,
+					setPlan = plan and plan.value, breakEven = breakEven, estimatedProc = estimatedProc, empty = #oldLinks == 0 }
 			end
 		end
 	end

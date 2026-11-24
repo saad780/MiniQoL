@@ -63,6 +63,7 @@ local function ParseLine(text, out, item)
 	if not ns.Text(text) then return end
 	local line = Clean(text)
 	if line:find("unique%-equipped") then item.unique = true end
+	if ns.Effects and ns.Effects:Line(item, line) then return end
 	if line:match("^use:") or line:match("^chance on hit:") or line:find("set:", 1, true)
 		or line:match("^%(%d+%) set") then item.effects = true; return end
 	local dps = tonumber(line:match("%(([%d%.]+) damage per second%)"))
@@ -78,6 +79,13 @@ local function ParseLine(text, out, item)
 	-- full stop, and "Equip: Increased Defense +7." carries its number last.
 	local plain = line:match("^equip:%s*(.-)%.?$")
 	if plain then
+		-- A conditional buff can name the same stats as a permanent bonus.
+		-- Its magnitude and proc chance do not belong in the static score.
+		if plain:match("for [%d%.]+ sec") or plain:match("for [%d%.]+ min")
+			or plain:find("chance on ", 1, true) or plain:find("chance when ", 1, true) then
+			item.effects = true
+			return
+		end
 		amount, name = plain:match("^%+([%d%.]+)%s+(.+)$")
 		if amount and names[name] then Add(out, names[name], tonumber(amount)); return end
 	end
@@ -276,6 +284,7 @@ function Items:Read(link)
 		local ok, category, maximum = pcall(C_Item.GetItemUniqueness, link)
 		if ok and ns.Number(category) and category > 0 then item.limit, item.limitMax = category, maximum end
 	end
+	if ns.Effects then ns.Effects:Finish(item) end
 	self.cache[link] = item
 	return item
 end

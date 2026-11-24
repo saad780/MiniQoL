@@ -95,7 +95,8 @@ function Display:Tooltip(tooltip, data)
 			tooltip:AddLine(slotLabel .. ": " .. table.concat(result.oldLinks, " + "), 0.7, 0.73, 0.77, true)
 		end
 		for _, line in ipairs(self:Changes(result)) do tooltip:AddLine(line, 1, 1, 1, true) end
-		if result.effects then tooltip:AddLine("Stat estimate; special effects and set bonuses need comparison.", 0.65, 0.69, 0.74, true) end
+		for _, line in ipairs(result.effectNotes or {}) do tooltip:AddLine(line, 0.8, 0.85, 0.9, true) end
+		if result.effects then tooltip:AddLine("Some effects still need a manual comparison.", 0.65, 0.69, 0.74, true) end
 	end
 end
 

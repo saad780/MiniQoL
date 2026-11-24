@@ -177,6 +177,13 @@ end
 -- 1. The report: a level 16 rogue with a Small Throwing Knife picks up a
 --    better one. Neither has a stat on it.
 Become("ROGUE", 16)
+function GetItemInfoInstant(id)
+    local item = ITEMS[id]
+    if item then return id, nil, nil, item.loc, nil, item.classID or WEAPON, item.subclassID end
+end
+assert(Compare:MayFit(3107, 18) and not Compare:MayFit(3107, 1), "instant slot filter")
+assert(not Compare:MayFit(9101, 16), "a rogue cannot equip a two-handed axe")
+assert(Compare:MayFit(999999, 16), "an uncached item still gets a full comparison")
 Wearing(2947)
 Is(3107, "upgrade", "a better throwing knife is an upgrade for a rogue")
 Is(2947, "equal", "the same knife again is not")

@@ -585,7 +585,8 @@ function Upgrades:Show(result)
 
 	local notes = {}
 	if twoHanded then notes[#notes + 1] = "Replaces both weapon slots." end
-	if result.effects then notes[#notes + 1] = "Use effects and set bonuses are not scored." end
+	for _, line in ipairs(result.effectNotes or {}) do notes[#notes + 1] = line end
+	if result.effects then notes[#notes + 1] = "Some effects still need a manual comparison." end
 	frame.note:SetText(table.concat(notes, "\n"))
 	Place(frame.note, y + 7)
 	if #notes > 0 then y = y + 7 + frame.note:GetStringHeight() end

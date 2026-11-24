@@ -18,6 +18,8 @@ CharacterStates.lua
 Manifest.lua
 Modules\Gearwise\Core.lua
 Modules\Gearwise\Profiles.lua
+Modules\Gearwise\EffectData.lua
+Modules\Gearwise\Effects.lua
 Modules\Gearwise\Items.lua
 Modules\Gearwise\Compare.lua
 Modules\Gearwise\Display.lua
