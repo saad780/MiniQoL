@@ -367,5 +367,100 @@ setting("questMiddleClick", true)
 click(poi)
 assert(mark(), "on again")
 
+-- A map click selects the actual pin, even when its canvas also receives the
+-- release. A map pin can be a native quest POI, an HBD wrapper or an addon frame.
+local function visible() return true end
+local function opaque() return 1 end
+local canvas = UIFrame(nil, { GetAlpha = opaque })
+WorldMapFrame = UIFrame(nil, { IsShown = visible, GetMapID = function() return 1429 end,
+    GetCanvasContainer = function() return canvas end, ScrollContainer = UIFrame(nil),
+    AcquirePin = noop, RemoveAllPinsByTemplate = noop, OnMapChanged = noop })
+ns.OpenMapCompat = { IsActive = function() return false end }
+ns.DetailView = { IsActive = function() return false end, IsFollowingMap = function() return false end }
+ns.QuestAvailability = { IsQuestAvailable = function() return false end }
+ns.QuestTurnIns = { IsReady = function(_, id) return C_QuestLog.IsComplete(id) end }
+local clock, foci = 0, {}
+function GetTime() return clock end
+function GetMouseFoci() return foci end
+EventUtil.ContinueOnAddOnLoaded = function(_, callback) callback() end
+C_Timer.NewTicker = noop
+assert(loadfile(root .. "/Modules/Wayfinder/AddonPins.lua"))("Wayfinder", ns)
+ns.AddonPins:OnLogin()
+
+local function mapPin(x, y)
+    return UIFrame(canvas, { GetMap = function() return WorldMapFrame end,
+        GetPosition = function() return x, y end, GetAlpha = opaque, IsVisible = visible,
+        GetSize = function() return 16, 16 end })
+end
+local function mapClick(focus, canvasFirst, expected, wx, wy)
+    local count = #Navigation:GetWaypoints()
+    clock = clock + 1
+    foci = { canvas, focus }
+    event("GLOBAL_MOUSE_DOWN", "MiddleButton")
+    if canvasFirst then Navigation:PlaceMapClick(1429, .88, .91) end
+    event("GLOBAL_MOUSE_UP", "MiddleButton")
+    if not canvasFirst then Navigation:PlaceMapClick(1429, .88, .91) end
+    equal(#Navigation:GetWaypoints(), count + 1, "one waypoint per map click")
+    equal(arrow().n, expected, "the arrow names the selected pin")
+    near(arrow().x, wx, "at the selected map position")
+    near(arrow().y, wy, "on both axes")
+end
+local native = mapPin(.28, .36)
+native.GetQuestID = function() return 400 end
+native.icon = 12345
+QUESTS[400].objectives[1].text = "Collect Goretusk Livers"
+mapClick(UIFrame(native), true, "The Westfall Stew: Collect Goretusk Livers", 280, 360)
+equal(Quests:GetFollowed(), 200, "choosing a map pin preserves the tracked quest")
+
+local hbd = mapPin(.63, .74)
+hbd.icon = UIFrame(hbd, { IsObjectType = visible, IsVisible = visible, GetAlpha = opaque,
+    GetSize = native.GetSize, data = { Id = 400, QuestData = { Id = 400, name = "The Westfall Stew" },
+        ObjectiveIndex = 1, ObjectiveData = { Description = "Goretusk Liver" }, Name = "Goretusk" } })
+mapClick(hbd.icon, false, "The Westfall Stew: Goretusk Liver", 630, 740)
+local offer = mapPin(.34, .52)
+offer.questID = 500
+mapClick(offer, false, "A Lost Letter", 340, 520)
+hbd.icon.data = { Id = 300, Type = "complete", QuestData = { Id = 300, name = "Bounty on Murlocs" },
+    Name = "Gryan Stoutmantle" }
+mapClick(hbd.icon, true, "Turn in Bounty on Murlocs: Gryan Stoutmantle", 630, 740)
+
+local polestar = mapPin(.1, .1)
+polestar.GetPosition, polestar.GetMap = nil, nil
+polestar.data = { x = 47, y = 33, pin = { kind = "objective", header = "Goretusk",
+    refs = { { entry = { q = 400, title = "The Westfall Stew" }, name = "Goretusk Liver" } } } }
+Polestar = { Pins = { WorldPinOf = function(frame) return frame == polestar and frame.data end } }
+mapClick(polestar, false, "The Westfall Stew: Goretusk Liver", 470, 330)
+polestar.data.pin.refs[2] = { entry = { q = 500, title = "A Lost Letter" } }
+mapClick(polestar, true, "Goretusk", 470, 330)
+local service = mapPin(.15, .26)
+service.data = { Name = "Innkeeper Heather" }
+mapClick(service, false, "Innkeeper Heather", 150, 260)
+local relic = mapPin(.61, .82)
+GameTooltip = { IsShown = visible, GetOwner = function() return relic end }
+GameTooltipTextLeft1 = { GetText = function() return "Weathered Relic" end }
+mapClick(relic, true, "Weathered Relic", 610, 820)
+mapClick(nil, true, "Elwynn Forest 88.0, 91.0", 880, 910)
+
+local prior, priorCount = arrow(), #Navigation:GetWaypoints()
+clock, foci = clock + 1, { native }
+event("GLOBAL_MOUSE_DOWN", "MiddleButton")
+foci = { hbd.icon }
+event("GLOBAL_MOUSE_UP", "MiddleButton")
+Navigation:PlaceMapClick(1429, .2, .1)
+equal(arrow(), prior, "releasing on a different pin cancels the click")
+equal(#Navigation:GetWaypoints(), priorCount, "a cancelled pin click leaves the canvas alone")
+local ownPin = UIFrame(canvas, { wayfinderDetailPin = true })
+clock, foci = clock + 1, { ownPin }
+event("GLOBAL_MOUSE_DOWN", "MiddleButton")
+foci = { canvas } -- the pin's own handler can refresh the displayed pins on release
+Navigation:PlaceMapClick(1429, .2, .1)
+event("GLOBAL_MOUSE_UP", "MiddleButton")
+equal(#Navigation:GetWaypoints(), priorCount, "the detail pin's handler owns the click")
+
+QUESTS[400].objectives[2] = { finished = false, text = "Collect Okra" }
+equal(Quests:MapPinLabel(400), "The Westfall Stew", "a map pin with ambiguous objectives uses the quest title")
+equal(Quests:MapPinLabel(400, nil, nil, false, 2), "The Westfall Stew: Collect Okra", "explicit objective index")
+
 print = realPrint
+print("Quest map clicks: named Blizzard, Questie and Polestar pins, exact spawn, one waypoint per click")
 print("Quest waypoints: log, tracker icon and Questie lines; nearest objective then turn-in; follows progress, gone when handed in; game markers without Questie")

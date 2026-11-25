@@ -244,7 +244,7 @@ function Continuous:GetMaxZoom(u, v)
 end
 function Continuous:PlaceWaypointAtCursor()
 	local id, x, y = ns.OpenMapCompat:CursorPoint()
-	if id then ns.Navigation:SetWaypointOnMap(id, x, y) end
+	ns.Navigation:PlaceMapClick(id, x, y)
 end
 function Continuous:ZoomToDetail()
 	if not self:IsActive() then return false end

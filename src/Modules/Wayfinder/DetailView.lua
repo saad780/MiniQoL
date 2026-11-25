@@ -502,7 +502,9 @@ local function PinOnMouseUp(pin, button)
 			ns.Navigation:ToggleWaypointAt(pin.rec, pin.catID)
 		elseif pin.quest then
 			local wx, wy = ns.PlaneToWorld(pin.px, pin.py)
-			ns.Navigation:SetWaypoint(cont, wx, wy, pin.quest.questName, pin.mapID or underlayMapID)
+			local quest = pin.quest
+			local label = ns.QuestWaypoints:MapPinLabel(quest.questID, quest.questName, nil, quest.turnIn)
+			ns.Navigation:SetWaypoint(cont, wx, wy, label, pin.mapID or underlayMapID)
 		end
 	end
 end
@@ -533,6 +535,7 @@ local function AcquirePin()
 	local pin = table.remove(freePins)
 	if not pin then
 		pin = CreateFrame("Frame", nil, pinLayer)
+		pin.wayfinderDetailPin = true
 		pin:EnableMouse(true)
 		pin.icon = pin:CreateTexture(nil, "ARTWORK")
 		pin.icon:SetAllPoints()
@@ -1166,7 +1169,7 @@ local function CreateFrames()
 			DetailView:EndDrag()
 		elseif button == "RightButton" then
 			DetailView:Exit()
-		elseif button == "MiddleButton" then
+		elseif button == "MiddleButton" and not ns.AddonPins:HandleCanvasClick() then
 			local vx, vy = CursorInView()
 			local wx, wy = ns.PlaneToWorld(ViewToPlane(vx, vy, cx, cy, scale))
 			ns.Navigation:SetWaypoint(cont, wx, wy, nil, underlayMapID)

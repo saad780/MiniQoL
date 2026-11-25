@@ -178,6 +178,10 @@ function Navigation:SetWaypointOnMap(mapID, x, y, label, options)
 	return self:AddWaypoint(cont, wx, wy, label, mapID, options)
 end
 
+function Navigation:PlaceMapClick(mapID, x, y)
+	if not ns.AddonPins:HandleCanvasClick() and mapID then return self:SetWaypointOnMap(mapID, x, y) end
+end
+
 -- A waypoint at a recorded location (vendor, mailbox...).
 function Navigation:SetWaypointTo(rec, catID)
 	local cat = catID and ns.CategoryByID[catID]
@@ -1374,7 +1378,7 @@ function Navigation:HookWorldMap()
 		if ns.OpenMapCompat:IsActive() then return end -- handled before OpenMap recentres
 		local x, y = container:GetNormalizedCursorPosition()
 		if x and y and x >= 0 and x <= 1 and y >= 0 and y <= 1 then
-			self:SetWaypointOnMap(WorldMapFrame:GetMapID(), x, y)
+			self:PlaceMapClick(WorldMapFrame:GetMapID(), x, y)
 		end
 	end)
 	self:CreateLocateButton()

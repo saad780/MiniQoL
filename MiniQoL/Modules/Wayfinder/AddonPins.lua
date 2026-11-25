@@ -87,15 +87,21 @@ local function Label(frame)
 		local ok, name = pcall(SilverDragon.GetLabel, SilverDragon, frame.id, frame.isTreasure)
 		if ok and Text(name) then return name end
 	end
-	return Text(frame.name) or "Map icon"
+	return Text(frame.name)
 end
 
-local function ReadPin(frame, clip)
+local function ReadPin(frame, clip, focused)
 	if IsOwn(frame) or not frame:IsVisible() then return nil end
 	local mapID = WorldMapFrame:GetMapID()
-	local x, y
+	local x, y, polestarPin
 	-- Native MapCanvas pins and the HBD wrappers used by Questie/HandyNotes.
-	if frame.GetPosition and frame.GetMap then
+	if focused and type(frame.data) == "table" and type(frame.data.pin) == "table"
+		and Polestar and Polestar.Pins and Polestar.Pins.WorldPinOf and Polestar.Pins.WorldPinOf(frame) then
+		-- Polestar draws its own frames. Their x/y are percentages of the viewed map.
+		polestarPin = frame.data.pin
+		x, y = frame.data.x / 100, frame.data.y / 100
+		if ns.OpenMapCompat:IsActive() then mapID, x, y = ns.OpenMapCompat:CanvasPoint(x, y) end
+	elseif frame.GetPosition and frame.GetMap then
 		x, y = frame:GetPosition()
 		local map = frame:GetMap()
 		if map and map.GetMapID then mapID = map:GetMapID() end
@@ -128,7 +134,7 @@ local function ReadPin(frame, clip)
 	if not c then return nil end
 	if clip and (c ~= clip.cont or wx < clip.minX or wx > clip.maxX or wy < clip.minY or wy > clip.maxY) then return end
 	local source = frame
-	if frame.icon and frame.icon.IsObjectType and frame.icon:IsObjectType("Frame") then
+	if type(frame.icon) == "table" and frame.icon.IsObjectType and frame.icon:IsObjectType("Frame") then
 		source = frame.icon -- HBD's wrapper has no art or dimensions of its own.
 	end
 	if not source:IsVisible() then return nil end
@@ -152,28 +158,80 @@ local function ReadPin(frame, clip)
 	if not Number(npcID) or npcID <= 0 then npcID = nil end
 	local turnIn = ns.QuestTurnIns:IsReady(questID) and true or nil
 	local giver = kind or turnIn or (questID and ns.QuestAvailability:IsQuestAvailable(questID))
-	return { frame = frame, source = source, c = c, x = wx, y = wy, m = mapID, n = Label(source),
-		questID = questID, turnIn = turnIn, kind = kind, giver = giver, npcID = npcID, service = service }
+	local name = Label(source) or (source ~= frame and Label(frame)) or "Map icon"
+	return { frame = frame, source = source, c = c, x = wx, y = wy, m = mapID, n = name,
+		questID = questID, turnIn = turnIn, kind = kind, giver = giver, npcID = npcID, service = service,
+		polestarPin = polestarPin }
 end
 
 -- Some third-party pins contain restricted values or are briefly half released.
 -- One unreadable pin must not interrupt the rest of the map.
-local function TryRead(frame, clip)
-	local ok, entry = pcall(ReadPin, frame, clip)
+local function TryRead(frame, clip, focused)
+	local ok, entry = pcall(ReadPin, frame, clip, focused)
 	return ok and entry or nil
 end
 
 local function CurrentEntry(entry)
-	local current = TryRead(entry.frame)
+	local current = TryRead(entry.frame, nil, entry.polestarPin ~= nil)
 	if not current or current.source ~= entry.source or current.m ~= entry.m
-		or current.x ~= entry.x or current.y ~= entry.y then return nil end
+		or current.x ~= entry.x or current.y ~= entry.y or current.polestarPin ~= entry.polestarPin then return nil end
 	return current
+end
+
+-- Some pins only expose their label through the currently visible tooltip.
+local function TooltipTitle(entry)
+	if not (GameTooltip and GameTooltip:IsShown() and GameTooltipTextLeft1) then return end
+	local owner = GameTooltip:GetOwner()
+	if owner == entry.source or owner == entry.frame or (hovered and owner == hovered.pin and hovered.entry.source == entry.source) then
+		return Text(GameTooltipTextLeft1:GetText())
+	end
+end
+
+-- Resolve on click: quest titles and log objectives need no lookups while panning.
+local function WaypointLabel(entry)
+	local frame, source = entry.frame, entry.source
+	local pin = entry.polestarPin
+	if pin then
+		local target = Text(pin.header) or Text(pin.tooltip)
+		-- A clustered marker can serve several quests. Its header names the shared spawn.
+		if type(pin.refs) == "table" and #pin.refs == 1 then
+			local ref = pin.refs[1]
+			local quest = type(ref) == "table" and (ref.entry or ref)
+			local id = quest and quest.q or ref
+			if Number(id) then
+				return ns.QuestWaypoints:MapPinLabel(id, quest and Text(quest.title),
+					(type(ref) == "table" and Text(ref.name)) or target, pin.kind == "turnin")
+			end
+		end
+		if target then return target end
+	end
+	local data = source.data or frame.data
+	if type(data) ~= "table" then data = {} end
+	local quest = type(data.QuestData) == "table" and data.QuestData
+	local objective = type(data.ObjectiveData) == "table" and data.ObjectiveData
+	local questID = entry.questID or (quest and quest.Id) or data.questID or (objective and data.Id)
+	if not Number(questID) and type(frame.GetQuestID) == "function" then
+		local ok, id = pcall(frame.GetQuestID, frame)
+		if ok then questID = id end
+	end
+	local name = entry.n ~= "Map icon" and entry.n or TooltipTitle(entry)
+	if Number(questID) and questID > 0 then
+		local info = frame.poiInfo or frame.POI
+		local title = (quest and Text(quest.name)) or Text(data.questName) or Text(frame.questName)
+			or (type(info) == "table" and Text(info.questName))
+		local target = (objective and Text(objective.Description)) or Text(data.Name)
+		local turnIn = entry.kind == "complete" or entry.turnIn or ns.QuestTurnIns:IsReady(questID)
+		return ns.QuestWaypoints:MapPinLabel(questID, title, target, turnIn, data.ObjectiveIndex or frame.objectiveIndex,
+			name)
+	end
+	return name
 end
 
 function AddonPins:NavigateTo(entry)
 	local current = CurrentEntry(entry)
 	if not current then return false end
-	ns.Navigation:SetWaypoint(current.c, current.x, current.y, current.n, current.m)
+	local ok, label = pcall(WaypointLabel, current)
+	ns.Navigation:SetWaypoint(current.c, current.x, current.y, ok and label or current.n, current.m)
 	return true
 end
 
@@ -377,14 +435,34 @@ end
 
 local function FocusPin()
 	local container = WorldMapFrame:GetCanvasContainer()
-	for _, focus in ipairs(GetMouseFoci()) do
+	local foci = GetMouseFoci and GetMouseFoci() or { GetMouseFocus and GetMouseFocus() }
+	for _, focus in ipairs(foci) do
 		local frame, entry = focus, nil
 		for _ = 1, 12 do
-			if not frame or IsOwn(frame) then break end
-			if frame == container then return entry end
-			entry = TryRead(frame) or entry
+			if not frame or (frame.IsForbidden and frame:IsForbidden()) then break end
+			if frame.wayfinderDetailPin or frame.pinTemplate == "WayfinderMapPinTemplate" then return nil, true end
+			if frame == WayfinderDetailView and ns.DetailView:IsActive() then return end
+			if IsOwn(frame) then break end
+			if frame == container or frame == WorldMapFrame.ScrollContainer then
+				if entry then return entry end
+				break
+			end
+			entry = entry or TryRead(frame, nil, true)
 			frame = frame.GetParent and frame:GetParent()
 		end
+	end
+end
+
+-- A pin and its canvas can both receive the same release, in either order.
+-- Let the pin handle it once, even if placing the waypoint rebuilds the pins.
+local pressed, ownPress, claimedAt
+function AddonPins:HandleCanvasClick()
+	if pressed or ownPress or claimedAt == GetTime() then return true end
+	local entry, own = FocusPin()
+	if own then return true end
+	if entry and not ns.DetailView:IsActive() and self:NavigateTo(entry) then
+		claimedAt = GetTime()
+		return true
 	end
 end
 
@@ -403,16 +481,17 @@ function AddonPins:OnLogin()
 		ns:On("QUEST_TURN_INS_CHANGED", Refresh)
 		-- Global events also see clicks consumed by Buttons which only registered
 		-- left/right clicks, without changing another addon's click handlers.
-		local pressed
 		ns:RegisterEvent("GLOBAL_MOUSE_DOWN", function(_, button)
 			if button ~= "MiddleButton" then return end
-			pressed = nil
-			if WorldMapFrame:IsShown() and not ns.DetailView:IsActive() then pressed = FocusPin() end
+			pressed, ownPress, claimedAt = nil, nil, nil
+			if WorldMapFrame:IsShown() then pressed, ownPress = FocusPin() end
+			if ns.DetailView:IsActive() then pressed = nil end
 		end)
 		ns:RegisterEvent("GLOBAL_MOUSE_UP", function(_, button)
 			if button ~= "MiddleButton" then return end
 			local entry = pressed
-			pressed = nil
+			if entry or ownPress then claimedAt = GetTime() end
+			pressed, ownPress = nil, nil
 			if not entry or not WorldMapFrame:IsShown() or ns.DetailView:IsActive() then return end
 			local released = FocusPin()
 			if released and released.frame == entry.frame then

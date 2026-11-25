@@ -33,7 +33,7 @@ function TurnIns:GetForMap(mapID, positionsOnly)
 			and info.x >= 0 and info.x <= 1 and info.y >= 0 and info.y <= 1
 			and (info.isMapIndicatorQuest == nil or (ns.Readable(info.isMapIndicatorQuest) and info.isMapIndicatorQuest == false)) then
 			local title = not positionsOnly and Read(C_QuestLog.GetTitleForQuestID, info.questID)
-			result[#result + 1] = { questID = info.questID, questName = type(title) == "string" and title or (QUESTS_LABEL or "Quest"),
+			result[#result + 1] = { questID = info.questID, questName = type(title) == "string" and title or nil,
 				x = info.x, y = info.y, turnIn = true }
 			seen[info.questID] = true
 		end

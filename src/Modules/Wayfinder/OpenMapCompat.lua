@@ -213,8 +213,7 @@ function Compat:Install()
 		local original = container:GetScript("OnMouseUp")
 		self.mouseScript = function(frame, button, ...)
 			if button == "MiddleButton" and self:IsActive() and not ns.DetailView:IsActive() then
-				local mapID, x, y = self:CursorPoint()
-				if mapID then ns.Navigation:SetWaypointOnMap(mapID, x, y) end
+				ns.Navigation:PlaceMapClick(self:CursorPoint())
 				return
 			end
 			if original then return original(frame, button, ...) end

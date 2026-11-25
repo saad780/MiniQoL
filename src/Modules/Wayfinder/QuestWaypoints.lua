@@ -49,9 +49,9 @@ local function QuestLog(name)
 	return C_QuestLog and C_QuestLog[name]
 end
 
-local function Title(questID)
+local function Title(questID, fallback)
 	local title = Read(QuestLog("GetTitleForQuestID"), questID)
-	return type(title) == "string" and title ~= "" and title or ("Quest " .. questID)
+	return type(title) == "string" and title ~= "" and title or fallback or ("Quest " .. questID)
 end
 
 local function IsComplete(questID)
@@ -177,12 +177,38 @@ local function Locate(questID)
 	return cont, wx, wy, mapID, name
 end
 
-local function Label(questID, name)
-	local title = Title(questID)
-	if IsComplete(questID) then
+local function Label(title, name, turnIn)
+	if name == title then name = nil end
+	if turnIn then
 		return name and ("Turn in %s: %s"):format(title, name) or ("Turn in " .. title)
 	end
 	return name and ("%s: %s"):format(title, name) or title
+end
+
+-- A map click stays on the selected spawn. Only use a log objective if the
+-- pin identifies its index or there is exactly one unfinished objective.
+function QuestWaypoints:MapPinLabel(questID, title, target, turnIn, objectiveIndex, fallback)
+	if not ns.Readable(title) or type(title) ~= "string" or title == "" then title = nil end
+	if not ValidID(questID) then return title or target end
+	if not target and not turnIn and OnQuest(questID) then
+		local objectives = Read(QuestLog("GetQuestObjectives"), questID)
+		local objective
+		if type(objectives) == "table" then
+			if ValidID(objectiveIndex) then
+				objective = objectives[objectiveIndex]
+			else
+				for _, candidate in ipairs(objectives) do
+					if type(candidate) == "table" and ns.Readable(candidate.finished) and not candidate.finished then
+						if objective then objective = nil; break end
+						objective = candidate
+					end
+				end
+			end
+		end
+		local text = type(objective) == "table" and objective.text
+		if ns.Readable(text) and type(text) == "string" and text ~= "" then target = text end
+	end
+	return Label(title or Title(questID, fallback or target), target, turnIn)
 end
 
 ---------------------------------------------------------------------------
@@ -204,7 +230,7 @@ function QuestWaypoints:Follow(questID, again)
 		return false
 	end
 	tracked, signature = questID, Signature(questID)
-	local rec = ns.Navigation:PlaceSourceWaypoint(SOURCE, cont, wx, wy, Label(questID, name), mapID,
+	local rec = ns.Navigation:PlaceSourceWaypoint(SOURCE, cont, wx, wy, Label(Title(questID), name, IsComplete(questID)), mapID,
 		{ focus = not again, kept = true, note = NOTE })
 	rec.questID = questID
 	return true
