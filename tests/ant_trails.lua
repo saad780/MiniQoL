@@ -203,25 +203,28 @@ equal(textures, made, "dots are reused, not made again")
 trail = { 1, 4660, 4600 } -- 60 yards north: 42 pixels up
 drawMini()
 list = dots(mini)
-equal(#list, 2, "two dots clear the player arrow on a 42-pixel leg")
+equal(#list, 3, "three dots clear the player arrow on a 42-pixel leg")
 for i, dot in ipairs(list) do
     near(dot[1], 0, "straight up the middle")
-    near(dot[2], 22 + (i - 1) * 11, "dot " .. i .. " up")
+    near(dot[2], 16 + (i - 1) * 11, "dot " .. i .. " up")
 end
 equal(mini.dots[1].point[3], "CENTER", "placed from the minimap's middle")
 equal(mini.frame.level, 25, "over the minimap, under Wayfinder's service icons")
 now = 0.25
 drawMini()
 list = dots(mini)
-near(list[1][2], 24.75, "the minimap advances 2.75 pixels in a quarter second")
+near(list[1][2], 18.75, "the minimap advances 2.75 pixels in a quarter second")
 near(list[2][2] - list[1][2], 11, "slowing the dots keeps their spacing")
+now = 0.99
+drawMini()
+near(dots(mini)[1][2], 26.89, "the first dot stays within one spacing of the clearance at the end of its cycle")
 now = 0
 
 rotate, facing = true, math.pi / 2 -- facing west: north is to the right
 events.CVAR_UPDATE("CVAR_UPDATE", "rotateMinimap")
 drawMini()
 list = dots(mini)
-near(list[2][1], 33, "a rotating minimap turns the trail with it")
+near(list[2][1], 27, "a rotating minimap turns the trail with it")
 near(list[2][2], 0, "to the right")
 rotate, facing = false, 0
 events.CVAR_UPDATE("CVAR_UPDATE", "rotateMinimap")
@@ -229,12 +232,12 @@ events.CVAR_UPDATE("CVAR_UPDATE", "rotateMinimap")
 trail = { 1, 5000, 4600 } -- 400 yards north, far past the edge
 drawMini()
 list = dots(mini)
-equal(#list, 4, "round: dots clear the arrow and stay inside the rim")
+equal(#list, 5, "round: dots clear the arrow and stay inside the rim")
 shape = "SQUARE"
 events.CVAR_UPDATE("CVAR_UPDATE", "rotateMinimap")
 viewRadius = 100
 drawMini()
-equal(#dots(mini), 4, "square: the same straight up")
+equal(#dots(mini), 5, "square: the same straight up")
 trail = { 1, 5000, 4200 } -- north-east, toward a square's corner
 drawMini()
 local square = #dots(mini)
@@ -250,21 +253,24 @@ for _, phase in ipairs({ 0, 0.25, 0.55, 0.99, 1 }) do
     drawMini()
     local outbound, beyond = false, false
     for _, dot in ipairs(dots(mini)) do
-        assert(dot[1]^2 + dot[2]^2 >= 22^2, "the arrow stays clear throughout the animation")
+        assert(dot[1]^2 + dot[2]^2 >= 16^2, "the arrow stays clear throughout the animation")
         if dot[1] > 0 then outbound = true elseif dot[1] < 0 then beyond = true end
     end
     assert(outbound and beyond, "the route is visible on both sides of the arrow")
 end
 
 viewRadius = 200 -- zoomed out: the same yards, half the pixels
-trail = { 1, 4660, 4600 }
+trail = { 1, 4640, 4600 } -- 14 pixels from the player
 drawMini()
 equal(#dots(mini), 0, "a destination inside the clearance leaves the arrow visible")
+trail = { 1, 4660, 4600 } -- 21 pixels from the player
+drawMini()
+equal(#dots(mini), 1, "a short leg just beyond the arrow can show a dot")
 trail = { 1, 4720, 4600 }
 drawMini()
 list = dots(mini)
-equal(#list, 2, "42 pixels of trail at the new zoom")
-near(list[1][2], 22, "clearance stays the same size at the new zoom")
+equal(#list, 3, "42 pixels of trail at the new zoom")
+near(list[1][2], 16, "clearance stays the same size at the new zoom")
 
 ---------------------------------------------------------------------------
 -- 6. Settings

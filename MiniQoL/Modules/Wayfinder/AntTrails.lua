@@ -12,7 +12,6 @@ local COLORS = {
 	white = { 1, 1, 1 },
 }
 local DOT = "Interface\\CHARACTERFRAME\\TempPortraitAlphaMask" -- a white disc
-local MINI_CLEARANCE = 22 -- dot centre to player centre, including room for the dot's shadow
 local LIMIT = 400 -- dots on one surface at most
 local sqrt, cos, sin, max, min = math.sqrt, math.cos, math.sin, math.max, math.min
 
@@ -23,8 +22,9 @@ end
 -- Each surface draws its dots in its own pixels: the world map's from its
 -- top-left corner (y down), the minimap's from its centre (y up).
 -- Speed is measured in surface pixels per second.
-local map = { size = 7, spacing = 18, speed = 27, dots = {}, shown = 0 }
-local mini = { size = 5, spacing = 11, speed = 11, dots = {}, shown = 0 }
+-- Clearance is measured from the player centre to the first dot's centre.
+local map = { size = 7, spacing = 18, speed = 27, clearance = 0, dots = {}, shown = 0 }
+local mini = { size = 5, spacing = 11, speed = 11, clearance = 16, dots = {}, shown = 0 }
 Ants.map, Ants.mini = map, mini
 
 local function Shows(where)
@@ -77,7 +77,7 @@ local px, py = {}, {}
 -- says whether a segment can show at all; Inside(x, y) whether a dot does.
 local function March(surface, n, now, Near, Inside)
 	local spacing, frame = surface.spacing, surface.frame
-	local carry = (now * surface.speed) % spacing -- where the next dot goes, into the segment
+	local carry = surface.clearance + (now * surface.speed) % spacing
 	local count = 0
 	for i = 1, n - 1 do
 		local ax, ay = px[i], py[i]
@@ -204,7 +204,7 @@ local function MiniPoint(x, y)
 end
 -- Keep the player arrow clear even when a later leg crosses the centre again.
 local function MiniInside(x, y)
-	if x * x + y * y < MINI_CLEARANCE * MINI_CLEARANCE then return false end
+	if x * x + y * y < mini.clearance * mini.clearance then return false end
 	local w, h = halfW - mini.size, halfH - mini.size
 	if square then return math.abs(x) <= w and math.abs(y) <= h end
 	return (x * x) / (w * w) + (y * y) / (h * h) <= 1
