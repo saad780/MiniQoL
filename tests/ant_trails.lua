@@ -198,37 +198,43 @@ equal(#dots(map), 12, "back")
 equal(textures, made, "dots are reused, not made again")
 
 ---------------------------------------------------------------------------
--- 5. On the minimap: from its middle, rotating with it, inside its face
+-- 5. On the minimap: beyond the player arrow, rotating with it, inside its face
 ---------------------------------------------------------------------------
 trail = { 1, 4660, 4600 } -- 60 yards north: 42 pixels up
 drawMini()
 list = dots(mini)
-equal(#list, 4, "a dot every 11 pixels along 42")
+equal(#list, 2, "two dots clear the player arrow on a 42-pixel leg")
 for i, dot in ipairs(list) do
     near(dot[1], 0, "straight up the middle")
-    near(dot[2], (i - 1) * 11, "dot " .. i .. " up")
+    near(dot[2], 22 + (i - 1) * 11, "dot " .. i .. " up")
 end
 equal(mini.dots[1].point[3], "CENTER", "placed from the minimap's middle")
 equal(mini.frame.level, 25, "over the minimap, under Wayfinder's service icons")
+now = 0.25
+drawMini()
+list = dots(mini)
+near(list[1][2], 24.75, "the minimap advances 2.75 pixels in a quarter second")
+near(list[2][2] - list[1][2], 11, "slowing the dots keeps their spacing")
+now = 0
 
 rotate, facing = true, math.pi / 2 -- facing west: north is to the right
 events.CVAR_UPDATE("CVAR_UPDATE", "rotateMinimap")
 drawMini()
 list = dots(mini)
-near(list[4][1], 33, "a rotating minimap turns the trail with it")
-near(list[4][2], 0, "to the right")
+near(list[2][1], 33, "a rotating minimap turns the trail with it")
+near(list[2][2], 0, "to the right")
 rotate, facing = false, 0
 events.CVAR_UPDATE("CVAR_UPDATE", "rotateMinimap")
 
 trail = { 1, 5000, 4600 } -- 400 yards north, far past the edge
 drawMini()
 list = dots(mini)
-equal(#list, 6, "round: only the dots whole inside its face (65 pixels up)")
+equal(#list, 4, "round: dots clear the arrow and stay inside the rim")
 shape = "SQUARE"
 events.CVAR_UPDATE("CVAR_UPDATE", "rotateMinimap")
 viewRadius = 100
 drawMini()
-equal(#dots(mini), 6, "square: the same straight up")
+equal(#dots(mini), 4, "square: the same straight up")
 trail = { 1, 5000, 4200 } -- north-east, toward a square's corner
 drawMini()
 local square = #dots(mini)
@@ -237,12 +243,28 @@ events.CVAR_UPDATE("CVAR_UPDATE", "rotateMinimap")
 drawMini()
 assert(square > #dots(mini), "a square minimap shows more of a trail into its corner")
 
+-- A switchback passing over the arrow must keep the same gap on its return.
+trail = { 1, nil, nil, { 4650, 4550 }, { 4550, 4650 }, 1 }
+for _, phase in ipairs({ 0, 0.25, 0.55, 0.99, 1 }) do
+    now = phase
+    drawMini()
+    local outbound, beyond = false, false
+    for _, dot in ipairs(dots(mini)) do
+        assert(dot[1]^2 + dot[2]^2 >= 22^2, "the arrow stays clear throughout the animation")
+        if dot[1] > 0 then outbound = true elseif dot[1] < 0 then beyond = true end
+    end
+    assert(outbound and beyond, "the route is visible on both sides of the arrow")
+end
+
 viewRadius = 200 -- zoomed out: the same yards, half the pixels
 trail = { 1, 4660, 4600 }
 drawMini()
+equal(#dots(mini), 0, "a destination inside the clearance leaves the arrow visible")
+trail = { 1, 4720, 4600 }
+drawMini()
 list = dots(mini)
-equal(#list, 2, "21 pixels of trail")
-near(list[2][2], 11, "still every 11 pixels")
+equal(#list, 2, "42 pixels of trail at the new zoom")
+near(list[1][2], 22, "clearance stays the same size at the new zoom")
 
 ---------------------------------------------------------------------------
 -- 6. Settings
