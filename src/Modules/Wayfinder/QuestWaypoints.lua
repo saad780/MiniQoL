@@ -299,7 +299,12 @@ end
 
 local function OnMouseUp(frame, button)
 	if button == "MiddleButton" then
-		QuestWaypoints:Click(QuestWaypoints.QuestOf(frame))
+		local id = QuestWaypoints.QuestOf(frame)
+		if id and IsShiftKeyDown and IsShiftKeyDown() and not IsControlKeyDown() and not IsAltKeyDown() then
+			ns.TargetFinder:ImportQuest(id)
+		else
+			QuestWaypoints:Click(id)
+		end
 	end
 end
 

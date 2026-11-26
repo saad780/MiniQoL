@@ -367,6 +367,18 @@ setting("questMiddleClick", true)
 click(poi)
 assert(mark(), "on again")
 
+local imported
+ns.TargetFinder = { ImportQuest = function(_, id) imported = id end }
+function IsShiftKeyDown() return true end
+function IsControlKeyDown() return false end
+function IsAltKeyDown() return false end
+click(poi)
+equal(imported, 200, "shift-middle imports from Blizzard's tracker")
+click(linePool1.questFocus)
+equal(imported, 300, "shift-middle imports from Questie's tracker")
+equal(Quests:GetFollowed(), 200, "importing targets preserves waypoint following")
+function IsShiftKeyDown() return false end
+
 -- A map click selects the actual pin, even when its canvas also receives the
 -- release. A map pin can be a native quest POI, an HBD wrapper or an addon frame.
 local function visible() return true end

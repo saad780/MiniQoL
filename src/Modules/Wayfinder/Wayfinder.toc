@@ -54,6 +54,9 @@ Navigation.lua
 TomTom.lua
 Polestar.lua
 QuestWaypoints.lua
+TargetFinder.lua
+TargetFinderQuests.lua
+TargetFinderUI.lua
 MinimapServices.lua
 AntTrails.lua
 Options.lua

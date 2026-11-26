@@ -73,6 +73,9 @@ Modules\Wayfinder\Navigation.lua
 Modules\Wayfinder\TomTom.lua
 Modules\Wayfinder\Polestar.lua
 Modules\Wayfinder\QuestWaypoints.lua
+Modules\Wayfinder\TargetFinder.lua
+Modules\Wayfinder\TargetFinderQuests.lua
+Modules\Wayfinder\TargetFinderUI.lua
 Modules\Wayfinder\MinimapServices.lua
 Modules\Wayfinder\AntTrails.lua
 Modules\Wayfinder\Options.lua

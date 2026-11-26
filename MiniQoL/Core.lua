@@ -211,6 +211,12 @@ SlashCmdList.MINIQOL = function(input)
         else ns.Fishing:ToggleGear() end
     elseif command == "regen" then
         if ns.Regen and ns.Regen.db then ns.Regen:Report() end
+    elseif command == "track" then
+        if Wayfinder and Wayfinder.TargetFinder and Wayfinder.db then
+            Wayfinder.TargetFinder:Open(rest)
+        else
+            ns:Print("Enable Wayfinder to use Target Finder.")
+        end
     elseif command == "find" then
         ns.Explorer:OpenSearch(rest)
     elseif command == "nearby" then
