@@ -4,6 +4,7 @@ function wipe(t) for k in pairs(t) do t[k] = nil end end
 local frames = {}
 local combat, shift, ctrl, alt, focus, forbidden = false, false, false, false, nil, 0
 function InCombatLockdown() return combat end
+function GetTime() return 100 end
 function IsShiftKeyDown() return shift end
 function IsControlKeyDown() return ctrl end
 function IsAltKeyDown() return alt end
@@ -51,7 +52,7 @@ function ns:RegisterEvent(event, fn) events[event] = fn end
 C_Timer = { After = function(_, fn) timers[#timers+1] = fn end }
 local function flush() while #timers > 0 do table.remove(timers, 1)() end end
 local units, visible, marks, points, log, markers = {}, {}, {}, {}, {}, {}
-local raid = false
+local raid, party = false, false
 local function unit(token, id, name, x, kind)
     units[token] = { guid = (kind or "Creature") .. "-0-1-2-3-" .. id .. "-" .. token, name = name, x = x }
 end
@@ -64,6 +65,7 @@ function UnitPosition(u)
 end
 function UnitDistanceSquared() return 0, false end
 function IsInRaid() return raid end
+function IsInGroup() return raid or party end
 function UnitIsGroupLeader() return false end
 function UnitIsGroupAssistant() return false end
 function GetRaidTargetIndex(u) return units[u].mark end
@@ -76,6 +78,13 @@ end }
 C_Map = { GetBestMapForUnit = function() return 42 end }
 function ns.MapToWorld(map, x, y) return 1, x*1000, y*1000 end
 ns.Navigation = { SetWaypoint = function(_, c, x, y, name, map) points[#points+1] = {x=x, name=name, map=map} end }
+function ns.Navigation:PlaceSourceWaypoint(source, c, x, y, name, map, options)
+    assert(options.focus)
+    self.pin = {source=source, x=x, name=name}
+    return self.pin
+end
+function ns.Navigation:GetSourceWaypoint(source) return self.pin and self.pin.source == source and self.pin end
+function ns.Navigation:RemoveWaypoint(pin) assert(pin == self.pin); self.pin=nil end
 C_VignetteInfo = {
     GetVignettes = function() local keys = {}; for k in pairs(markers) do keys[#keys+1]=k end; return keys end,
     GetVignetteInfo = function(k) return markers[k] end,
@@ -87,7 +96,7 @@ C_QuestLog = {
     GetTitleForQuestID = function() return "Test hunt" end,
 }
 MiniQoLRuntime = { Execute = function(_, _, fn) return fn("Wayfinder", ns) end }
-for _, file in ipairs({ "TargetFinder", "TargetFinderQuests", "TargetFinderUI" }) do
+for _, file in ipairs({ "TargetFinder", "TargetFinderQuests", "TargetFinderUI", "TargetFinderRows" }) do
     assert(loadfile(root .. "/Modules/Wayfinder/" .. file .. ".lua"))("Wayfinder", ns)
 end
 local finder = ns.TargetFinder
@@ -255,4 +264,132 @@ visible={}
 units.mouseover=nil
 unit("nameplate7",91,"Tunnel Operator",102)
 assert(finder:Scan().name=="Tunnel Operator", "public nameplate units still work when no frames are enumerated")
-print("Target Finder: quest imports, popup, nearest live units, marks, object waypoints, range, stale tokens and cleanup passed")
+
+local function nameRow(name)
+    for _, row in ipairs(finder.nameRows) do
+        if row:IsShown() and row.displayName == name then return row end
+    end
+end
+-- Emulate the hardware action between PreClick and PostClick. A plain Lua
+-- TargetUnit or SetRaidTarget is forbidden, including inside click scripts.
+function TargetUnit() forbidden=forbidden+1; error("insecure targeting") end
+local function rowClick(row, mouse, combatResult)
+    mouse=mouse or "LeftButton"
+    assert(row:IsShown() and row.template:find("SecureActionButtonTemplate",1,true))
+    row.scripts.PreClick(row,mouse)
+    local macro=row.attrs[mouse=="LeftButton" and "macrotext1" or "macrotext2"] or ""
+    for line in macro:gmatch("[^\n]+") do
+        local token=line:match("^/target %[%s*nocombat,@(%w+),exists,nodead%] %1$")
+        local mark=line:match("^/tm %[nocombat,@(%w+),exists,nodead%] ~8$")
+        local clear=line:match("^/tm %[nocombat,@(%w+),exists%] 0$")
+        local exact=line:match("^/targetexact %[combat%] (.+)$")
+        if token then
+            assert(not combat and mouse=="LeftButton" and units[token] and not units[token].dead)
+            units.target=units[token]
+        elseif mark then
+            assert(not combat and not units[mark].mark)
+            for _,u in pairs(units) do if u.mark==8 then u.mark=nil end end
+            units[mark].mark=8
+        elseif clear then
+            assert(not combat and mouse=="RightButton" and units[clear].mark==8)
+            units[clear].mark=nil
+        elseif exact then
+            assert(combat and mouse=="LeftButton")
+            if combatResult then
+                assert(units[combatResult].name==exact)
+                units.target=units[combatResult]
+            end
+        else
+            assert(line=="/cleartarget [combat,dead]" and combat)
+            if units.target and units.target.dead then units.target=nil end
+        end
+    end
+    row.scripts.PostClick(row,mouse)
+    assert(forbidden==0 and not row.attrs.macrotext2 and row.attrs.macrotext1==row.combatMacro)
+end
+
+units,visible={},{}
+for i=1,4 do
+    local token="nameplate"..i
+    visible[i]=frame(); visible[i].namePlateUnitToken=token
+    unit(token,100+i,i==4 and "Senior Operator" or "Tunnel Operator",({148,105,122,101})[i])
+end
+units.softenemy=units.nameplate2
+finder:Scan()
+local tunnel,senior=assert(nameRow("Tunnel Operator")),assert(nameRow("Senior Operator"))
+assert(tunnel.count.text=="3" and senior.count.text=="1" and not nameRow("OpErAtOr") and not units.target)
+party=true
+rowClick(tunnel)
+assert(units.target==units.nameplate2 and units.target.mark==8, "first click picks the nearest of the chosen name")
+rowClick(senior)
+assert(units.target==units.nameplate4 and units.target.mark==8)
+rowClick(tunnel,"RightButton")
+assert(units.target==units.nameplate4 and units.target.mark==8,"unmarking a different name preserves the active skull")
+rowClick(tunnel)
+assert(units.target==units.nameplate3 and units.target.mark==8,"each name remembers its own cycle")
+units.target=units.nameplate4
+rowClick(tunnel,"RightButton")
+assert(not units.nameplate3.mark and units.target==units.nameplate4,"unmark preserves target and watch")
+rowClick(tunnel)
+assert(units.target==units.nameplate1)
+rowClick(tunnel)
+assert(units.target==units.nameplate2,"cycle wraps at the farthest mob")
+units.nameplate1.x=110
+rowClick(tunnel)
+assert(units.target==units.nameplate1,"cycle uses current distances")
+unit("nameplate1",121,"Burrower",101)
+units.target=nil
+units.nameplate2.dead=true
+units.nameplate3.mark=4
+rowClick(tunnel)
+assert(units.target==units.nameplate3 and units.target.mark==4 and not units.nameplate1.mark,"recycled and dead candidates skipped")
+rowClick(tunnel,"RightButton")
+assert(units.target.mark==4, "another player's mark is preserved")
+units.nameplate3.mark=8
+rowClick(tunnel); rowClick(tunnel,"RightButton")
+assert(units.target.mark==8,"an existing skull on a newly selected mob remains owned by its original marker")
+units.nameplate3.mark=nil
+combat=true
+rowClick(tunnel,"LeftButton","nameplate3")
+assert(finder.localSkull:IsShown() and finder.markedGUID==units.nameplate3.guid)
+rowClick(tunnel,"RightButton")
+assert(not finder.localSkull:IsShown() and units.target==units.nameplate3)
+units.target=units.nameplate1
+units.nameplate3.dead=true
+rowClick(tunnel)
+assert(not finder.localSkull:IsShown() and not units.nameplate1.mark,"failed combat acquisition never marks the unrelated target")
+combat=false
+events.PLAYER_REGEN_ENABLED()
+party=false
+units.nameplate3.dead=false
+finder:Scan()
+tunnel=assert(nameRow("Tunnel Operator"))
+rowClick(tunnel)
+assert(finder.markedGUID==units.nameplate3.guid and not units.nameplate3.mark,"solo click marks the selected nameplate")
+combat=true
+rowClick(tunnel,"RightButton")
+assert(not finder.localSkull:IsShown() and units.target==units.nameplate3,"a solo mark made before a pull clears during the fight")
+combat=false
+events.PLAYER_REGEN_ENABLED()
+
+markers.a={name="Ancient Chest",objectGUID="GameObject-0-1-2-3-75-1",pos={x=.117,y=.1}}
+markers.b={name="Ancient Chest",objectGUID="GameObject-0-1-2-3-75-2",pos={x=.129,y=.1}}
+events.VIGNETTES_UPDATED(); finder:Scan()
+local chest=assert(nameRow("Ancient Chest"))
+local previous=units.target
+rowClick(chest)
+assert(ns.Navigation.pin.x==117 and units.target==previous)
+rowClick(chest)
+assert(ns.Navigation.pin.x==129)
+markers={}
+events.VIGNETTES_UPDATED(); finder:Scan()
+chest=assert(nameRow("Ancient Chest"))
+rowClick(chest,"RightButton")
+assert(not ns.Navigation.pin and units.target==previous and nameRow("Ancient Chest"),"after despawn the dim search still clears its waypoint")
+assert(finder.namePages>1)
+chest.scripts.OnMouseWheel(chest,-1)
+assert(finder.namePage==2 and nameRow("Search 9"))
+finder.db.manual, finder.db.quests = {}, {}
+finder:Reindex()
+for _,row in ipairs(finder.nameRows) do assert(not row:IsShown()) end
+print("Target Finder: imports, partial names, live name rows, distance cycling, secure clicks, unmarking, combat, object waypoints and paging passed")

@@ -31,6 +31,7 @@ function Finder:Paint()
 	if self.window and self.window:IsShown() then
 		self.status:SetText(hit and ("Nearby: " .. hit.name) or (b:IsShown() and "Searching nearby…" or ""))
 	end
+	self:PaintNames()
 end
 
 -- A personal mark for fights and groups where the raid icon can't be set.
@@ -54,7 +55,7 @@ function Finder:MarkNameplate(hit)
 	skull:ClearAllPoints()
 	skull:SetPoint("BOTTOM", plate, "TOP", 0, 2)
 	skull:Show()
-	self.markedUnit, self.markedGUID, self.markedPlate = unit, hit.guid, plate
+	self.markedUnit, self.markedGUID, self.markedPlate, self.markedKey = unit, hit.guid, plate, hit.key
 	return true
 end
 
@@ -91,6 +92,7 @@ function Finder:SyncMarkButton()
 	end
 	mark:ClearAllPoints()
 	mark:SetPoint(b:GetPoint(1))
+	self:AnchorNames()
 	local visibility = b:IsShown() and "[combat] hide; show" or "hide"
 	if self.markVisibility ~= visibility then
 		RegisterStateDriver(mark, "visibility", visibility)

@@ -29,8 +29,10 @@ function Finder:Reindex()
 	wipe(byName)
 	wipe(byID)
 	wipe(terms)
+	self.watches = {}
 	self.markers = nil
 	local function index(entry)
+		self.watches[#self.watches + 1] = entry
 		if entry.id then byID[entry.kind .. entry.id] = entry end
 		local name = entry.name:lower()
 		local names = byName[name] or {}
@@ -142,13 +144,22 @@ end
 
 function Finder:ClearLocalMark()
 	if self.localSkull then self.localSkull:Hide() end
-	self.markedUnit, self.markedGUID, self.markedPlate = nil, nil, nil
+	self.markedUnit, self.markedGUID, self.markedPlate, self.markedKey = nil, nil, nil, nil
 end
 
 -- Unit tokens are recycled. Resolve them again on the click and never mark
 -- the current target merely because the intended target has disappeared.
-function Finder:Scan()
+local function Nearer(a, b)
+	if a.rank ~= b.rank then return a.rank < b.rank end
+	return a.guid < b.guid
+end
+
+function Finder:Scan(quiet)
 	self.best = nil
+	local hits, byGUID = self.hits or {}, self.hitsByGUID or {}
+	wipe(hits)
+	wipe(byGUID)
+	self.hits, self.hitsByGUID = hits, byGUID
 	if self.markedUnit then
 		local guid = Read(UnitGUID, self.markedUnit)
 		local kind, id = Identity(guid)
@@ -160,26 +171,31 @@ function Finder:Scan()
 			self:ClearLocalMark()
 		end
 	end
-	if not next(byName) then self:Paint(); return end
+	if not next(byName) then
+		if not quiet then self:Paint() end
+		return
+	end
 	local c, px, py, pz = Position("player")
 	local mapID = Read(C_Map and C_Map.GetBestMapForUnit, "player")
 	if not c then c, px, py, mapID = ns.GetPlayerWorld() end
-	local best
 	local function offer(entry, guid, unit, kind, distance, x, y, approximate, bound, liveName)
 		if distance and distance > RANGE * RANGE then return end
 		-- A visible nameplate can be readable even where the client withholds
 		-- distances. Prefer measured matches, then a stable visible fallback.
-		local rank = distance or bound or math.huge
-		if best and best.guid == guid then
-			unit = unit or best.unit
-			if best.x and (not x or (approximate and not best.approximate)) then x, y, approximate = best.x, best.y, best.approximate end
-			distance = distance or best.distance
-			rank = math.min(rank, best.rank)
-		elseif best and (rank > best.rank or (rank == best.rank and guid >= best.guid)) then
-			return
+		local hit = byGUID[guid]
+		if not hit then
+			hit = { entry = entry, name = entry.kind == "any" and liveName or entry.name,
+				displayName = liveName or entry.name, guid = guid, kind = kind, c = c, m = mapID }
+			hits[#hits + 1] = hit
+			byGUID[guid] = hit
 		end
-		best = { entry = entry, name = entry.kind == "any" and liveName or entry.name, guid = guid, unit = unit, kind = kind,
-			rank = rank, distance = distance, c = c, x = x, y = y, m = mapID, approximate = approximate }
+		-- Prefer a stable plate over target/mouseover aliases for the same mob.
+		if unit and (not hit.unit or unit:match("^nameplate")) then hit.unit = unit end
+		if x and (not hit.x or not approximate) then hit.x, hit.y, hit.approximate = x, y, approximate end
+		hit.distance = distance or hit.distance
+		hit.bound = math.min(bound or math.huge, hit.bound or math.huge)
+		hit.rank = hit.distance or hit.bound
+		hit.key = kind .. ":" .. hit.displayName:lower()
 	end
 	local function unitMatch(unit, plate)
 		local guid = Read(UnitGUID, unit)
@@ -264,9 +280,11 @@ function Finder:Scan()
 			end
 		end
 	end
-	self.best = best
-	self:Paint()
-	return best
+	table.sort(hits, Nearer)
+	self.best = hits[1]
+	self:CheckRowSkull()
+	if not quiet then self:Paint() end
+	return self.best
 end
 
 function Finder:Mark(secureClick)
@@ -306,7 +324,7 @@ function Finder:OnLogin()
 	self:Reindex()
 	self:WatchQuests()
 	self:WatchWorldClicks()
-	ns:RegisterEvent("PLAYER_REGEN_ENABLED", function() self:SyncMarkButton() end)
+	ns:RegisterEvent("PLAYER_REGEN_ENABLED", function() self:SyncMarkButton(); self:Scan() end)
 	ns:RegisterEvent("NAME_PLATE_UNIT_REMOVED", function(_, unit)
 		if unit == self.markedUnit then self:ClearLocalMark() end
 	end)

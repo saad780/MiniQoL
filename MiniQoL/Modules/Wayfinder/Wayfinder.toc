@@ -57,6 +57,7 @@ QuestWaypoints.lua
 TargetFinder.lua
 TargetFinderQuests.lua
 TargetFinderUI.lua
+TargetFinderRows.lua
 MinimapServices.lua
 AntTrails.lua
 Options.lua
