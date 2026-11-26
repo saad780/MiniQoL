@@ -95,6 +95,8 @@ check_walking_routes(package)
 LuaRuntime(unpack_returned_tuples=True).execute(
     (root / "tests/travel.lua").read_text(encoding="utf-8"), package.resolve().as_posix())
 LuaRuntime(unpack_returned_tuples=True).execute(
+    (root / "tests/character_key.lua").read_text(encoding="utf-8"), package.resolve().as_posix())
+LuaRuntime(unpack_returned_tuples=True).execute(
     (root / "tests/flight_highlight.lua").read_text(encoding="utf-8"), package.resolve().as_posix())
 
 sidegrades = LuaRuntime(unpack_returned_tuples=True)

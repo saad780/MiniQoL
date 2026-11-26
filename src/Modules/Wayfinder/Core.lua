@@ -240,15 +240,138 @@ end
 ---------------------------------------------------------------------------
 -- Player identity
 ---------------------------------------------------------------------------
+-- The key a character's saved data is filed under, as ForeverCore keys it. A
+-- realm with a name: "Name-NormalizedRealm", as Wayfinder always has. A Forever
+-- realm has none (GetRealmName and GetNormalizedRealmName answer "", GetRealmID
+-- 0) and UnitName's second return is the surname, so there the key is the full
+-- name and the server from the player's GUID: "Firouzi Asman-6922". One account
+-- can hold several characters with the same first name.
+local UNKNOWN_KEY = "unknown"
+
+local function Text(value)
+	return ns.Readable(value) and type(value) == "string" and value ~= "" and value or nil
+end
+
+local function RealmName()
+	local realm = Text(GetNormalizedRealmName and GetNormalizedRealmName())
+	if realm then return realm end
+	-- GetNormalizedRealmName can answer "" early in loading while GetRealmName has the name.
+	realm = Text(GetRealmName and GetRealmName())
+	return realm and Text((realm:gsub("[%s%-]", "")))
+end
+
+-- The key, the first name, and whether the realm has no name; nil until the
+-- client has the character's name and GUID.
+local function ResolveCharacterKey()
+	local name, surname = UnitName("player")
+	name = Text(name)
+	if not name or name == UNKNOWNOBJECT then return end
+	local guid = Text(UnitGUID and UnitGUID("player"))
+	local server = guid and guid:match("^Player%-(%d+)%-")
+	if not server then return end
+	local realm = RealmName()
+	if realm then return name .. "-" .. realm, name, false end
+	-- Only a Forever realm, ID 0, has no name for good.
+	local id = GetRealmID and GetRealmID()
+	if not (ns.Readable(id) and id == 0) then return end
+	surname = Text(surname)
+	return (surname and name .. " " .. surname or name) .. "-" .. server, name, true
+end
+
 function ns:GetCharacterKey()
 	if not self.charKey then
-		local name = UnitName("player")
-		local realm = GetNormalizedRealmName and GetNormalizedRealmName() or GetRealmName()
-		if name and realm and realm ~= "" then
-			self.charKey = name .. "-" .. realm
+		self.charKey, self.charFirstName, self.charUnnamedRealm = ResolveCharacterKey()
+	end
+	return self.charKey or UNKNOWN_KEY
+end
+
+---------------------------------------------------------------------------
+-- Moving a character's data to its key
+---------------------------------------------------------------------------
+-- While Forever's realms had no name, Wayfinder filed every character under
+-- "unknown". At login a character takes back its own data: its "Name-Realm"
+-- key from before, when exactly one such key carries its first name, and the
+-- "unknown" data. That has no owner, so the first character to log in takes
+-- it. It is the newer copy where both hold something. Each source is removed
+-- once moved, so this does nothing on later logins.
+-- How two copies of one table combine: "rows" ORs explored cells, "overlay"
+-- lets the newer copy's entries win one by one, "replace" keeps the newer whole.
+local PER_CHARACTER = {
+	explored = "rows", imported = "overlay", questAvailability = "overlay", knownFlights = "overlay",
+	waypoints = "replace", targetFinder = "replace", hearthBinds = "replace",
+}
+
+local function Or(a, b)
+	if bit and bit.bor then return bit.bor(a, b) end
+	local result, place = 0, 1
+	while a > 0 or b > 0 do
+		if a % 2 == 1 or b % 2 == 1 then result = result + place end
+		a, b, place = math.floor(a / 2), math.floor(b / 2), place * 2
+	end
+	return result
+end
+
+-- Folds `newer` into `older` (both this character's copies of one table).
+local function Combine(kind, older, newer)
+	if kind == "replace" or type(older) ~= "table" or type(newer) ~= "table" then return newer end
+	if kind == "overlay" then
+		for k, v in pairs(newer) do older[k] = v end
+		return older
+	end
+	for cont, tiles in pairs(newer) do
+		local kept = older[cont]
+		if type(kept) ~= "table" or type(tiles) ~= "table" then
+			older[cont] = tiles
+		else
+			for tile, rows in pairs(tiles) do
+				local mine = kept[tile]
+				if type(mine) ~= "table" or type(rows) ~= "table" then
+					kept[tile] = rows
+				else
+					for r, cells in pairs(rows) do
+						if type(cells) == "number" then mine[r] = Or(type(mine[r]) == "number" and mine[r] or 0, cells) end
+					end
+				end
+			end
 		end
 	end
-	return self.charKey or "unknown"
+	return older
+end
+
+-- The one "Name-Realm" key from before Forever's realms lost their names that
+-- carries this first name, or nil when there is none or more than one.
+local function OldKey(db, firstName)
+	local prefix, found = firstName .. "-", nil
+	for field in pairs(PER_CHARACTER) do
+		for key in pairs(type(db[field]) == "table" and db[field] or {}) do
+			local realm = type(key) == "string" and key:sub(1, #prefix) == prefix and key:sub(#prefix + 1)
+			if realm and realm ~= "" and not realm:find("^%d+$") and not realm:find("[%s%-]") then
+				if found and found ~= key then return nil end
+				found = key
+			end
+		end
+	end
+	return found
+end
+
+function ns:MigrateCharacterData()
+	local db, key = self.db, self:GetCharacterKey()
+	if not db or key == UNKNOWN_KEY then return end
+	local old = self.charUnnamedRealm and OldKey(db, self.charFirstName)
+	for field, kind in pairs(PER_CHARACTER) do
+		local all = db[field]
+		if type(all) == "table" then
+			-- The "Name-Realm" copy is older than anything under the key, "unknown" newer.
+			if old and all[old] ~= nil then
+				if all[key] == nil then all[key] = all[old] else all[key] = Combine(kind, all[old], all[key]) end
+				all[old] = nil
+			end
+			if all[UNKNOWN_KEY] ~= nil then
+				if all[key] == nil then all[key] = all[UNKNOWN_KEY] else all[key] = Combine(kind, all[key], all[UNKNOWN_KEY]) end
+				all[UNKNOWN_KEY] = nil
+			end
+		end
+	end
 end
 
 function ns:GetPlayerFaction()
@@ -279,6 +402,7 @@ end)
 
 ns:RegisterEvent("PLAYER_LOGIN", function()
 	ns:GetCharacterKey()
+	securecallfunction(ns.MigrateCharacterData, ns)
 	ns.playerFaction = ns:GetPlayerFaction()
 	ns.playerClass = select(2, UnitClass("player"))
 	ns.playerRace = select(2, UnitRace("player"))
