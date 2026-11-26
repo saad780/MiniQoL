@@ -765,7 +765,10 @@ local function UpdateWalk(cont, wx, wy, mapID, rec)
 		stray = hasNext and state.off or ns.Distance(wx, wy, xs[#xs], ys[#xs])
 		retryAfter = yards > 2000 and 10 or 2
 	elseif walk and not walk.job then
-		stray, retryAfter = ns.Distance(wx, wy, walk.x, walk.y), 15
+		-- A failed search is often the start's fault (rough ground it cannot
+		-- verify). Close to the target, try again soon once the player moves on.
+		stray = ns.Distance(wx, wy, walk.x, walk.y)
+		retryAfter = ns.Distance(wx, wy, rec.x, rec.y) > 1000 and 15 or 4
 	end
 	local needsWalk = not walk or (stray and stray > REROUTE_YARDS and GetTime() - walk.asked >= retryAfter)
 	if needsWalk and not InCombatLockdown() and engine.Available(cont) then

@@ -288,4 +288,37 @@ drain()
 local stopAfterJump, instructionAfterJump = route(goal, sw)
 assert(not stopAfterJump and not instructionAfterJump, "walk from the new position after cancelling the old search")
 
+-- The walking search refuses starts it cannot verify (rough ground, no player
+-- height), so a failure says nothing about the destination. On the road below
+-- Sun Rock Retreat (Stonetalon 52.6, 55.8), 375 yards from a Gaea Seed, a failed
+-- search once sent the arrow 2,388 yards to Thunder Bluff to fly back to Sun Rock.
+ns.playerFaction = 2
+assert(loadfile(base .. "Travel.lua"))()
+T = ns.Travel
+T:OnLogin()
+for _, id in ipairs({ 22, 25, 29 }) do T:RememberTaxi(id) end -- Thunder Bluff, Crossroads, Sun Rock
+setting("travelFlights", true)
+local sunRockRoad = spot(1, 1099.7, 677.2, 1442)
+local gaeaSeed = spot(1, 1447.8, 816.9, 1442)
+local standing = sunRockRoad
+ns.GetPlayerWorld = function() return standing.c, standing.x, standing.y, standing.m end
+assert(not route(gaeaSeed, sunRockRoad), "walk to a nearby quest")
+T:WalkFailed(gaeaSeed)
+local seedStop, seedAction, seedCaption = route(gaeaSeed, sunRockRoad)
+assert(not seedStop and not seedAction, "a failed search keeps the short walk: " .. tostring(seedCaption))
+before = searches
+T:WalkFailed(gaeaSeed)
+assert(not route(gaeaSeed, sunRockRoad) and searches == before, "the same failure again is already priced in")
+
+-- Beside Sun Rock's master, a flight beats walking to the Crossroads. When the
+-- search to the master fails, keep that flight rather than trying farther masters.
+local byMaster = spot(1, 990, 1040, 1442)
+local crossroadsQuest = spot(1, -480, -2600, 1413)
+standing = byMaster
+local master = route(crossroadsQuest, byMaster)
+assert(master and master.taxi == 29, "fly from Sun Rock: " .. tostring(master and master.n))
+T:WalkFailed(master)
+local masterAgain = route(crossroadsQuest, byMaster)
+assert(masterAgain and masterAgain.taxi == 29, "keep Sun Rock's flight: " .. tostring(masterAgain and masterAgain.n))
+
 print("Waypoint travel: faction crossings, hearth, flights, loading screens, alternate landings and zone changes passed")

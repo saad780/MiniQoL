@@ -5,6 +5,11 @@ local Travel = ns:NewModule("Travel")
 local network = ns.TravelNetwork
 local huge = math.huge
 local HEARTH_SECONDS = 15 -- casting and loading into the inn
+-- A walk the terrain search could not find is priced at this many times its
+-- straight line, not ruled out. The search refuses any start it cannot verify
+-- (rough ground, with no player height on Forever), which says nothing about
+-- the destination. A transport wins only when it is much faster.
+local FAILED_WALK = 3
 local labels = { boat = "boat", zeppelin = "zeppelin", airship = "airship", tram = "tram", portal = "portal" }
 local graph, journey, known, bound, rejected
 local revision = 0
@@ -114,10 +119,12 @@ local function plan(g, start, goal, inn, opts, pause)
 	local rate = 1.25 / opts.speed
 	local function from(p, skip)
 		local cost, action = walkTime(p, goal, rate), nil
-		if skip and skip.direct then cost = huge end
+		if skip and skip.direct then cost = cost * FAILED_WALK end
 		for i, n in ipairs(nodes) do
-			if first[i] and first[i].from == n and not (skip and skip[n]) then
-				local t = walkTime(p, n, rate) + dist[i]
+			if first[i] and first[i].from == n then
+				local walk = walkTime(p, n, rate)
+				if skip and skip[n] then walk = walk * FAILED_WALK end
+				local t = walk + dist[i]
 				if t < cost then cost, action = t, first[i] end
 			end
 		end
@@ -190,8 +197,9 @@ function Travel:Reset()
 	journey, rejected = nil, nil
 end
 
--- A failed terrain search can rule out this particular approach from here.
--- Keep those exclusions only near this origin and only for this destination.
+-- A failed terrain search makes this approach dearer from here (FAILED_WALK).
+-- Keep those marks only near this origin and only for this destination.
+-- A leg already marked is already priced in, so it is not planned again.
 function Travel:WalkFailed(stop)
 	local j = journey
 	if not j or j.pending or j.unreachable then return end
@@ -199,8 +207,10 @@ function Travel:WalkFailed(stop)
 	if stop ~= expected then return end
 	local c, x, y, map = ns.GetPlayerWorld()
 	if not c then return end
+	local leg = stop == j.target and "direct" or stop
+	if rejected and rejected[leg] then return end
 	rejected = rejected or { target = j.target, start = point(c, x, y, map) }
-	rejected[stop == j.target and "direct" or stop] = true
+	rejected[leg] = true
 	journey = nil
 end
 
