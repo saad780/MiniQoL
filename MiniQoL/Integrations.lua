@@ -130,7 +130,7 @@ wayfinder("questMiddleClick", "Waypoints", "Middle-click a quest to follow it",
 feature({ id = "wayfinder.targetFinder", page = "maps", group = "Waypoints", addon = "Wayfinder",
     kind = "action", label = "Target Finder", button = "Open", available = mapReady,
     run = function() Wayfinder.TargetFinder:Open() end,
-    tooltip = "Track nearby mobs and objects by name. Shift + middle-click a tracker quest to add its targets." })
+    tooltip = "Search for nearby mobs and objects with all or part of a name. Shift + middle-click a mob in the world or on its nameplate to track it, or a tracker quest to watch its targets." })
 -- Only listed with Polestar installed: there is nothing to follow without it.
 local function polestar()
     return mapReady() and Wayfinder.PolestarFollow ~= nil and Wayfinder.PolestarFollow:Available()

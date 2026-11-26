@@ -26,9 +26,75 @@ function Finder:Paint()
 	b.icon:SetAlpha(hit and 1 or 0.45)
 	b:SetBackdropBorderColor(hit and 0.35 or 0.4, hit and 1 or 0.35, hit and 0.48 or 0.22)
 	b.glow:SetShown(hit ~= nil)
-	if GameTooltip:IsOwned(b) then Tip(b) end
+	if GameTooltip:IsOwned(b) then Tip(b)
+	elseif self.markButton and GameTooltip:IsOwned(self.markButton) then Tip(self.markButton) end
 	if self.window and self.window:IsShown() then
 		self.status:SetText(hit and ("Nearby: " .. hit.name) or (b:IsShown() and "Searching nearby…" or ""))
+	end
+end
+
+-- A personal mark for fights and groups where the raid icon can't be set.
+-- The texture belongs to our frame; the nameplate remains owned by the game.
+function Finder:MarkNameplate(hit)
+	local plate = self.Read(C_NamePlate and C_NamePlate.GetNamePlateForUnit, hit.unit)
+	if not plate or (plate.IsForbidden and plate:IsForbidden()) then return false end
+	local unit = self.PlateToken(plate)
+	if not unit or self.Read(UnitGUID, unit) ~= hit.guid then return false end
+	local skull = self.localSkull
+	if not skull then
+		skull = CreateFrame("Frame", nil, UIParent)
+		skull:SetFrameStrata("HIGH")
+		skull:SetSize(20, 20)
+		skull:EnableMouse(false)
+		local icon = skull:CreateTexture(nil, "OVERLAY")
+		icon:SetAllPoints()
+		icon:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcon_8")
+		self.localSkull = skull
+	end
+	skull:ClearAllPoints()
+	skull:SetPoint("BOTTOM", plate, "TOP", 0, 2)
+	skull:Show()
+	self.markedUnit, self.markedGUID, self.markedPlate = unit, hit.guid, plate
+	return true
+end
+
+-- Separate frames let searches start, stop and move during lockdown. The
+-- secure click surface copies the HUD's position without protecting its frame.
+function Finder:SyncMarkButton()
+	if InCombatLockdown() then return end
+	local b, mark = self.button, self.markButton
+	if not mark then
+		mark = CreateFrame("Button", nil, UIParent, "SecureActionButtonTemplate")
+		self.markButton = mark
+		mark:Hide()
+		mark:SetSize(32, 32)
+		mark:SetFrameStrata("MEDIUM")
+		mark:SetFrameLevel(b:GetFrameLevel() + 1)
+		mark:SetAttribute("useOnKeyDown", false)
+		mark:SetAttribute("type1", "macro")
+		mark:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+		mark:SetScript("PreClick", function(button, mouse)
+			if mouse ~= "LeftButton" then return end
+			if InCombatLockdown() then self:Mark(); return end
+			button:SetAttribute("macrotext1", nil)
+			self:Mark(button)
+		end)
+		mark:SetScript("PostClick", function(button, mouse)
+			if mouse == "RightButton" then self:Open()
+			elseif not InCombatLockdown() then button:SetAttribute("macrotext1", nil) end
+		end)
+		mark:SetScript("OnEnter", Tip)
+		mark:SetScript("OnLeave", function() GameTooltip:Hide() end)
+		mark:RegisterForDrag("LeftButton")
+		mark:SetScript("OnDragStart", b:GetScript("OnDragStart"))
+		mark:SetScript("OnDragStop", b:GetScript("OnDragStop"))
+	end
+	mark:ClearAllPoints()
+	mark:SetPoint(b:GetPoint(1))
+	local visibility = b:IsShown() and "[combat] hide; show" or "hide"
+	if self.markVisibility ~= visibility then
+		RegisterStateDriver(mark, "visibility", visibility)
+		self.markVisibility = visibility
 	end
 end
 
@@ -63,6 +129,7 @@ function Finder:BuildButton()
 	b:SetScript("OnDragStop", function()
 		b:StopMovingOrSizing()
 		self.db.x, self.db.y = b:GetCenter()
+		self:SyncMarkButton()
 	end)
 	b:SetScript("OnEnter", Tip)
 	b:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -130,7 +197,7 @@ function Finder:Open(name)
 		t:Text(w, "Target Finder", "GameFontNormalLarge", nil, t.GOLD):SetPoint("TOPLEFT", 13, -9)
 		t:CloseButton(w):SetPoint("TOPRIGHT", -6, -5)
 		table.insert(UISpecialFrames, w:GetName())
-		t:Text(w, "Mob or object name", nil, nil, t.TEXT):SetPoint("TOPLEFT", 15, -44)
+		t:Text(w, "Mob or object name (partial names work)", nil, nil, t.TEXT):SetPoint("TOPLEFT", 15, -44)
 		local box = CreateFrame("EditBox", nil, w, "InputBoxTemplate")
 		self.input = box
 		box:SetAutoFocus(false)
@@ -143,7 +210,7 @@ function Finder:Open(name)
 		box:SetScript("OnEnterPressed", add)
 		box:SetScript("OnEscapePressed", function() w:Hide() end)
 		t:Button(w, "Track", 68, 24, add):SetPoint("TOPRIGHT", -14, -59)
-		t:Text(w, "Shift + middle-click a tracker quest to add its targets.", "GameFontHighlightSmall", nil, t.MUTED):SetPoint("TOPLEFT", 15, -93)
+		t:Text(w, "Shift + middle-click a mob or a tracker quest to watch it.", "GameFontHighlightSmall", 336, t.MUTED):SetPoint("TOPLEFT", 15, -93)
 		self.status = t:Text(w, "", "GameFontHighlightSmall", 332, t.GOOD)
 		self.status:SetPoint("TOPLEFT", 15, -115)
 		self.empty = t:Text(w, "Your watch list is empty.", nil, nil, t.MUTED)
