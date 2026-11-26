@@ -18,8 +18,24 @@ function Characters.Fold(name)
     return (name:gsub("[A-Z]", string.lower):gsub("%s+", " "))
 end
 
+local function GuidRealmID(guid)
+    return guid and guid:match("^Player%-(%d+)%-%x+$")
+end
+
+-- The realm's name. Forever's realms have none: GetRealmName answers "" and
+-- GetRealmID 0. There the server in the player's GUID stands in for it, as
+-- ForeverCore keys characters, so this character still has a key and a home.
+-- A realm with an ID but no name yet is still loading: "" until it has one.
 function Characters.Realm()
-    return Text(GetRealmName and GetRealmName()) or ""
+    local name = Text(GetRealmName and GetRealmName())
+    if name then return name end
+    if not (GetRealmID and GetRealmID() == 0) then return "" end
+    return GuidRealmID(Text(UnitGUID and UnitGUID("player"))) or ""
+end
+
+-- Whether a realm is a server from the GUID rather than a realm's name.
+function Characters.IsServer(realm)
+    return type(realm) == "string" and realm:find("^%d+$") ~= nil
 end
 
 function Characters.PlayerName()
@@ -136,6 +152,33 @@ function Characters:Initialize()
     end
 end
 
+-- Before Forever's realms lost their names, this character was filed under its
+-- first name and the realm's name ("firouzi@CAMWOW US1 Realm 4 PvP"). Fold that
+-- record into this one when it is the only such record with this first name,
+-- has no other character's GUID, and no other known character shares the first
+-- name: otherwise whose it is cannot be told.
+function Characters:Adopt(record, guid)
+    local first = Text((UnitName("player")))
+    if not first then return end
+    local folded, own, found = self.Fold(first), Text(record.name) and self.Fold(record.name), nil
+    for key, other in pairs(self.records) do
+        local name = other ~= record and type(other) == "table" and Text(other.name)
+        if name then
+            local otherFolded = self.Fold(name)
+            if otherFolded == folded and Text(other.realm) and not self.IsServer(other.realm)
+                and not (guid and other.guid and other.guid ~= guid) then
+                if found then return end
+                found = key
+            elseif otherFolded ~= own and otherFolded:match("^%S+") == folded then
+                return
+            end
+        end
+    end
+    if not found then return end
+    Merge(record, self.records[found])
+    self.records[found] = nil
+end
+
 function Characters:Observe(level)
     local name, realm = self.PlayerName(), self.Realm()
     local record = Ensure(name, realm)
@@ -146,6 +189,7 @@ function Characters:Observe(level)
         record = {}
         self.records[Key(name, realm)] = record
     end
+    if self.IsServer(realm) then self:Adopt(record, guid) end
     self.current = record
     local className, class = UnitClass("player")
     record.name, record.realm, record.address, record.seen = name, realm, true, time()
@@ -179,10 +223,6 @@ local function ImportSyndicator(api, realm)
         end
     end
     return true
-end
-
-local function GuidRealmID(guid)
-    return guid and guid:match("^Player%-(%d+)%-%x+$")
 end
 
 function Characters:Discover()

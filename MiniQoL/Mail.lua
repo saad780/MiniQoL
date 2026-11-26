@@ -77,12 +77,31 @@ function Mail:Initialize()
         if self.db[key] == nil then self.db[key] = default end
     end
     if type(self.db.sent) ~= "table" then self.db.sent = {} end
+    self:AdoptNamelessBook()
     self.known = { has = false, senders = {} }
     -- Quiet from the start: the game may tell of mail before it says the
     -- world is entered, and what is waiting is said in its own time.
     self.quietUntil = GetTime() + QUIET
     self:Prune()
     return self
+end
+
+-- While Forever's realms answered no name, mail sent was filed under "". Once
+-- the realm has a key (Characters.Realm), that book joins this realm's.
+function Mail:AdoptNamelessBook()
+    local realm, old = Realm(), self.db.sent[""]
+    if realm == "" or type(old) ~= "table" then return end
+    local book = type(self.db.sent[realm]) == "table" and self.db.sent[realm] or {}
+    for key, entry in pairs(old) do
+        local kept = book[key]
+        if type(kept) ~= "table" then
+            book[key] = entry
+        elseif type(entry) == "table" then
+            kept.count = (kept.count or 0) + (entry.count or 0)
+            if (entry.last or 0) > (kept.last or 0) then kept.last, kept.name = entry.last, entry.name or kept.name end
+        end
+    end
+    self.db.sent[realm], self.db.sent[""] = book, nil
 end
 
 -- Drops anyone not mailed in a long while, and what isn't a record at all.

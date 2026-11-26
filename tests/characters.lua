@@ -123,4 +123,35 @@ assert(service:Current() == shared and service.records["orla moss@region1/PvP"].
 pvp, realm, guid = false, "Normal shard", "Player-92-CA"
 service = login()
 assert(service:Current() ~= shared and not service:Current().bags, "PvE and PvP stay separate")
+
+-- Forever's realms now answer no name: GetRealmName "" and GetRealmID 0. The
+-- server in the GUID stands in, and the record from when the realm had a name
+-- joins this one when no one else could own it.
+function GetRealmID() return 0 end
+local OLD = "CAMWOW US1 Realm 4 PvP"
+db = { characters = {
+    ["firouzi@" .. OLD] = { name = "Firouzi", realm = OLD, level = 19, saved = 50, class = "ROGUE",
+        items = { [16] = "item:1951" } },
+    ["deca@" .. OLD] = { name = "Deca", realm = OLD, level = 30, saved = 40, items = { [16] = "item:7" } },
+    ["reco@" .. OLD] = { name = "Reco", realm = OLD, saved = 30, items = { [1] = "item:8" } },
+    ["reco veri@region1/PvP"] = { name = "Reco Veri", realm = "6922", address = true },
+    ["reco rush@region1/PvP"] = { name = "Reco Rush", realm = "6922", address = true },
+} }
+first, surname, realm, guid, pvp = "Firouzi", "Asman", "", "Player-6922-02C4B2FB", true
+service = login()
+local firouzi = service:Current()
+assert(firouzi and firouzi.name == "Firouzi Asman" and firouzi.realm == "6922", "keyed by the GUID's server")
+assert(service.PlayerKey() == "firouzi asman@region1/PvP" and db.characters["firouzi asman@region1/PvP"] == firouzi)
+assert(firouzi.level == 12 and firouzi.items[16] == "item:1951" and firouzi.class == "MAGE",
+    "today's level and class over the old record's, and its gear until new gear is saved")
+assert(not db.characters["firouzi@" .. OLD], "the old record joined this one")
+assert(db.characters["deca@" .. OLD], "another character's old record waits for that character")
+first, surname, guid = "Reco", "Veri", "Player-6922-00000001"
+service = login()
+assert(db.characters["reco@" .. OLD], "two Recos: the old record could be either one's")
+assert(service.Realm() == "6922" and #service:Alts() >= 1, "alts on this server are listed again")
+realm = ""
+function GetRealmID() return 91 end
+assert(login():Current() == nil, "a realm with an ID but no name yet is still loading")
+GetRealmID = nil
 print("Character database: legacy migration, offline roster, separate owners, atomic bags and bank, and zone transitions passed")

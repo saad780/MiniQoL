@@ -774,6 +774,19 @@ assert(printed[1]:find("Forgot 3 names", 1, true), "saying how many: " .. tostri
 equal(rowTexts(M), "Azonei Murtaba, Reco Veri", "your own characters stay listed")
 equal(features["mail.forget"].available(), false, "with nobody left to forget")
 
+-- While Forever's realms answered no name, mail sent was filed under "". It
+-- joins this realm's book once the realm has a key.
+MiniQoLDB.mail.sent["Realm Four"] = { ["bob builder"] = { name = "Bob Builder", count = 2, last = CLOCK - 10 } }
+MiniQoLDB.mail.sent[""] = { ["bob builder"] = { name = "Bob Builder", count = 1, last = CLOCK },
+    ["alt banki"] = { name = "Alt Banki", count = 3, last = CLOCK } }
+M:AdoptNamelessBook()
+local joined = MiniQoLDB.mail.sent["Realm Four"]
+equal(MiniQoLDB.mail.sent[""], nil, "nothing is left filed under no realm")
+equal(joined["bob builder"].count, 3, "counts for one name add up")
+equal(joined["bob builder"].last, CLOCK, "and the latest mail is kept")
+equal(joined["alt banki"].count, 3, "names only the old book had join")
+MiniQoLDB.mail.sent["Realm Four"] = nil
+
 -- Nobody at all: the box says how names get there.
 MiniQoLDB.characters = {}
 directory:Initialize()
