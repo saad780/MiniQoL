@@ -4,11 +4,11 @@ local _, ns = ...
 local Finder = ns.TargetFinder
 local PAGE = 7
 local function Tip(button)
-	local hit = Finder.best
+	local hit = Finder:IconHit()
 	GameTooltip:SetOwner(button, "ANCHOR_LEFT")
 	GameTooltip:SetText(hit and hit.name or "Target Finder")
 	if hit then
-		local action = hit.kind == "mob" and "Mark with a skull" or "Place a waypoint"
+		local action = hit.kind == "mob" and "Target and mark" or "Place a waypoint"
 		if hit.approximate then action = "Mark your position near this object" end
 		local range = hit.distance and (" (%d yd)"):format(math.sqrt(hit.distance) + 0.5) or ""
 		GameTooltip:AddLine(action .. range, 0.4, 1, 0.5)
@@ -20,7 +20,7 @@ local function Tip(button)
 end
 
 function Finder:Paint()
-	local hit, b = self.best, self.button
+	local hit, b = self:IconHit(), self.button
 	if not b then return end
 	b.icon:SetDesaturated(not hit)
 	b.icon:SetAlpha(hit and 1 or 0.45)
@@ -75,14 +75,11 @@ function Finder:SyncMarkButton()
 		mark:SetAttribute("type1", "macro")
 		mark:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 		mark:SetScript("PreClick", function(button, mouse)
-			if mouse ~= "LeftButton" then return end
-			if InCombatLockdown() then self:Mark(); return end
-			button:SetAttribute("macrotext1", nil)
-			self:Mark(button)
+			if mouse == "LeftButton" then self:PreparePick(button) end
 		end)
 		mark:SetScript("PostClick", function(button, mouse)
 			if mouse == "RightButton" then self:Open()
-			elseif not InCombatLockdown() then button:SetAttribute("macrotext1", nil) end
+			elseif mouse == "LeftButton" then self:FinishPick(button) end
 		end)
 		mark:SetScript("OnEnter", Tip)
 		mark:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -93,7 +90,7 @@ function Finder:SyncMarkButton()
 	mark:ClearAllPoints()
 	mark:SetPoint(b:GetPoint(1))
 	self:AnchorNames()
-	local visibility = b:IsShown() and "[combat] hide; show" or "hide"
+	local visibility = b:IsShown() and "show" or "hide"
 	if self.markVisibility ~= visibility then
 		RegisterStateDriver(mark, "visibility", visibility)
 		self.markVisibility = visibility
@@ -124,7 +121,7 @@ function Finder:BuildButton()
 	b.glow:SetPoint("CENTER")
 	b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 	b:SetScript("OnClick", function(_, button)
-		if button == "RightButton" then self:Open() else self:Mark() end
+		if button == "RightButton" then self:Open() end
 	end)
 	b:RegisterForDrag("LeftButton")
 	b:SetScript("OnDragStart", function() if IsShiftKeyDown() then b:StartMoving() end end)
@@ -156,7 +153,9 @@ function Finder:UpdateList()
 		local group = self.db.quests[id]
 		lines[#lines+1] = { label = group.title, quest = id }
 		for _, entry in ipairs(group.targets) do
-			lines[#lines+1] = { label = "    " .. entry.name, kind = entry.kind }
+			if not (group.excluded and group.excluded[self.EntryKey(entry)]) then
+				lines[#lines+1] = { label = "    " .. entry.name, kind = entry.kind }
+			end
 		end
 		if #group.targets == 0 then lines[#lines+1] = { label = "    No named targets available yet." } end
 	end

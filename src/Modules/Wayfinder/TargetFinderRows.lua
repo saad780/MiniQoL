@@ -5,9 +5,7 @@ local PAGE = 8
 local WAYPOINT = "TargetFinder"
 local lastPick = {}
 
-local function WatchKey(entry)
-	return entry.kind .. ":" .. (entry.id or entry.name:lower())
-end
+local WatchKey = Finder.EntryKey
 
 -- Scan already sorted individual sightings and merged tokens for the same GUID.
 -- One typed fragment can have several distinct names, each with its own cycle.
@@ -74,10 +72,10 @@ local function OwnsRow(row, key)
 end
 
 local function SkullUnit(self, owned)
+	if Read(UnitGUID, "target") == owned.guid then return "target" end
 	local hit = self.hitsByGUID[owned.guid]
 	local unit = hit and hit.unit or owned.unit
 	if Read(UnitGUID, unit) == owned.guid then return unit end
-	if Read(UnitGUID, "target") == owned.guid then return "target" end
 end
 
 function Finder:CheckRowSkull()
@@ -116,61 +114,109 @@ local function Unmark(self, row)
 	end
 end
 
-local function Click(self, row, mouse)
-	local locked = InCombatLockdown()
-	if not locked then
-		row:SetAttribute("macrotext1", nil)
-		row:SetAttribute("macrotext2", nil)
+local function ExactCommand(name, condition)
+	if #name <= 120 and not name:find("[%c|;]") and not name:find("^%[") then
+		return "/targetexact " .. (condition or "") .. name
 	end
+end
+
+-- Nameplates identify sightings, but the client cannot acquire a target by
+-- nameplate number. Use a targetable alias for a specific spawn when possible.
+local aliases = { "target", "mouseover", "focus", "pettarget", "party1target", "party2target", "party3target", "party4target" }
+local function TargetAlias(guid)
+	for _, unit in ipairs(aliases) do
+		if Read(UnitGUID, unit) == guid then return unit end
+	end
+end
+
+-- Combat keeps the secure icon's last binding. Show and act on the same name.
+function Finder:IconHit()
+	if not InCombatLockdown() then return self.best end
+	local key = self.markButton and self.markButton.combatKey
+	if not key then return end
+	for _, hit in ipairs(self.hits) do
+		if hit.key == key then return hit end
+	end
+end
+
+function Finder:PreparePick(button)
+	local locked = InCombatLockdown()
+	self.pendingPick = nil
+	if not locked then button:SetAttribute("macrotext1", nil) end
 	self.markers = nil
 	self:Scan(true)
-	if mouse == "RightButton" then Unmark(self, row); return end
-	if mouse ~= "LeftButton" then return end
-	local _, groups = Groups(self)
-	local group = groups[row.key]
-	local hit = group and NextHit(group.hits, lastPick[row.key])
+	local key = button.key
+	if button == self.markButton then
+		local nearest = self:IconHit()
+		key = nearest and nearest.key
+	end
+	if not key then return end
+	local hits = {}
+	for _, hit in ipairs(self.hits) do
+		if hit.key == key then hits[#hits + 1] = hit end
+	end
+	local hit = NextHit(hits, lastPick[key])
 	if not hit then return end
 	if hit.kind == "object" then
 		PlacePin(self, hit)
-		lastPick[row.key] = hit.guid
+		lastPick[key] = hit.guid
 		return
 	end
-	if locked or Read(UnitGUID, hit.unit) ~= hit.guid then return end
-	lastPick[row.key] = hit.guid
-	local condition = "[nocombat,@" .. hit.unit .. ",exists,nodead]"
-	local macro = "/target " .. condition .. " " .. hit.unit
-	if self.markedGUID and self.markedGUID ~= hit.guid then self:ClearLocalMark() end
-	local mark = Read(GetRaidTargetIndex, hit.unit)
-	if not mark or mark == 0 then
-		local personal = self:MarkNameplate(hit)
-		-- A solo nameplate skull can be removed even mid-fight. Share the
-		-- native marker with a party, or use it when there is no plate.
-		if (not personal or Read(IsInGroup) or Read(IsInRaid)) and CanMark() then
-			macro = macro .. "\n/tm " .. condition .. " ~8"
-			self.rowSkull = { key = row.key, guid = hit.guid, unit = hit.unit, time = GetTime() }
-		elseif not personal and not PlacePin(self, hit) then
-			ns.Print("Targeted " .. hit.displayName .. ". The game did not provide a place for its marker.")
-		end
+	if locked and not button.combatMacro then return end
+	local before = Read(UnitGUID, "target")
+	local pick = { key = key, button = button, before = before, wanted = hit.guid, candidates = {} }
+	for _, candidate in ipairs(hits) do
+		pick.candidates[candidate.guid] = Read(GetRaidTargetIndex, candidate.unit) or 0
 	end
-	row:SetAttribute("macrotext1", macro)
+	self.pendingPick = pick
+	if locked then return end
+	local alias = TargetAlias(hit.guid)
+	local command = alias and ("/target [@" .. alias .. ",exists,nodead] " .. alias) or ExactCommand(hit.displayName)
+	if not command then self.pendingPick = nil; return end
+	-- Clear an unrelated target before the exact-name search. A failed search
+	-- cannot raid-mark the old target, and the final line restores it on a miss.
+	local clear = before and alias ~= "target" and (alias or not pick.candidates[before])
+	if clear then command = "/cleartarget\n" .. command end
+	if not alias then command = command .. "\n/cleartarget [dead]" end
+	-- A name-only lookup for an ID-specific quest can land on a different NPC
+	-- with the same name. Mark that lookup personally after checking the GUID.
+	local plate = Read(C_NamePlate and C_NamePlate.GetNamePlateForUnit, hit.unit)
+	local safeToMark = not before or clear or before == hit.guid or (pick.candidates[before] or 0) > 0
+	pick.share = safeToMark and (alias or not hit.entry.id) and CanMark()
+		and (button == self.markButton or Read(IsInGroup) or Read(IsInRaid) or not plate)
+	if pick.share then command = command .. "\n/tm [@target,exists,nodead] ~8" end
+	if clear then command = command .. "\n/targetlasttarget [noexists]" end
+	button:SetAttribute("macrotext1", command)
 end
 
-local function AfterClick(self, row, mouse)
-	if not InCombatLockdown() then
-		row:SetAttribute("macrotext1", row.combatMacro)
-		row:SetAttribute("macrotext2", nil)
-	elseif mouse == "LeftButton" and row.combatMacro then
-		-- The client resolves the prebound exact name during lockdown. Only draw
-		-- a personal skull if the resulting target is still a verified sighting.
-		self:Scan(true)
-		local hit = self.hitsByGUID[Read(UnitGUID, "target")]
-		if hit and hit.key == row.key and hit.kind == "mob" then
-			lastPick[row.key] = hit.guid
-			if self.markedGUID ~= hit.guid then self:ClearLocalMark() end
-			local mark = Read(GetRaidTargetIndex, "target")
-			if (not mark or mark == 0) and not self:MarkNameplate(hit) then PlacePin(self, hit) end
-		end
+local function Confirm(self, pick)
+	local guid = Read(UnitGUID, "target")
+	if not guid or pick.candidates[guid] == nil or (guid == pick.before and guid ~= pick.wanted) then return end
+	local hit = self.hitsByGUID[guid]
+	if not hit or hit.key ~= pick.key or Read(UnitIsDeadOrGhost or UnitIsDead, "target") ~= false then return end
+	self.pendingPick = nil
+	lastPick[pick.key] = guid
+	if self.markedGUID and self.markedGUID ~= guid then self:ClearLocalMark() end
+	local icon = Read(GetRaidTargetIndex, "target")
+	if pick.share and pick.candidates[guid] == 0 then
+		self.rowSkull = { key = pick.key, guid = guid, unit = hit.unit, time = GetTime(), confirmed = icon == 8 }
 	end
+	if (not icon or icon == 0) and not self:MarkNameplate(hit) and not pick.share then PlacePin(self, hit) end
+	return true
+end
+
+function Finder:FinishPick(button)
+	if not InCombatLockdown() then button:SetAttribute("macrotext1", button.combatMacro) end
+	local pick = self.pendingPick
+	if not pick or pick.button ~= button or Confirm(self, pick) then return end
+	-- Some clients publish the new hard target on the following frame. A later
+	-- click or untrack invalidates this callback before it can paint anything.
+	C_Timer.After(0.1, function()
+		if self.pendingPick ~= pick then return end
+		self:Scan(true)
+		Confirm(self, pick)
+		self.pendingPick = nil
+	end)
 end
 
 local function Tooltip(row)
@@ -187,6 +233,7 @@ local function Tooltip(row)
 		GameTooltip:AddLine("Searching nearby.", 0.8, 0.8, 0.8)
 	end
 	GameTooltip:AddLine("Right-click to unmark.", 0.85, 0.8, 0.65)
+	GameTooltip:AddLine("Middle-click to stop tracking this name.", 0.85, 0.8, 0.65)
 	if Finder.namePages > 1 then
 		GameTooltip:AddLine(("Scroll for more names (%d/%d)."):format(Finder.namePage, Finder.namePages), 0.85, 0.8, 0.65)
 	end
@@ -228,10 +275,34 @@ local function NewRow(self, index)
 	row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
 	row:SetAttribute("type1", "macro")
 	row:SetAttribute("type2", "macro")
+	-- The physical middle click can hide its own secure row, even in combat.
+	row:SetAttribute("type3", "untrack")
+	SecureHandlerSetFrameRef(row, "icon", self.markButton)
+	row:SetAttribute("_untrack", [[
+		self:Hide()
+		local icon = self:GetFrameRef("icon")
+		if icon:GetAttribute("finderKey") == self:GetAttribute("finderKey") then
+			icon:SetAttribute("macrotext1", nil)
+		end
+	]])
 	row:SetAttribute("useOnKeyDown", false)
-	row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-	row:SetScript("PreClick", function(b, mouse) Click(self, b, mouse) end)
-	row:SetScript("PostClick", function(b, mouse) AfterClick(self, b, mouse) end)
+	row:RegisterForClicks("LeftButtonUp", "RightButtonUp", "MiddleButtonUp")
+	row:SetScript("PreClick", function(b, mouse)
+		if mouse == "LeftButton" then self:PreparePick(b)
+		elseif mouse == "RightButton" then
+			self.pendingPick = nil
+			if not InCombatLockdown() then b:SetAttribute("macrotext2", nil) end
+			self:Scan(true)
+			Unmark(self, b)
+		end
+	end)
+	row:SetScript("PostClick", function(b, mouse)
+		if mouse == "LeftButton" then self:FinishPick(b)
+		elseif mouse == "MiddleButton" and b.key then
+			self.pendingPick, lastPick[b.key] = nil, nil
+			self:Untrack(b.key, b.displayName)
+		elseif mouse == "RightButton" and not InCombatLockdown() then b:SetAttribute("macrotext2", nil) end
+	end)
 	row:SetScript("OnEnter", Tooltip)
 	row:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	row:EnableMouseWheel(true)
@@ -245,9 +316,8 @@ end
 
 local function CombatMacro(g)
 	-- Only bind a real creature name. Search fragments stay literal filters.
-	if g.kind == "mob" and #g.name <= 120 and not g.name:find("[%c|%[%];/]") then
-		return "/targetexact [combat] " .. g.name .. "\n/cleartarget [combat,dead]"
-	end
+	local command = g.kind == "mob" and ExactCommand(g.name, "[combat] ")
+	if command then return command .. "\n/cleartarget [combat,dead]" end
 end
 
 function Finder:PaintNames(pageChanged)
@@ -257,12 +327,23 @@ function Finder:PaintNames(pageChanged)
 	local rows = self.nameRows or {}
 	self.nameRows = rows
 	local locked = InCombatLockdown()
+	if not locked then
+		local best = self.best
+		local key = best and best.key
+		if self.markButton.combatKey ~= key then
+			self.markButton.combatKey = key
+			self.markButton:SetAttribute("finderKey", key)
+			local g = groups[key]
+			self.markButton.combatMacro = g and CombatMacro(g)
+			self.markButton:SetAttribute("macrotext1", self.markButton.combatMacro)
+		end
+	end
 	self.namePages = math.max(1, math.ceil(#list / PAGE))
 	self.namePage = math.min(self.namePage or 1, self.namePages)
 	local hold = locked
 	if #list > 0 and not pageChanged and not hold then
 		for _, row in ipairs(rows) do
-			if row:IsShown() and row:IsMouseOver() then hold = true; break end
+			if row:IsShown() and row:IsMouseOver() and groups[row.key] then hold = true; break end
 		end
 	end
 	for i = 1, PAGE do
@@ -272,11 +353,12 @@ function Finder:PaintNames(pageChanged)
 			if g and not row then row = NewRow(self, i); rows[i] = row end
 			if row and row.key ~= (g and g.key) then
 				row.key, row.displayName = g and g.key, g and g.name
+				row:SetAttribute("finderKey", row.key)
 				row.combatMacro = g and CombatMacro(g)
 				row:SetAttribute("macrotext1", row.combatMacro)
 				if g then row.label:SetText(g.name) end
-				row:SetShown(g ~= nil)
 			end
+			if row and row:IsShown() ~= (g ~= nil) then row:SetShown(g ~= nil) end
 		end
 		if row and row.key then
 			row.group = groups[row.key]

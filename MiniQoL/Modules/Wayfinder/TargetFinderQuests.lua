@@ -122,6 +122,7 @@ end
 function Finder:ImportQuest(id)
 	if type(id) ~= "number" or not self.db then return end
 	local group = self.db.quests[id] or { targets = {} }
+	group.excluded = nil
 	self:ResolveQuest(id, group, true)
 	self.db.quests[id] = group
 	self:Reindex()

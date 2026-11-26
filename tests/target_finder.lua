@@ -13,6 +13,10 @@ local function frame(_, name, parent, template)
     local f = { scripts = {}, attrs = {}, shown = true, name = name, parent = parent, template = template }
     function f:SetScript(kind, fn) self.scripts[kind] = fn end
     function f:GetScript(kind) return self.scripts[kind] end
+    function f:RegisterForClicks(...)
+        self.clicks={}
+        for _,v in ipairs({...}) do self.clicks[v]=true end
+    end
     function f:GetParent() return self.parent end
     function f:GetFrameLevel() return 2 end
     function f:SetAttribute(key, value)
@@ -36,6 +40,9 @@ CreateFrame, UIParent, Minimap, UISpecialFrames = frame, frame(), frame(), {}
 WorldFrame = frame()
 function RegisterStateDriver(f, state, rule)
     assert(not combat and state == "visibility"); f.rule = rule; f.shown = rule ~= "hide"
+end
+function SecureHandlerSetFrameRef(frame, key, ref)
+    assert(not combat); frame[key.."Ref"]=ref
 end
 GameTooltip = { IsOwned = function() return false end }
 MiniQoL = { Theme = { Window = noop, Tip = noop, Chrome = noop, Text = function() return frame() end,
@@ -101,23 +108,66 @@ for _, file in ipairs({ "TargetFinder", "TargetFinderQuests", "TargetFinderUI", 
 end
 local finder = ns.TargetFinder
 finder:OnLogin()
-local function markClick(mouse)
-    mouse = mouse or "LeftButton"
-    local b = finder.markButton
-    if combat then finder.button.scripts.OnClick(finder.button, mouse); return end
-    assert(b.template == "SecureActionButtonTemplate" and not b.scripts.OnClick and b:IsShown())
-    b.scripts.PreClick(b, mouse)
-    local macro = mouse == "LeftButton" and b.attrs.macrotext1
-    if macro then
-        assert(b.attrs.type1 == "macro")
-        local u = assert(macro:match("^/tm %[%s*nocombat,@(%w+),exists,nodead%] ~8$"))
-        if units[u] and not units[u].dead and not units[u].mark then
-            units[u].mark = 8; marks[#marks+1] = u
-        end
+-- Model the client's targeting restrictions. Seeing a nameplate token through
+-- UnitGUID does not make /target nameplateN legal. /targetexact uses the name.
+function TargetUnit() forbidden=forbidden+1; error("insecure targeting") end
+local function click(button, mouse, exactResult)
+    mouse=mouse or "LeftButton"
+    assert(button:IsShown() and button.template:find("SecureActionButtonTemplate",1,true))
+    assert(button.clicks[mouse.."Up"])
+    button.scripts.PreClick(button,mouse)
+    local previous=units.target
+    local macro=button.attrs[mouse=="LeftButton" and "macrotext1" or mouse=="RightButton" and "macrotext2" or "macrotext3"] or ""
+    for line in macro:gmatch("[^\n]+") do
+        local token=line:match("^/target %[@(%w+),exists,nodead%] %1$")
+        local exact=line:match("^/targetexact (.+)$")
+        local clear=line:match("^/tm %[nocombat,@(%w+),exists%] 0$")
+        if token then
+            assert(not token:match("^nameplate") and units[token] and not units[token].dead)
+            units.target=units[token]
+        elseif exact then
+            local onlyCombat=exact:match("^%[combat%] (.+)$")
+            if not onlyCombat or combat then
+                exact=onlyCombat or exact
+                if exactResult~=false then
+                    local match=exactResult and units[exactResult]
+                    if not match then
+                        for u,v in pairs(units) do
+                            if v.name==exact and not v.dead and (not match or (v.x or math.huge)<(match.x or math.huge)) then match=v end
+                        end
+                    end
+                    if match then assert(match.name==exact); units.target=match end
+                end
+            end
+        elseif line=="/cleartarget" then units.target=nil
+        elseif line=="/cleartarget [dead]" or line=="/cleartarget [combat,dead]" then
+            if units.target and units.target.dead and (combat or line=="/cleartarget [dead]") then units.target=nil end
+        elseif line=="/targetlasttarget [noexists]" then units.target=units.target or previous
+        elseif line=="/tm [@target,exists,nodead] ~8" then
+            if units.target and not units.target.dead and not units.target.mark then
+                for _,u in pairs(units) do if u.mark==8 then u.mark=nil end end
+                units.target.mark=8
+                marks[#marks+1]=units.target.guid:match("([^-]+)$")
+            end
+        elseif clear then
+            assert(not combat and mouse=="RightButton" and units[clear].mark==8)
+            units[clear].mark=nil
+        else error("unexpected macro line: "..line) end
     end
-    b.scripts.PostClick(b, mouse)
-    assert(not b.attrs.macrotext1 and forbidden==0, "only the native secure click performs the action")
+    if mouse=="MiddleButton" then
+        assert(button.attrs.type3=="untrack")
+        local handle={Hide=function() button:Hide() end, GetAttribute=function(_, k) return button.attrs[k] end,
+            GetFrameRef=function(_, key)
+                local ref=assert(button[key.."Ref"])
+                return {GetAttribute=function(_,k) return ref.attrs[k] end,SetAttribute=function(_,k,v) ref.attrs[k]=v end}
+            end}
+        local run=assert(loadstring(button.attrs._untrack))
+        setfenv(run,{self=handle}); run()
+    end
+    button.scripts.PostClick(button,mouse)
+    assert(forbidden==0 and not button.attrs.macrotext2 and button.attrs.macrotext1==button.combatMacro)
 end
+local function markClick(mouse,exactResult) click(finder.markButton,mouse,exactResult) end
 assert(not finder.button:IsShown())
 finder:Open()
 finder.input:SetText("  Wolf  ")
@@ -135,7 +185,7 @@ finder.button.scripts.OnUpdate(nil, 0.31)
 assert(finder.best.unit == "nameplate2" and finder.button.glow:IsShown() and #marks==0)
 unit("nameplate2", 12, "Boar", 102) -- recycled between glow and hardware click
 markClick()
-assert(#marks==1 and marks[1]=="nameplate1" and units.nameplate1.mark==8)
+assert(#marks==1 and marks[1]=="nameplate1" and units.nameplate1.mark==8 and units.target==units.nameplate1)
 markClick()
 assert(#marks==1, "repeat clicks preserve the existing mark")
 units.nameplate1.mark=nil
@@ -149,6 +199,7 @@ markClick()
 assert(#marks==1 and finder.markedUnit=="nameplate1" and finder.localSkull:IsShown(), "combat marks the live nameplate")
 unit("nameplate1",10,"Wolf",172)
 units.nameplate1.guid=units.nameplate1.guid.."-recycled"
+units.target=nil
 finder:Scan()
 assert(not finder.localSkull:IsShown(), "personal mark clears when the plate recycles")
 combat=false
@@ -164,11 +215,11 @@ markers.b = {name="Ancient Chest",objectGUID="GameObject-0-1-2-3-75-2",pos={x=.1
 events.VIGNETTES_UPDATED()
 assert(finder:Scan().distance==17^2)
 markClick()
-assert(points[#points].name=="Ancient Chest" and points[#points].x==117 and #marks==1)
+assert(ns.Navigation.pin.name=="Ancient Chest" and ns.Navigation.pin.x==117 and #marks==1)
 markers={}
 unit("softinteract",75,"Ancient Chest",nil,"GameObject")
 markClick()
-assert(points[#points].name=="Ancient Chest (nearby)" and points[#points].x==100)
+assert(ns.Navigation.pin.name=="Ancient Chest (nearby)" and ns.Navigation.pin.x==100)
 units.softinteract=nil
 assert(not finder:Scan())
 
@@ -219,6 +270,7 @@ unit("nameplate2",82,"SENIOR OPERATOR",104)
 assert(finder:Scan().name=="SENIOR OPERATOR" and finder.best.distance==16, "a partial name matches the nearest live full name")
 markClick()
 assert(marks[#marks]=="nameplate2")
+units.target=nil
 finder:Add("winch [")
 unit("nameplate2",82,"Winch [East]",104)
 assert(finder:Scan().name=="Winch [East]", "punctuation is a literal part of the search")
@@ -270,43 +322,7 @@ local function nameRow(name)
         if row:IsShown() and row.displayName == name then return row end
     end
 end
--- Emulate the hardware action between PreClick and PostClick. A plain Lua
--- TargetUnit or SetRaidTarget is forbidden, including inside click scripts.
-function TargetUnit() forbidden=forbidden+1; error("insecure targeting") end
-local function rowClick(row, mouse, combatResult)
-    mouse=mouse or "LeftButton"
-    assert(row:IsShown() and row.template:find("SecureActionButtonTemplate",1,true))
-    row.scripts.PreClick(row,mouse)
-    local macro=row.attrs[mouse=="LeftButton" and "macrotext1" or "macrotext2"] or ""
-    for line in macro:gmatch("[^\n]+") do
-        local token=line:match("^/target %[%s*nocombat,@(%w+),exists,nodead%] %1$")
-        local mark=line:match("^/tm %[nocombat,@(%w+),exists,nodead%] ~8$")
-        local clear=line:match("^/tm %[nocombat,@(%w+),exists%] 0$")
-        local exact=line:match("^/targetexact %[combat%] (.+)$")
-        if token then
-            assert(not combat and mouse=="LeftButton" and units[token] and not units[token].dead)
-            units.target=units[token]
-        elseif mark then
-            assert(not combat and not units[mark].mark)
-            for _,u in pairs(units) do if u.mark==8 then u.mark=nil end end
-            units[mark].mark=8
-        elseif clear then
-            assert(not combat and mouse=="RightButton" and units[clear].mark==8)
-            units[clear].mark=nil
-        elseif exact then
-            assert(combat and mouse=="LeftButton")
-            if combatResult then
-                assert(units[combatResult].name==exact)
-                units.target=units[combatResult]
-            end
-        else
-            assert(line=="/cleartarget [combat,dead]" and combat)
-            if units.target and units.target.dead then units.target=nil end
-        end
-    end
-    row.scripts.PostClick(row,mouse)
-    assert(forbidden==0 and not row.attrs.macrotext2 and row.attrs.macrotext1==row.combatMacro)
-end
+local rowClick=click
 
 units,visible={},{}
 for i=1,4 do
@@ -325,19 +341,22 @@ rowClick(senior)
 assert(units.target==units.nameplate4 and units.target.mark==8)
 rowClick(tunnel,"RightButton")
 assert(units.target==units.nameplate4 and units.target.mark==8,"unmarking a different name preserves the active skull")
+units.party1target=units.nameplate3
 rowClick(tunnel)
 assert(units.target==units.nameplate3 and units.target.mark==8,"each name remembers its own cycle")
 units.target=units.nameplate4
 rowClick(tunnel,"RightButton")
 assert(not units.nameplate3.mark and units.target==units.nameplate4,"unmark preserves target and watch")
-rowClick(tunnel)
+rowClick(tunnel,"LeftButton","nameplate1")
 assert(units.target==units.nameplate1)
 rowClick(tunnel)
 assert(units.target==units.nameplate2,"cycle wraps at the farthest mob")
 units.nameplate1.x=110
+units.focus=units.nameplate1
 rowClick(tunnel)
 assert(units.target==units.nameplate1,"cycle uses current distances")
 unit("nameplate1",121,"Burrower",101)
+units.focus=nil
 units.target=nil
 units.nameplate2.dead=true
 units.nameplate3.mark=4
@@ -392,4 +411,56 @@ assert(finder.namePage==2 and nameRow("Search 9"))
 finder.db.manual, finder.db.quests = {}, {}
 finder:Reindex()
 for _,row in ipairs(finder.nameRows) do assert(not row:IsShown()) end
-print("Target Finder: imports, partial names, live name rows, distance cycling, secure clicks, unmarking, combat, object waypoints and paging passed")
+
+units,visible,markers={},{},{}
+for i=1,3 do
+    local token="nameplate"..i
+    visible[i]=frame(); visible[i].namePlateUnitToken=token
+    unit(token,200+i,i==1 and "Senior Operator" or "Tunnel Operator",100+i*2)
+end
+unit("target",700,"Boar",112)
+local boar=units.target
+finder:Add("operator")
+tunnel,senior=assert(nameRow("Tunnel Operator")),assert(nameRow("Senior Operator"))
+party=true
+rowClick(tunnel,"LeftButton",false); flush()
+assert(units.target==boar and not boar.mark and not units.nameplate2.mark and not finder.markedGUID,
+    "an unsuccessful nameplate-only lookup restores the old target and draws no skull")
+party=false
+rowClick(tunnel,"LeftButton","nameplate3")
+assert(units.target==units.nameplate3 and finder.markedGUID==units.nameplate3.guid,
+    "a different same-name spawn chosen by WoW receives the personal skull")
+rowClick(tunnel,"RightButton")
+assert(not finder.markedGUID and nameRow("Tunnel Operator"))
+-- The unit becomes the client's hard target only after PostClick.
+units.target=boar
+rowClick(tunnel,"LeftButton",false)
+units.target=units.nameplate2
+flush()
+assert(finder.markedGUID==units.nameplate2.guid)
+rowClick(tunnel,"RightButton")
+-- Removing a partial-name result also suppresses matching quest entries, while
+-- the other result and the quest itself remain tracked across live refreshes.
+log[405]={{type="monster",text="Senior Operator slain: 0/4",finished=false}}
+finder:ImportQuest(405)
+finder:Add("Senior Operator",201)
+senior=assert(nameRow("Senior Operator"))
+local selected=units.target
+combat=true
+rowClick(senior,"MiddleButton")
+assert(not senior:IsShown() and units.target==selected and not finder.hitsByGUID[units.nameplate1.guid])
+assert(not finder.markButton.attrs.macrotext1,"middle click disarms the removed name on the locked icon")
+combat=false; events.PLAYER_REGEN_ENABLED()
+finder:ResolveQuest(405,finder.db.quests[405],true); finder:Reindex()
+assert(#finder.db.manual==1 and finder.db.manual[1].name=="operator" and not nameRow("Senior Operator"))
+assert(nameRow("Tunnel Operator") and finder.db.quests[405] and finder.db.quests[405].excluded["mob:senior operator"])
+finder:Add("Senior Operator")
+assert(nameRow("Senior Operator"),"explicitly tracking a removed name restores it")
+rowClick(assert(nameRow("Senior Operator")),"MiddleButton")
+finder:ImportQuest(405)
+assert(nameRow("Senior Operator"),"manually importing the quest again restores its targets")
+units,visible={},{}
+finder:Scan()
+rowClick(assert(nameRow("operator")),"MiddleButton")
+assert(#finder.db.manual==0 and finder.db.quests[405],"middle click on a dim typed search removes the search")
+print("Target Finder: confirmed hardware targeting, nameplate-only searches, cycling, right-click clearing, middle-click untracking, combat and quest refresh passed")

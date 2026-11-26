@@ -4,6 +4,10 @@ local _, ns = ...
 local Finder = ns:NewModule("TargetFinder")
 local RANGE = 60 -- yards for sightings with a measurable position
 local byName, byID, terms = {}, {}, {}
+local function EntryKey(entry)
+	return entry.kind .. ":" .. (entry.id or entry.name:lower())
+end
+Finder.EntryKey = EntryKey
 local fixedUnits = { "softinteract", "softenemy", "target", "mouseover" }
 local plates = {}
 for i = 1, 40 do plates[i] = "nameplate" .. i end
@@ -40,7 +44,9 @@ function Finder:Reindex()
 	end
 	for _, entry in ipairs(self.db.manual) do index(entry) end
 	for _, group in pairs(self.db.quests) do
-		for _, entry in ipairs(group.targets) do index(entry) end
+		for _, entry in ipairs(group.targets) do
+			if not (group.excluded and group.excluded[EntryKey(entry)]) then index(entry) end
+		end
 	end
 	self:UpdateList()
 	self.button:SetShown(next(byName) ~= nil)
@@ -51,9 +57,17 @@ end
 function Finder:Add(name, mobID)
 	name = Text(name)
 	if not name or #name > 120 then return false end
+	local lower = name:lower()
+	-- Explicitly tracking a name again also restores it to matching searches.
+	for _, entry in ipairs(self.db.manual) do
+		if entry.excluded then
+			entry.excluded["mob:" .. lower], entry.excluded["object:" .. lower] = nil, nil
+			if not mobID and entry.name:lower() == lower then entry.excluded = nil end
+		end
+	end
 	for _, entry in ipairs(self.db.manual) do
 		if (mobID and entry.id == mobID and entry.kind == "mob")
-			or (not mobID and entry.kind == "any" and entry.name:lower() == name:lower()) then return true end
+			or (not mobID and entry.kind == "any" and entry.name:lower() == lower) then self:Reindex(); return true end
 	end
 	table.insert(self.db.manual, { name = name, kind = mobID and "mob" or "any", id = mobID })
 	self:Reindex()
@@ -67,6 +81,43 @@ local function Identity(guid)
 	if kind == "Creature" or kind == "Vehicle" then return "mob", tonumber(id) end
 end
 
+function Finder:Untrack(key, name)
+	local kind, lower = key:match("^([^:]+):(.+)$")
+	if not kind then return end
+	local ids = {}
+	for _, hit in ipairs(self.hits) do
+		if hit.key == key then
+			local _, id = Identity(hit.guid)
+			if id then ids[id] = true end
+		end
+	end
+	local function exact(entry)
+		return (entry.kind == kind or entry.kind == "any")
+			and (entry.name:lower() == lower or (entry.id and ids[entry.id]))
+	end
+	for i = #self.db.manual, 1, -1 do
+		local entry = self.db.manual[i]
+		if exact(entry) then
+			table.remove(self.db.manual, i)
+		elseif entry.kind == "any" and lower:find(entry.name:lower(), 1, true) then
+			entry.excluded = entry.excluded or {}
+			entry.excluded[key] = true
+		end
+	end
+	for _, group in pairs(self.db.quests) do
+		for _, entry in ipairs(group.targets) do
+			if exact(entry) then
+				group.excluded = group.excluded or {}
+				group.excluded[EntryKey(entry)] = true
+			end
+		end
+	end
+	if self.markedKey == key then self:ClearLocalMark() end
+	self:Reindex()
+	self:PaintNames(true)
+	ns.Print("Stopped tracking " .. name .. ".")
+end
+
 local function Match(kind, id, name)
 	local entry = id and byID[kind .. id]
 	if entry then return entry end
@@ -77,10 +128,10 @@ local function Match(kind, id, name)
 	if names then
 		local typed = names[kind]
 		if typed and (not typed.id or not id) then return typed end
-		if names.any then return names.any end
+		if names.any and not (names.any.excluded and names.any.excluded[kind .. ":" .. lower]) then return names.any end
 	end
 	for _, term in ipairs(terms) do
-		if lower:find(term.text, 1, true) then return term.entry end
+		if lower:find(term.text, 1, true) and not (term.entry.excluded and term.entry.excluded[kind .. ":" .. lower]) then return term.entry end
 	end
 end
 
@@ -285,33 +336,6 @@ function Finder:Scan(quiet)
 	return self.best
 end
 
-function Finder:Mark(secureClick)
-	self.markers = nil
-	local hit = self:Scan()
-	if not hit then return end
-	if self.markedUnit and self.markedGUID ~= hit.guid then self:ClearLocalMark() end
-	if hit.kind == "mob" then
-		if Read(UnitGUID, hit.unit) ~= hit.guid then return end
-		local mark = Read(GetRaidTargetIndex, hit.unit)
-		if Number(mark) and mark > 0 then return end
-		-- Immediate feedback also covers servers that decline the raid mark.
-		-- The next scan removes it once the native mark is visible.
-		local personal = self:MarkNameplate(hit)
-		if secureClick and not InCombatLockdown()
-			and (not Read(IsInRaid) or Read(UnitIsGroupLeader, "player") or Read(UnitIsGroupAssistant, "player")) then
-			-- Only the verified unit token goes in the macro. The player's click
-			-- runs the client's marker command; ~8 preserves existing marks.
-			secureClick:SetAttribute("macrotext1", "/tm [nocombat,@" .. hit.unit .. ",exists,nodead] ~8")
-			return
-		end
-		if personal then return end
-		if not hit.x then ns.Print("The game could not place a raid mark on " .. hit.name .. "."); return end
-	end
-	if hit.x then
-		local name = hit.approximate and (hit.name .. " (nearby)") or hit.name
-		ns.Navigation:SetWaypoint(hit.c, hit.x, hit.y, name, hit.m)
-	end
-end
 
 function Finder:OnLogin()
 	ns.db.targetFinder = ns.db.targetFinder or {}
