@@ -11,7 +11,7 @@ local function EntryKey(entry)
 end
 Finder.EntryKey = EntryKey
 local fixedUnits = { "softinteract", "softenemy", "target", "mouseover" }
-local plates = {}
+local plates, seenPlates = {}, {}
 for i = 1, 40 do plates[i] = "nameplate" .. i end
 
 local function Read(fn, ...)
@@ -293,18 +293,23 @@ function Finder:Scan(quiet)
 		end
 	end
 	for _, unit in ipairs(fixedUnits) do unitMatch(unit) end
+	wipe(seenPlates)
 	local visible = Read(C_NamePlate and C_NamePlate.GetNamePlates)
-	local foundPlate = false
 	if type(visible) == "table" then
 		for _, plate in ipairs(visible) do
 			if not (plate.IsForbidden and plate:IsForbidden()) then
 				local unit = PlateToken(plate)
-				if unit then foundPlate = true; unitMatch(unit, true) end
+				if unit and not seenPlates[unit] then
+					seenPlates[unit] = true
+					unitMatch(unit, true)
+				end
 			end
 		end
 	end
-	if not foundPlate then
-		for _, unit in ipairs(plates) do unitMatch(unit, true) end
+	-- A partial frame list can omit a readable numbered unit. Only probe the
+	-- slots we haven't checked; an empty slot costs a single GUID lookup.
+	for _, unit in ipairs(plates) do
+		if not seenPlates[unit] then unitMatch(unit, true) end
 	end
 	local v = C_VignetteInfo
 	if c and mapID and v then

@@ -316,6 +316,17 @@ visible={}
 units.mouseover=nil
 unit("nameplate7",91,"Tunnel Operator",102)
 assert(finder:Scan().name=="Tunnel Operator", "public nameplate units still work when no frames are enumerated")
+visible={plate}
+units.nameplate7.x=160
+local edge=finder:Scan()
+assert(edge and edge.unit=="nameplate7", "a partial frame list still finds a watched mob exactly 60 yards away")
+units.nameplate7.x=161
+assert(not finder:Scan(), "a measurable mob beyond 60 yards stays out even if its token is readable")
+local extraPlate=frame()
+extraPlate.namePlateUnitToken="nameplate52"
+visible[2]=extraPlate
+unit("nameplate52",92,"Mill Operator",110)
+assert(finder:Scan().unit=="nameplate52", "frame-reported tokens above the numbered scan are included")
 
 local function nameRow(name)
     for _, row in ipairs(finder.nameRows) do
