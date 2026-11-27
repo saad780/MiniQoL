@@ -296,6 +296,12 @@ C_AddOns = { LoadAddOn = function() error("walking should not load another addon
 local inCombat, now = true, 0
 function InCombatLockdown() return inCombat end
 function GetTime() return now end
+local function advance(frames, elapsed)
+    for _ = 1, frames do
+        now = now + elapsed
+        arrow.scripts.OnUpdate(arrow, elapsed)
+    end
+end
 
 Navigation:AddWaypoint(1, 400, 650, "Across the river", 1429)
 equal(#requests, 0, "defers the walking search in combat")
@@ -327,6 +333,9 @@ equal(roads.options.style, "roads", "Roads Always uses Polestar's Roads style")
 roads.done({ roads.from, { x = 430, y = 600 }, roads.to })
 Navigation:UpdateArrow()
 assert(arrow.head.shown, "the completed route shows a bearing")
+advance(3, 1/60)
+assert(arrow.bearingFrame > 0 and arrow.bearingFrame < 32, "the first walking aim eases away from the pending direct bearing")
+advance(80, 1/60)
 equal(arrow.bearingFrame, 0, "points north toward the turn around the obstacle")
 equal(arrow.distance.text, "50 yd", "yardage is measured to the leg destination")
 local function SetRouteArrow(enabled)
@@ -349,6 +358,7 @@ equal(#xs, 3, "along the whole route")
 local originalPosition = ns.GetPlayerWorld
 ns.GetPlayerWorld = function() return 1, 430, 600, 1429 end
 Navigation:UpdateArrow()
+advance(80, 1/60)
 equal(arrow.bearingFrame, 43, "once at the river bend the arrow turns down the next stretch")
 ns.GetPlayerWorld = originalPosition
 
@@ -407,6 +417,7 @@ Navigation:UpdateArrow()
 local approach = requests[#requests]
 approach.done({ approach.from, {x=400, y=570}, approach.to })
 Navigation:UpdateArrow()
+advance(80, 1/60)
 assert(arrow.head.shown and arrow.bearingFrame == 96 and arrow.distance.text == "60 yd", "walks east around the obstacle on the approach to the tower")
 equal(arrow.label.text, stage.n, "names the transport stop")
 equal(arrow.goal.text, "On the way to " .. localTrip.n, "keeps the quest in view")
@@ -437,6 +448,7 @@ local function roadRoute(name)
     Navigation:UpdateArrow()
 end
 roadRoute("North road")
+advance(80, 1/60)
 local requestCount = #requests
 local _, _, _, _, _, from, joinX, joinY = Navigation:GetTrail()
 assert(joinX and joinX > 420 and joinY == 600 and from == 4, "the dots join at the reachable forward aim and continue past it")
@@ -460,6 +472,55 @@ local newBearing = arrow.bearingFrame
 pending.done({ pending.from, { x = 200, y = 100 }, pending.to })
 Navigation:UpdateArrow()
 equal(arrow.bearingFrame, newBearing, "a late route from a retired leg cannot take the arrow back")
+
+-- Feed a measured heading into the real arrow frame independently of how the
+-- walking grid chose it. The waypoint starts due north, as does the first aim.
+local sampleAngle = 0
+ns.Walking.Nav.follow.Step = function(_, _, _, _, _, state, x, y)
+    state.idx, state.off = 2, 0
+    return x + 40 * math.cos(math.rad(sampleAngle)), y + 40 * math.sin(math.rad(sampleAngle))
+end
+local steadyGoal = Navigation:AddWaypoint(1, px + 200, py, "Steady road", 1429)
+local steadyJob = requests[#requests]
+steadyJob.done({ steadyJob.from, steadyJob.to })
+for _, degrees in ipairs({0.5, 1, 1.6, 2.2, 2.9, 1.4, -2.9}) do
+    sampleAngle = degrees
+    advance(24, 1/60)
+    equal(arrow.bearingFrame, 0, "small sustained route changes leave the needle still")
+end
+sampleAngle = 8
+advance(70, 1/60)
+equal(arrow.bearingFrame, 3, "a gradual real change eventually moves the needle")
+
+-- Looking just to either side of a sprite boundary should keep the needle
+-- still, while a deliberate turn of the character reads on the next frame.
+local facing = 0
+function GetPlayerFacing() return facing end
+for _, halfFrame in ipairs({0.48,0.52,0.49,0.51}) do
+    facing = math.rad(8 - (2 + halfFrame) * 360/128)
+    advance(1, 1/144)
+    equal(arrow.bearingFrame, 3, "no flicker between neighbouring atlas frames")
+end
+facing = math.pi / 2
+advance(1, 1/144)
+equal(arrow.bearingFrame, 99, "turning the character responds before the next route sample")
+facing = 0
+sampleAngle = 175
+advance(4, 1/60)
+assert(arrow.bearingFrame > 3 and arrow.bearingFrame < 12, "a large route change starts smoothly")
+advance(130, 1/60)
+equal(arrow.bearingFrame, 62, "the needle catches the new turn")
+sampleAngle = -175
+for i = 1, 90 do
+    advance(1, 1/60)
+    assert(arrow.bearingFrame >= 62 and arrow.bearingFrame <= 66, "crosses south by the short arc")
+end
+equal(arrow.bearingFrame, 66, "arrives on the far side of the angle seam")
+sampleAngle = 80
+advance(3, 1/60)
+SetRouteArrow(false)
+equal(arrow.bearingFrame, 0, "direct mode cancels a turn in progress immediately")
+assert(Navigation:GetWaypoint() == steadyGoal)
 
 ns.GetPlayerWorld = function() end
 Navigation:UpdateArrow()

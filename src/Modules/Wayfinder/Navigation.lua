@@ -617,10 +617,21 @@ end
 local arrow
 local ARROW_FRAMES, ARROW_COLUMNS, ARROW_ROWS = 128, 16, 8
 local TURN = 2 * math.pi
+local BEARING_NOISE = math.rad(3) -- hold the accepted route heading through small aim changes
+local TURN_RATE = math.rad(160)  -- maximum radians per second around a sharp bend
+local TURN_TIME = 0.18           -- seconds for the gap to fall to 1/e
+local bearingLeg, desiredBearing, shownBearing
 
-local function ShowBearing(angle)
+local function ShowBearing(angle, steady)
 	-- Projected facets keep a fixed camera/light; rotate by selecting a yaw frame.
-	local index = math.floor((angle % TURN) / TURN * ARROW_FRAMES + 0.5) % ARROW_FRAMES
+	local frame = (angle % TURN) / TURN * ARROW_FRAMES
+	local index = math.floor(frame + 0.5) % ARROW_FRAMES
+	if steady and arrow.useAtlas and arrow.drawnFrame then
+		-- Overlap adjacent frames slightly so a needle resting on their shared
+		-- edge does not flicker between them. Wrap across the north seam too.
+		local delta = (frame - arrow.drawnFrame + ARROW_FRAMES / 2) % ARROW_FRAMES - ARROW_FRAMES / 2
+		if math.abs(delta) < 0.75 then index = arrow.drawnFrame end
+	end
 	arrow.bearingFrame = index
 	if arrow.useAtlas then
 		if arrow.drawnFrame ~= index then
@@ -633,6 +644,32 @@ local function ShowBearing(angle)
 		-- A running client may not see newly installed texture files until restarted.
 		arrow.head:SetRotation(angle)
 	end
+end
+
+local function SetBearing(angle, leg)
+	if not leg or leg ~= bearingLeg then
+		bearingLeg, desiredBearing, shownBearing = leg, angle, angle
+		ShowBearing(angle - (GetPlayerFacing() or 0))
+	elseif math.abs((angle - desiredBearing + math.pi) % TURN - math.pi) > BEARING_NOISE then
+		desiredBearing = angle
+	end
+end
+
+local function AnimateBearing(elapsed)
+	if not bearingLeg then return end
+	if shownBearing ~= desiredBearing then
+		local gap = (desiredBearing - shownBearing + math.pi) % TURN - math.pi
+		if math.abs(gap) < 0.0005 then
+			shownBearing = desiredBearing
+		else
+			local dt = min(elapsed, 0.1)
+			local step = gap * (1 - math.exp(-dt / TURN_TIME))
+			shownBearing = (shownBearing + max(-TURN_RATE * dt, min(TURN_RATE * dt, step))) % TURN
+		end
+	end
+	-- Ease only the route's world bearing. Turning the character moves the
+	-- compass immediately, even between walking-route samples.
+	ShowBearing(shownBearing - (GetPlayerFacing() or 0), true)
 end
 
 local function FormatDistance(yards)
@@ -677,6 +714,7 @@ function Navigation:GetRouteStyle()
 end
 
 local function ClearWalk()
+	bearingLeg = nil
 	local old = walk
 	walk = nil
 	if old and old.job then old.engine.Cancel(old.job) end
@@ -875,6 +913,7 @@ function Navigation:UpdateArrow()
 		ClearWalk()
 	end
 	if not cont or away or usingTransport then
+		bearingLeg = nil
 		arrow.head:Hide()
 		arrow.distance:SetText(instruction and "" or (cont and "Far away" or "?"))
 		Tint(CYAN)
@@ -897,7 +936,7 @@ function Navigation:UpdateArrow()
 		if ax ~= 0 or ay ~= 0 then dx, dy = ax, ay end
 	end
 	-- Both bearing and player facing count counter-clockwise from north.
-	ShowBearing(atan2(dy, dx) - (GetPlayerFacing() or 0))
+	SetBearing(atan2(dy, dx), guideArrow and walk and leg)
 	arrow.head:Show()
 	arrow.distance:SetText(status or FormatDistance(distance))
 	Tint(distance <= NEAR_YARDS and GREEN or CYAN)
@@ -1064,6 +1103,7 @@ local function CreateArrow()
 			elapsedSince = 0
 			Navigation:UpdateArrow()
 		end
+		AnimateBearing(elapsed)
 	end)
 	f:Hide()
 	return f
