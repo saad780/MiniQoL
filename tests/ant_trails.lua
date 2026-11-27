@@ -302,4 +302,30 @@ set("antTrails", false)
 drawMap(); drawMini()
 assert(map.shown == 0 and mini.shown == 0, "off: none anywhere")
 
-print("Ant trails: spaced and marching from the player, round route corners, clipped to the view and capped, minimap rotation and shape, settings passed")
+---------------------------------------------------------------------------
+-- 7. A quest area's outline: drawn while you're in it and no trail leads on
+---------------------------------------------------------------------------
+local area
+ns.Navigation.GetArea = function() if area then return unpack(area, 1, 3) end end
+trail = nil
+area = { 1, { unitNorth - 40, unitNorth + 40, unitNorth + 40, unitNorth - 40 },
+    { unitWest - 40, unitWest - 40, unitWest + 40, unitWest + 40 } }
+drawMap(); drawMini()
+assert(map.shown == 0 and mini.shown == 0, "without the quest area setting, nothing")
+settings.questAreas = true
+drawMap(); drawMini()
+assert(map.shown > 0 and mini.shown > 0, "the outline on both surfaces, though the trails are off")
+local around = 0
+for _, dot in ipairs(dots(mini)) do around = math.max(around, math.abs(dot[1]), math.abs(dot[2])) end
+assert(around > 10, "around the player, not on them")
+set("antTrails", true)
+set("antTrailsWhere", "minimap")
+drawMap(); drawMini()
+assert(map.shown == 0 and mini.shown > 0, "with the trails on, wherever they show")
+trail = { 1, unitNorth + 300, unitWest }
+area = nil
+drawMini()
+assert(mini.shown > 0, "and the trail again once you've left the area")
+set("antTrailsWhere", "both")
+
+print("Ant trails: spaced and marching from the player, round route corners, clipped to the view and capped, minimap rotation and shape, settings, quest area outlines passed")

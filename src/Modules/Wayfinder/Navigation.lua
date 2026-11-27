@@ -679,6 +679,35 @@ local function FormatDistance(yards)
 	return ("%d yd"):format(yards + 0.5)
 end
 
+-- Yards a second: the speed you're moving at, or while you stand still the
+-- speed you would run (or ride) at. Nothing when the game won't say.
+local function TravelSpeed()
+	if not GetUnitSpeed then return end
+	local moving, run = GetUnitSpeed("player")
+	if ns.Readable(moving) and type(moving) == "number" and moving > 0.5 then return moving end
+	if ns.Readable(run) and type(run) == "number" and run > 0.5 then return run end
+end
+
+-- "45 s", "3:05", "1 h 05 m".
+local function FormatDuration(seconds)
+	seconds = math.floor(seconds + 0.5)
+	if seconds < 60 then return ("%d s"):format(seconds) end
+	if seconds < 3600 then return ("%d:%02d"):format(math.floor(seconds / 60), seconds % 60) end
+	return ("%d h %02d m"):format(math.floor(seconds / 3600), math.floor(seconds % 3600 / 60))
+end
+Navigation.FormatDuration = FormatDuration
+
+-- The readout under the arrow: how far, and how long at your speed. Along the
+-- walking route that's the walk itself, which is what you'll actually cover;
+-- the straight line can be half of it around a lake or a cliff.
+local function DistanceText(yards)
+	local text = FormatDistance(yards)
+	if not ns:GetSetting("arrowTime") then return text end
+	local speed = TravelSpeed()
+	if not speed or yards < 1 then return text end
+	return text .. "  |cffbfbfbf" .. FormatDuration(yards / speed) .. "|r"
+end
+
 local function Tint(colour)
 	arrow.head:SetVertexColor(colour[1], colour[2], colour[3])
 	arrow.distance:SetTextColor(colour[1], colour[2], colour[3])
@@ -884,6 +913,51 @@ function Navigation:GetTrail()
 	return trailCont, trailX, trailY
 end
 
+---------------------------------------------------------------------------
+-- Quest areas: a waypoint can carry the area its work is spread over
+-- ({ c, xs, ys }, a convex outline in world yards, counter-clockwise; see
+-- QuestWaypoints). Once you're inside it the arrow rests and the area is
+-- outlined instead (AntTrails), since what you're after is somewhere in it.
+---------------------------------------------------------------------------
+local AREA_LEAVE_YARDS = 20 -- once in, you're counted in until this far outside
+
+-- Whether (x, y) lies inside the outline, or within `margin` yards of it.
+function Navigation.InArea(area, x, y, margin)
+	local xs, ys = area.xs, area.ys
+	local n = type(xs) == "table" and type(ys) == "table" and #xs or 0
+	if n < 3 then return false end
+	local inside, nearest = true, math.huge
+	for i = 1, n do
+		local j = i % n + 1
+		local ex, ey = xs[j] - xs[i], ys[j] - ys[i]
+		local px, py = x - xs[i], y - ys[i]
+		if ex * py - ey * px < 0 then inside = false end
+		local length = ex * ex + ey * ey
+		local t = length > 0 and max(0, min(1, (px * ex + py * ey) / length)) or 0
+		local dx, dy = px - ex * t, py - ey * t
+		nearest = min(nearest, dx * dx + dy * dy)
+	end
+	return inside or (margin or 0) > 0 and nearest <= margin * margin
+end
+
+local function InQuestArea(rec, cont, wx, wy)
+	local area = rec.area
+	if not (ns:GetSetting("questAreas") and type(area) == "table" and area.c == cont and wx) then
+		if type(area) == "table" then area.inside = nil end
+		return false
+	end
+	area.inside = Navigation.InArea(area, wx, wy, area.inside and AREA_LEAVE_YARDS or 0) or nil
+	return area.inside
+end
+
+-- The area to outline, while you're in it: continent, xs, ys.
+function Navigation:GetArea()
+	local area = current and current.area
+	if type(area) == "table" and area.inside and ns:GetSetting("questAreas") and arrow and arrow:IsShown() then
+		return area.c, area.xs, area.ys
+	end
+end
+
 -- Points the arrow from the player toward the waypoint.
 function Navigation:UpdateArrow()
 	if not current then
@@ -902,6 +976,16 @@ function Navigation:UpdateArrow()
 			onward and ("On the way to " .. onward))
 	else
 		ShowNames(leg.n, step)
+	end
+
+	-- Among the quest's creatures: no way left to walk, nowhere to point.
+	if leg == current and not instruction and InQuestArea(current, cont, wx, wy) then
+		ClearWalk()
+		bearingLeg = nil
+		arrow.head:Hide()
+		arrow.distance:SetText("In the area")
+		Tint(GREEN)
+		return
 	end
 
 	local walkDistance, status
@@ -938,8 +1022,10 @@ function Navigation:UpdateArrow()
 	-- Both bearing and player facing count counter-clockwise from north.
 	SetBearing(atan2(dy, dx), guideArrow and walk and leg)
 	arrow.head:Show()
-	arrow.distance:SetText(status or FormatDistance(distance))
-	Tint(distance <= NEAR_YARDS and GREEN or CYAN)
+	-- The walk left along the route when there is one, else the straight line.
+	local shown = (not status and walkDistance) or distance
+	arrow.distance:SetText(status or DistanceText(shown))
+	Tint(shown <= NEAR_YARDS and GREEN or CYAN)
 end
 
 ---------------------------------------------------------------------------

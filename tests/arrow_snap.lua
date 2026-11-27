@@ -337,7 +337,24 @@ advance(3, 1/60)
 assert(arrow.bearingFrame > 0 and arrow.bearingFrame < 32, "the first walking aim eases away from the pending direct bearing")
 advance(80, 1/60)
 equal(arrow.bearingFrame, 0, "points north toward the turn around the obstacle")
-equal(arrow.distance.text, "50 yd", "yardage is measured to the leg destination")
+-- 30 yd north to the bend, then 58 yd on to the waypoint: the walk, not the
+-- 50 yd straight line across the river.
+equal(arrow.distance.text, "88 yd", "yardage is the walk left to the leg destination")
+ns.db.settings.arrowTime = true
+local unitSpeed = { 0, 7 }
+function GetUnitSpeed() return unitSpeed[1], unitSpeed[2] end
+Navigation:UpdateArrow()
+equal(arrow.distance.text, "88 yd  |cffbfbfbf13 s|r", "standing still, the time is at running speed")
+unitSpeed[1] = 14
+Navigation:UpdateArrow()
+equal(arrow.distance.text, "88 yd  |cffbfbfbf6 s|r", "moving, at the speed you go")
+unitSpeed[1] = 0.1
+Navigation:UpdateArrow()
+equal(arrow.distance.text, "88 yd  |cffbfbfbf13 s|r", "a creep counts as standing still")
+equal(Navigation.FormatDuration(185), "3:05", "minutes and seconds")
+equal(Navigation.FormatDuration(3900), "1 h 05 m", "hours and minutes")
+ns.db.settings.arrowTime = false
+GetUnitSpeed = nil
 local function SetRouteArrow(enabled)
     ns.db.settings.followWalkingRoute = enabled
     ns:Fire("SETTING_CHANGED", "followWalkingRoute")
@@ -418,7 +435,7 @@ local approach = requests[#requests]
 approach.done({ approach.from, {x=400, y=570}, approach.to })
 Navigation:UpdateArrow()
 advance(80, 1/60)
-assert(arrow.head.shown and arrow.bearingFrame == 96 and arrow.distance.text == "60 yd", "walks east around the obstacle on the approach to the tower")
+assert(arrow.head.shown and arrow.bearingFrame == 96 and arrow.distance.text == "97 yd", "walks east around the obstacle on the approach to the tower (30 yd, then 67 yd)")
 equal(arrow.label.text, stage.n, "names the transport stop")
 equal(arrow.goal.text, "On the way to " .. localTrip.n, "keeps the quest in view")
 cont, endX, endY, xs, ys, idx = Navigation:GetTrail()

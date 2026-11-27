@@ -139,6 +139,7 @@ ns.defaults = {
 	showMinimapServices = true,  -- Wayfinder owns service icons on the corner minimap
 	showArrow = true,            -- floating arrow pointing at the waypoint
 	arrowScale = 1.0,
+	arrowTime = true,            -- how long the rest of the way takes, under the arrow's distance
 	routeStyle = "balanced",     -- walking preferences
 	followWalkingRoute = true,
 	antTrails = true,            -- dots marching along the arrow's way (AntTrails.lua)
@@ -151,6 +152,7 @@ ns.defaults = {
 	corpseWaypoint = true,       -- releasing your spirit points the arrow at your corpse
 	followPolestar = false,      -- Polestar's guide on the arrow (Polestar.lua)
 	questMiddleClick = true,     -- middle-click a quest to follow it (QuestWaypoints.lua)
+	questAreas = true,           -- in a followed quest's camp, outline its area instead of pointing
 	debug = false,
 }
 

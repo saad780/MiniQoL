@@ -129,6 +129,8 @@ wayfinder("corpseWaypoint", "Waypoints", "Point the arrow at your corpse",
     "When you release your spirit, a waypoint is set on your corpse and the arrow points to it. Coming back to life completes it, wherever that happens, and the arrow returns to the waypoint it was on before.")
 wayfinder("questMiddleClick", "Waypoints", "Middle-click a quest to follow it",
     "Middle-click a quest in the quest log, the objective tracker (its title, lines or quest icon) or Questie's tracker. The arrow then points at the nearest place still to do for it or, once it is complete, at where to hand it in. The waypoint moves on as objectives are done and goes when the quest is handed in. Middle-click the same quest again to stop. Uses Questie's quest data when Questie is loaded, otherwise the game's quest markers.")
+wayfinder("questAreas", "Waypoints", "Outline a quest's area once you're in it",
+    "A quest you follow by middle-click leads to the camp where its creatures or objects stand thickest, not the nearest stray one. Once you're among them, the arrow rests and the area they're spread over is outlined with the ant trail's dots on the world map and minimap: what you're after is somewhere inside it.")
 feature({ id = "wayfinder.targetFinder", page = "maps", group = "Waypoints", addon = "Wayfinder",
     kind = "action", label = "Target Finder", button = "Open", available = mapReady,
     run = function() Wayfinder.TargetFinder:Open() end,
@@ -147,6 +149,8 @@ feature({ id = "wayfinder.polestarArrow", page = "maps", group = "Waypoints", ad
     kind = "info", label = "Polestar's own arrow", available = mapReady,
     hidden = function() return not (polestar() and Wayfinder:GetSetting("followPolestar")) end,
     get = function() return Wayfinder.PolestarFollow:Status() end })
+wayfinder("arrowTime", "Waypoints", "Show the time to get there",
+    "Under the arrow's distance, how long the rest of the way takes at the speed you're moving (or would run or ride at, standing still). Along a walking route the distance is the walk itself, not the straight line.")
 wayfinderSlider("arrowScale", "Waypoints", "Arrow size", nil, 0.5, 2, 0.1, Percent)
 
 wayfinder("showOnWorldMap", "World map", "Show icons on the world map")

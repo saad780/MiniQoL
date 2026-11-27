@@ -473,6 +473,86 @@ QUESTS[400].objectives[2] = { finished = false, text = "Collect Okra" }
 equal(Quests:MapPinLabel(400), "The Westfall Stew", "a map pin with ambiguous objectives uses the quest title")
 equal(Quests:MapPinLabel(400, nil, nil, false, 2), "The Westfall Stew: Collect Okra", "explicit objective index")
 
+---------------------------------------------------------------------------
+-- 7. Camps: the thickest group of creatures, not the nearest stray one, and
+-- the area they're spread over once you're there
+---------------------------------------------------------------------------
+setting("questAreas", true)
+Navigation:SetActiveWaypoint(nil)
+playerX, playerY = 400, 600
+QUESTS[600] = { title = "Boar Hunt", objectives = { { finished = false } } }
+QUESTS[700] = { title = "A Lone Chest", objectives = { { finished = false } } }
+local herd = {}
+for i = 0, 9 do herd[#herd + 1] = { 70 + (i % 3), 60 + math.floor(i / 3) } end
+local OBJECTIVES = {
+    -- One boar 30 yd away, ten together 300 yd away; eight are wanted.
+    [600] = { { Needed = 8, Collected = 0, spawnList = {
+        [1] = { Name = "Stonetusk Boar", Spawns = { [12] = { { 43, 60 } } } },
+        [2] = { Name = "Stonetusk Boar", Spawns = { [12] = herd } } } } },
+    [700] = { { Needed = 1, Collected = 0, spawnList = {
+        [3] = { Name = "Old Chest", Spawns = { [12] = { { 45, 61 } } } } } } },
+}
+SPAWNS[600] = { open = { { 12, 43, 60, "Stonetusk Boar" } } }
+SPAWNS[700] = { open = { { 12, 45, 61, "Old Chest" } } }
+local eligibility = QuestieLoader._modules.TrackerMapEligibility
+local plainRefresh = eligibility.RefreshAndGetCapabilities
+eligibility.RefreshAndGetCapabilities = function(id)
+    local quest, capabilities = plainRefresh(id)
+    quest.Objectives = OBJECTIVES[id]
+    return quest, capabilities
+end
+
+Quests:Follow(600)
+local hunt = mark()
+assert(hunt and hunt.x > 690 and hunt.x < 715, "the herd 300 yd off beats the lone boar 30 yd off: " .. tostring(hunt and hunt.x))
+assert(hunt.y > 600 and hunt.y < 625, "on both axes: " .. tostring(hunt.y))
+equal(hunt.n, "Boar Hunt: Stonetusk Boar", "named for what stands there")
+assert(type(hunt.area) == "table" and hunt.area.c == 1 and #hunt.area.xs >= 3, "with the herd's area to outline")
+assert(not Navigation.InArea(hunt.area, 400, 600), "you aren't in it from the start")
+assert(Navigation.InArea(hunt.area, 710, 610), "the herd's middle is")
+assert(Navigation.InArea(hunt.area, 700 - Quests.AREA_MARGIN + 2, 610), "the outline lies a little outside the outermost spawns")
+assert(not Navigation.InArea(hunt.area, 700 - Quests.AREA_MARGIN - 5, 610), "and no further")
+assert(Navigation.InArea(hunt.area, 700 - Quests.AREA_MARGIN - 5, 610, 20), "though once in, a few yards out still counts")
+
+Navigation:SetActiveWaypoint(hunt)
+Navigation:UpdateArrow()
+equal(hunt.area.inside, nil, "on the way there, the arrow points as usual")
+playerX, playerY = 705, 610
+Navigation:UpdateArrow()
+equal(hunt.area.inside, true, "among the herd, the arrow rests")
+assert(mark() == hunt, "and the waypoint stays: the work is here")
+playerX = 700 - Quests.AREA_MARGIN - 10
+Navigation:UpdateArrow()
+equal(hunt.area.inside, true, "stepping just outside the line doesn't flicker it")
+playerX = 500
+Navigation:UpdateArrow()
+equal(hunt.area.inside, nil, "walking away points the arrow again")
+setting("questAreas", false)
+playerX = 705
+Navigation:UpdateArrow()
+equal(hunt.area.inside, nil, "with the setting off, no area")
+setting("questAreas", true)
+
+-- More boars than one camp holds: a camp short of the count costs more.
+OBJECTIVES[600][1].Collected = 6
+playerX, playerY = 400, 600
+Quests:Follow(600, true)
+assert(mark().x < 450, "two left: the lone boar next to you will do")
+
+-- A single object: a waypoint, no area.
+Quests:Follow(700)
+assert(mark().x > 440 and mark().x < 460, "the chest itself")
+equal(mark().area, nil, "and no area round one spot")
+
+-- Camps on their own.
+local camps = Quests.Camps({ { x = 0, y = 0 }, { x = 10, y = 0 }, { x = 500, y = 0 }, { x = 505, y = 5 }, { x = 140, y = 0 } })
+equal(#camps, 3, "spawns within reach of a camp join it")
+local first = camps[1]
+equal(first.count, 2, "two together")
+near(first.x, 5, "the camp's middle")
+assert(first.weight > first.count, "a camp near another counts some of its spawns")
+eligibility.RefreshAndGetCapabilities = plainRefresh
+
 print = realPrint
 print("Quest map clicks: named Blizzard, Questie and Polestar pins, exact spawn, one waypoint per click")
-print("Quest waypoints: log, tracker icon and Questie lines; nearest objective then turn-in; follows progress, gone when handed in; game markers without Questie")
+print("Quest waypoints: log, tracker icon and Questie lines; best camp, its area, then turn-in; follows progress, gone when handed in; game markers without Questie")

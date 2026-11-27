@@ -1,5 +1,7 @@
 -- Dots on the continuous world map and minimap follow the remaining walking
--- route from the player to the next transport stop or the destination.
+-- route from the player to the next transport stop or the destination. Once
+-- you're inside a followed quest's area (Navigation:GetArea), the same dots
+-- march around its outline instead.
 local _, ns = ...
 local Ants = ns:NewModule("AntTrails")
 
@@ -29,6 +31,13 @@ local function Shows(where)
 	if not ns:GetSetting("antTrails") then return false end
 	local setting = ns:GetSetting("antTrailsWhere")
 	return setting == where or (setting ~= "map" and setting ~= "minimap")
+end
+
+-- The quest area's outline: on wherever the trails are, or on both surfaces
+-- when the trails themselves are off.
+local function ShowsArea(where)
+	if not ns:GetSetting("questAreas") then return false end
+	return not ns:GetSetting("antTrails") or Shows(where)
 end
 
 local function Color()
@@ -143,6 +152,14 @@ local function Points(To, wx, wy, endX, endY, xs, ys, idx, joinX, joinY)
 	return n
 end
 
+-- An area's outline, closed, through To(x, y) into px/py. Returns how many.
+local function AreaPoints(To, xs, ys)
+	local n = #xs
+	for i = 1, n do px[i], py[i] = To(xs[i], ys[i]) end
+	px[n + 1], py[n + 1] = px[1], py[1]
+	return n + 1
+end
+
 ---------------------------------------------------------------------------
 -- The continuous world map
 ---------------------------------------------------------------------------
@@ -170,18 +187,24 @@ function Ants:UpdateMap()
 	local controller = engine and engine:GetModule("worldmap")
 	local S = engine and engine.MapStitch
 	local cont, endX, endY, xs, ys, idx, joinX, joinY
-	if Shows("map") and controller and controller.IsStitched() then
+	local stitched = controller and controller.IsStitched()
+	if Shows("map") and stitched then
 		cont, endX, endY, xs, ys, idx, joinX, joinY = ns.Navigation:GetTrail()
+	end
+	local areaCont, areaXs, areaYs
+	if not cont and stitched and ShowsArea("map") and ns.Navigation.GetArea then
+		areaCont, areaXs, areaYs = ns.Navigation:GetArea()
 	end
 	local wx, wy
 	if cont then wx, wy = PlayerWorld(cont) end
 	local u, v, zoom
-	if wx then u, v, zoom = controller.ViewNow() end
+	if wx or areaCont then u, v, zoom = controller.ViewNow() end
 	local u0, v0, u1, v1, u2, v2
 	if u then
-		u0, v0 = S.FromYards(cont, 0, 0)
-		u1, v1 = S.FromYards(cont, 1000, 0)
-		u2, v2 = S.FromYards(cont, 0, 1000)
+		local on = cont or areaCont
+		u0, v0 = S.FromYards(on, 0, 0)
+		u1, v1 = S.FromYards(on, 1000, 0)
+		u2, v2 = S.FromYards(on, 0, 1000)
 	end
 	if not u2 then Show(map, 0); return end
 	local sc = WorldMapFrame.ScrollContainer
@@ -193,7 +216,11 @@ function Ants:UpdateMap()
 	-- Above the map's art, its terrain and the fog over it; under its icons.
 	local level = (S.artTop or sc:GetFrameLevel()) + 2
 	if map.frame:GetFrameLevel() ~= level then map.frame:SetFrameLevel(level) end
-	March(map, Points(MapPoint, wx, wy, endX, endY, xs, ys, idx, joinX, joinY), GetTime(), MapNear, MapInside)
+	if areaCont then
+		March(map, AreaPoints(MapPoint, areaXs, areaYs), GetTime(), MapNear, MapInside)
+	else
+		March(map, Points(MapPoint, wx, wy, endX, endY, xs, ys, idx, joinX, joinY), GetTime(), MapNear, MapInside)
+	end
 end
 
 ---------------------------------------------------------------------------
@@ -244,8 +271,12 @@ end
 function Ants:UpdateMinimap()
 	local cont, endX, endY, xs, ys, idx, joinX, joinY
 	if Shows("minimap") then cont, endX, endY, xs, ys, idx, joinX, joinY = ns.Navigation:GetTrail() end
+	local areaCont, areaXs, areaYs
+	if not cont and ShowsArea("minimap") and ns.Navigation.GetArea then
+		areaCont, areaXs, areaYs = ns.Navigation:GetArea()
+	end
 	local wx, wy
-	if cont then wx, wy = PlayerWorld(cont) end
+	if cont or areaCont then wx, wy = PlayerWorld(cont or areaCont) end
 	local viewRadius = wx and C_Minimap and C_Minimap.GetViewRadius and C_Minimap.GetViewRadius()
 	if not Number(viewRadius) or viewRadius <= 0 then Show(mini, 0); return end
 	local now = GetTime()
@@ -256,7 +287,11 @@ function Ants:UpdateMinimap()
 	halfW, halfH = Minimap:GetWidth() / 2, Minimap:GetHeight() / 2
 	if halfW < 16 or halfH < 16 then Show(mini, 0); return end
 	cosine, sine = cos(facing), sin(facing)
-	March(mini, Points(MiniPoint, wx, wy, endX, endY, xs, ys, idx, joinX, joinY), now, MiniNear, MiniInside)
+	if areaCont then
+		March(mini, AreaPoints(MiniPoint, areaXs, areaYs), now, MiniNear, MiniInside)
+	else
+		March(mini, Points(MiniPoint, wx, wy, endX, endY, xs, ys, idx, joinX, joinY), now, MiniNear, MiniInside)
+	end
 end
 
 ---------------------------------------------------------------------------
