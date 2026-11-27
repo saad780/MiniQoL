@@ -502,7 +502,7 @@ function AltGear:OpenMenu(owner)
         return
     end
     GameTooltip:Hide()
-    MenuUtil.CreateContextMenu(owner, function(_, root)
+    ns.ContextMenu(owner, function(_, root)
         root:CreateTitle("Show the gear of")
         root:CreateRadio(Hex(T.GOLD) .. (Characters.PlayerName() or "You") .. "|r  " .. Hex(T.MUTED) .. "you|r",
             function() return viewing == nil end,

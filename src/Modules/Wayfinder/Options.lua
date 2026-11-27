@@ -164,7 +164,7 @@ function Options:CreateMapButton()
 	button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 	button:SetScript("OnClick", function(self)
 		if not self.dragging and not IsShiftKeyDown() then
-			MenuUtil.CreateContextMenu(self, BuildMenu)
+			ns.ContextMenu(self, BuildMenu)
 		end
 	end)
 	button:SetScript("OnEnter", function(self)

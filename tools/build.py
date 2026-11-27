@@ -339,7 +339,7 @@ def build(addons, account, destination, refresh=False, outrider_data=None):
     (output / "CharacterStates.lua").write_text("MiniQoLCharacterStates = " + lua(states) + "\n", encoding="utf-8")
     manifest = {"modules": modules, "order": order}
     (output / "Manifest.lua").write_text("MiniQoLRuntime:Install(" + lua(manifest) + ", MiniQoLCharacterStates)\nMiniQoLCharacterStates = nil\nMiniQoL:Initialize()\n", encoding="utf-8")
-    entries = ["Core.lua", "Theme.lua", "Runtime.lua", "LegacyProfiles.lua", "CharacterStates.lua", "Manifest.lua"]
+    entries = ["Core.lua", "Vendor\\ControllerSafeMenu\\ControllerSafeMenu.lua", "Menus.lua", "Theme.lua", "Runtime.lua", "LegacyProfiles.lua", "CharacterStates.lua", "Manifest.lua"]
     bindings = list(ET.parse(SHELL / "Bindings.xml").getroot())
     credits = [(ROOT / "THIRD_PARTY.md").read_text(encoding="utf-8"),
                "\n## Bundled component versions\n"]

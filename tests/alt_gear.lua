@@ -201,6 +201,7 @@ local function Session(character)
     player = character
     GetAverageItemLevel = character.itemLevel and function() return character.itemLevel, character.itemLevel end or nil
     local ns = { db = MiniQoLDB }
+    function ns.ContextMenu(owner, generator) return MenuUtil.CreateContextMenu(owner, generator) end
     function ns:Print(message) printed[#printed + 1] = message end
     function ns:RegisterFeature(spec) features[spec.id] = spec end
     function ns:Refresh() refreshes = refreshes + 1 end

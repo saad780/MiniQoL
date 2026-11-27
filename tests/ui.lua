@@ -102,6 +102,7 @@ if gearwise then
 end
 local ns = {}
 assert(loadfile(root .. "/Core.lua"))("MiniQoL", ns)
+assert(loadfile(root .. "/Menus.lua"))("MiniQoL", ns)
 assert(loadfile(root .. "/Theme.lua"))("MiniQoL", ns)
 ns:Initialize()
 for _, file in ipairs({ "Core", "Search", "Upgrades", "Page" }) do

@@ -812,7 +812,8 @@ function methods:SetText(value)
     if self.scripts.OnTextChanged then self.scripts.OnTextChanged(self) end
 end
 
-local ns = { Mail = M, RegisterFeature = noop }
+local ns = { Mail = M, RegisterFeature = noop,
+    SetupDropdown = function(dropdown, generator) dropdown:SetupMenu(generator) end }
 assert(loadfile(root .. "/AltMail/Categories.lua"))("MiniQoL", ns)
 local altMail = ns.AltMail
 altMail.GetMarkedItems = function() return {} end

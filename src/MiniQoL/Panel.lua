@@ -437,7 +437,8 @@ function ns:Format(feature, value)
 end
 
 -- Selects open the game's own context menu: it handles placement, keyboard and
--- closing, and it is transient enough not to fight the panel's look.
+-- closing, and it is transient enough not to fight the panel's look. With the
+-- Gamepad UI on, ns.ContextMenu draws a controller-safe one instead.
 function ns:OpenSelect(feature, button)
     local list = Options(feature)
     if #list == 0 then return end
@@ -450,7 +451,7 @@ function ns:OpenSelect(feature, button)
         self:Write(feature, list[1][1])
         return
     end
-    MenuUtil.CreateContextMenu(button, function(_, root)
+    ns.ContextMenu(button, function(_, root)
         root:CreateTitle(feature.label)
         for _, option in ipairs(list) do
             root:CreateRadio(option[2],

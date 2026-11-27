@@ -212,7 +212,7 @@ end)
 
 local function SelectSlot(button)
     if not MenuUtil or not MenuUtil.CreateContextMenu then return end
-    MenuUtil.CreateContextMenu(button, function(_, root)
+    ns.ContextMenu(button, function(_, root)
         local function add(slot, label)
             root:CreateRadio(label, function() return gearSlot == slot end, function() gearSlot = slot; ResetScroll() end)
         end

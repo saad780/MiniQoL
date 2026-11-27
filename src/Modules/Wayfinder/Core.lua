@@ -22,6 +22,30 @@ function ns.Debug(...)
 end
 
 ---------------------------------------------------------------------------
+-- Menus: the game's, unless its Gamepad UI is on. A menu an addon opens through
+-- the game's menu system then taints the controller focus handling, and the
+-- game blocks its own gamepad calls. Mini QoL bundles ControllerSafeMenu, which
+-- draws a plain menu of its own in that case from the same generator.
+---------------------------------------------------------------------------
+local function SafeMenu()
+	local shell = MiniQoL
+	return type(shell) == "table" and type(shell.ControllerSafeMenu) == "table" and shell.ControllerSafeMenu or nil
+end
+
+function ns.ContextMenu(owner, generator)
+	local safe = SafeMenu()
+	if safe then return safe.CreateContextMenu(owner, generator) end
+	if MenuUtil and MenuUtil.CreateContextMenu then return MenuUtil.CreateContextMenu(owner, generator) end
+end
+
+-- Whether menus are being drawn by ControllerSafeMenu: rows then have no
+-- frames of their own to add buttons to.
+function ns.OwnMenus()
+	local safe = SafeMenu()
+	return safe ~= nil and safe.IsControllerUIOn() == true
+end
+
+---------------------------------------------------------------------------
 -- Secret values (12.x combat / identity restrictions)
 -- Anything read from a unit can come back as a secret value that addon code
 -- may not inspect. Never compare, index or concatenate such a value.

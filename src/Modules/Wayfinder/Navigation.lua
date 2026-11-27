@@ -1297,13 +1297,16 @@ function Navigation:OpenWaypointMenu(owner)
 		self:SetActiveWaypoint(list[(IndexOf(current) or #list) % #list + 1])
 		return false
 	end
-	MenuUtil.CreateContextMenu(owner or arrow, function(_, root)
+	-- The controller-safe menu has no row frames to put an x on.
+	local plainRows = ns.OwnMenus and ns.OwnMenus()
+	local open = ns.ContextMenu or MenuUtil.CreateContextMenu
+	open(owner or arrow, function(_, root)
 		root:CreateTitle(#list == 1 and "Waypoint" or (#list .. " waypoints"))
 		for _, rec in ipairs(list) do
 			local row = root:CreateRadio(MenuLabel(rec),
 				function() return rec == current end,
 				function() Navigation:SetActiveWaypoint(rec) end)
-			if not AddRemoveButton(row, rec) then
+			if plainRows or not AddRemoveButton(row, rec) then
 				-- Without row initializers, give each one its own removal line.
 				root:CreateButton("      Remove " .. (rec.n or "waypoint"), function()
 					Navigation:RemoveWaypoint(rec)

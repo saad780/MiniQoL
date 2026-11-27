@@ -54,7 +54,7 @@ local altPicker = CreateFrame("DropdownButton", nil, panel, "WowStyle1DropdownTe
 altPicker:SetPoint("TOPLEFT", 294, -69)
 altPicker:SetSize(109, 24)
 altPicker:SetDefaultText("Choose alt")
-altPicker:SetupMenu(function(_, root)
+ns.SetupDropdown(altPicker, function(_, root)
   local alts = ns.Mail:Alts()
   if #alts == 0 then
     root:CreateTitle("No known alts yet")
@@ -115,7 +115,7 @@ local function UpdateMarkButton(category)
   clearMark:SetEnabled(not addon.IsSending() and mark and mark.slot == category.slot or false)
 end
 
-marks:SetupMenu(function(_, root)
+ns.SetupDropdown(marks, function(_, root)
   local category = CurrentCategory()
   if not category or not category.slot then
     return
@@ -219,7 +219,7 @@ local function LoadCategory()
   addon.RefreshMailControls()
 end
 
-dropdown:SetupMenu(function(_, root)
+ns.SetupDropdown(dropdown, function(_, root)
   local profile, name = addon.GetProfile()
   local shownNativeTitle = false
   for _, category in ipairs(addon.GetMailCategories(profile)) do

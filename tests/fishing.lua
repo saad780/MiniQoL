@@ -223,6 +223,7 @@ function CreateMacro() return 1 end
 function PickupMacro() PICKED_UP = true end
 
 local ns = { db = {} }
+function ns.ContextMenu(owner, generator) return MenuUtil.CreateContextMenu(owner, generator) end
 function ns:Print(message) PRINTED = message end
 function ns:RegisterFeature(spec) FEATURES[#FEATURES + 1] = spec end
 function ns:ShowPage() end
