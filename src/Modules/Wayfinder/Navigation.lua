@@ -1225,6 +1225,8 @@ end
 ---------------------------------------------------------------------------
 -- The arrow's waypoint list
 ---------------------------------------------------------------------------
+local PLAIN_MENU_WAYPOINTS = 15 -- waypoints listed at most in the controller-safe menu
+
 local function MenuLabel(rec)
 	local text = rec.n or "Waypoint"
 	local cont, wx, wy = ns.GetPlayerWorld()
@@ -1298,12 +1300,26 @@ function Navigation:OpenWaypointMenu(owner)
 		self:SetActiveWaypoint(list[(IndexOf(current) or #list) % #list + 1])
 		return false
 	end
-	-- The controller-safe menu has no row frames to put an x on.
+	-- The controller-safe menu has no row frames to put an x on, and can't
+	-- scroll: there each waypoint gets a removal line, the arrow's own and the
+	-- most recent first, a screenful at most, with clearing them all on top.
 	local plainRows = ns.OwnMenus and ns.OwnMenus()
+	local shown = list
+	if plainRows and #list > PLAIN_MENU_WAYPOINTS then
+		shown = { current }
+		for index = #list, 1, -1 do
+			if #shown >= PLAIN_MENU_WAYPOINTS then break end
+			if list[index] ~= current then shown[#shown + 1] = list[index] end
+		end
+	end
 	local open = ns.ContextMenu or MenuUtil.CreateContextMenu
 	open(owner or arrow, function(_, root)
 		root:CreateTitle(#list == 1 and "Waypoint" or (#list .. " waypoints"))
-		for _, rec in ipairs(list) do
+		if plainRows and #list > 1 then
+			root:CreateButton("Clear all waypoints", function() Navigation:ClearAllWaypoints() end)
+			root:CreateDivider()
+		end
+		for _, rec in ipairs(shown) do
 			local row = root:CreateRadio(MenuLabel(rec),
 				function() return rec == current end,
 				function() Navigation:SetActiveWaypoint(rec) end)
@@ -1314,8 +1330,13 @@ function Navigation:OpenWaypointMenu(owner)
 				end)
 			end
 		end
-		root:CreateDivider()
-		root:CreateButton("Clear all waypoints", function() Navigation:ClearAllWaypoints() end)
+		if shown ~= list then
+			root:CreateTitle(("and %d more"):format(#list - #shown))
+		end
+		if not plainRows then
+			root:CreateDivider()
+			root:CreateButton("Clear all waypoints", function() Navigation:ClearAllWaypoints() end)
+		end
 		if root.SetScrollMode and #list > 12 then
 			root:SetScrollMode(320)
 		end

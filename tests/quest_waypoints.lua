@@ -551,6 +551,18 @@ local first = camps[1]
 equal(first.count, 2, "two together")
 near(first.x, 5, "the camp's middle")
 assert(first.weight > first.count, "a camp near another counts some of its spawns")
+-- Followed from another continent: no camps in reach, so Questie's nearest
+-- spawn; on arrival the camp and its area are picked.
+OBJECTIVES[600][1].Collected = 0
+playerX, playerY = 400, 600
+local homeWorld = ns.GetPlayerWorld
+ns.GetPlayerWorld = function() return 2, 0, 0, 1 end
+Quests:Follow(600)
+assert(mark().x < 450 and mark().area == nil, "from afar: the nearest spawn Questie knows, no area")
+ns.GetPlayerWorld = homeWorld
+event("ZONE_CHANGED_NEW_AREA")
+settle()
+assert(mark().x > 690 and mark().area, "on arrival: the herd and its area")
 eligibility.RefreshAndGetCapabilities = plainRefresh
 
 print = realPrint

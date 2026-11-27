@@ -46,7 +46,9 @@ function Tooltip:Show(owner, rec, catID)
 				GameTooltip:AddLine("- " .. text, done and 0.5 or 1, done and 0.5 or 1, done and 0.5 or 1, true)
 			end
 		end
-		GameTooltip:AddLine("Middle-click to follow this quest with the arrow", 0.5, 0.5, 0.5)
+		if ns:GetSetting("questMiddleClick") then
+			GameTooltip:AddLine("Middle-click to follow this quest with the arrow", 0.5, 0.5, 0.5)
+		end
 		GameTooltip:Show()
 		return
 	end
@@ -237,7 +239,8 @@ function WayfinderMapPinMixin:OnAcquired(rec, catID, x, y)
 	end
 	self.Icon:SetAlpha((not rec.seed and (rec.a or 0) > APPROXIMATE_YARDS) and 0.7 or 1)
 	self:SetPosition(x, y)
-	ns.OpenMapCompat:RaisePin(self)
+	-- (the continuous world map's art sits high; the zone map's levels are its own)
+	if map == WorldMapFrame then ns.OpenMapCompat:RaisePin(self) end
 end
 
 -- AcquirePin sets every pin's click passthrough, and SetPassThroughButtons is
@@ -451,15 +454,32 @@ function zoneProvider:RefreshAllData()
 	end)
 end
 
+-- Whether the mouse is on one of Wayfinder's pins there: rebuilding would
+-- take its tooltip away under the cursor.
+local function HoveringZonePin()
+	for pin in BattlefieldMapFrame:EnumeratePinsByTemplate(PIN_TEMPLATE) do
+		if pin:IsMouseOver() then return true end
+	end
+	return false
+end
+
+-- Everything that redraws the world map's icons (exploring, recording an NPC,
+-- a waypoint) asks here too, often several times a second, and each rebuild
+-- hands every pin out again. So at most one a second, and none while a pin is
+-- under the mouse.
+local ZONE_REFRESH = 1
 function MapPins:RefreshZoneMap()
 	if self.zonePending or not (BattlefieldMapFrame and BattlefieldMapFrame:IsShown() and self.zoneAdded) then
 		return
 	end
 	self.zonePending = true
-	C_Timer.After(0, function()
+	local function Due()
+		if not BattlefieldMapFrame:IsShown() then self.zonePending = false return end
+		if HoveringZonePin() then C_Timer.After(ZONE_REFRESH, Due) return end
 		self.zonePending = false
-		if BattlefieldMapFrame:IsShown() then zoneProvider:RefreshAllData() end
-	end)
+		zoneProvider:RefreshAllData()
+	end
+	C_Timer.After(ZONE_REFRESH, Due)
 end
 
 function MapPins:AddToZoneMap()
@@ -497,16 +517,9 @@ function MapPins:OnLogin()
 		WorldMapFrame:AddDataProvider(provider)
 	end)
 	EventUtil.ContinueOnAddOnLoaded("Blizzard_BattlefieldMap", function() self:AddToZoneMap() end)
-	-- Quest objectives move as quests do; the world map has its own markers for
-	-- them. The log updates several times a second while looting, so at most
-	-- one redraw a second.
+	-- Quest objectives move as quests do; the world map has its own markers for them.
 	ns:RegisterEvent("QUEST_LOG_UPDATE", function()
-		if self.questRefreshDue or not (ns.db and ns:GetSetting("zoneMapQuests")) then return end
-		self.questRefreshDue = true
-		C_Timer.After(1, function()
-			self.questRefreshDue = false
-			self:RefreshZoneMap()
-		end)
+		if ns.db and ns:GetSetting("zoneMapQuests") then self:RefreshZoneMap() end
 	end)
 	local function Refresh()
 		self:Refresh()

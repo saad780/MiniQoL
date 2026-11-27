@@ -1,18 +1,21 @@
 -- Sharing the arrow's waypoint with your group.
 --
 -- The group leader's waypoint (the one their arrow is on) goes to every group
--- member who has Mini QoL, and lands on their arrow as a waypoint of its own;
--- when the leader removes theirs, the members' goes too. Members can still
--- remove it themselves, and each side has its own switch. After a change the
--- leader can be told who got it, who has following turned off, and who didn't
--- answer (no Mini QoL, or an older one).
+-- member who has Mini QoL, and lands on their arrow as a waypoint of its own.
+-- As the leader's arrow moves on, so does the members'; when the leader has no
+-- waypoint left, stops sharing or hands the lead on, the members' goes. A member
+-- can still remove it, and it stays gone until the leader picks a new one.
+-- After a change the leader can be told who got it, who has following turned
+-- off, and who didn't answer (no Mini QoL, or an older one).
 --
 -- Addon messages under PREFIX, tab-separated, on the group's channel:
---   W, version, seq, continent, x, y, uiMapID, label, wantReply
+--   W, version, id, continent, x, y, uiMapID, label, wantReply
 --        the leader's waypoint (world yards, x north and y west, as Wayfinder
---        keeps them)
---   C, version, seq, wantReply    the leader has no waypoint any more
---   A, version, seq, status       a member's answer: "got", or "off"
+--        keeps them). `id` names this waypoint of this leader: a session of
+--        theirs and a change number, so the same one sent again (to a member
+--        who has just joined) is recognised and left alone by the others.
+--   C, version, id                the leader has no waypoint to share any more
+--   A, version, id, status        a member's answer: "got", or "off"
 --   R, version                    a member asks the leader for the waypoint
 -- A waypoint on your corpse is never shared, nor one shared with you.
 local _, ns = ...
@@ -20,7 +23,7 @@ local _, ns = ...
 local Group = ns:NewModule("GroupWaypoints")
 
 local PREFIX = "MiniQoLWay"
-local VERSION = "1"
+local VERSION = "2"
 local SOURCE = "group"        -- the source of the waypoint a member takes
 local CORPSE = "corpse"       -- Navigation's corpse waypoint: not for sharing
 local SEND_DELAY = 0.5        -- seconds: waypoint changes come in bursts
@@ -28,13 +31,22 @@ local REPLY_WAIT = 4          -- seconds to wait for answers before the report
 local RETRY_DELAY = 5         -- seconds between tries while messages are locked down
 local LABEL_LIMIT = 120
 
+-- Leader
+local session = tostring(math.random(100000, 999999)) -- tells this login's changes from the last one's
 local seq = 0                 -- the leader's change counter
-local lastSent                -- the text of the leader's last W or C, without its seq
+local lastSent                -- the leader's last W (or "C"), without its id
+local lastID                  -- and its id
 local sendPending = false
+local replies                 -- [sender] = status, for the leader's last change
+local reportFor               -- the id that report is about
+-- Member
+local taken                   -- { id, leader }: the waypoint taken from the leader
+local dismissed = {}          -- [id] = true: removed by the player, not to come back
+local dropping = false
+local asked                   -- the leader a member last asked for the waypoint
+-- Both
 local queued                  -- a message that waits out a messaging lockdown
 local retrying = false
-local replies                 -- [sender] = status, for the leader's last change
-local asked                   -- the leader a member last asked for the waypoint
 
 ---------------------------------------------------------------------------
 -- The group
@@ -76,24 +88,33 @@ local function Others()
 	return units
 end
 
--- Lower case, without spaces, so "Deathor Cake" and "Deathor-Cake" compare.
 local function Plain(text)
-	return type(text) == "string" and (text:gsub("[%s]", ""):lower()) or nil
+	return type(text) == "string" and (text:gsub("%s", ""):lower()) or ""
+end
+
+-- A name as a first name and the rest: "Deathor-Cake", "Deathor Cake" and
+-- "Deathor-Realm" all come apart at the first dash or space.
+local function Split(name)
+	local first, rest = name:match("^([^%-%s]+)[%-%s]*(.*)$")
+	return Plain(first or name), Plain(rest)
 end
 
 -- Whether a message's sender is `unit`. Senders come as "Name-Realm"; on
--- Forever's nameless realms the part after the dash is the surname, which
--- UnitName gives as its second value. Elsewhere UnitName leaves out the realm
--- of someone on your own, so the first names decide, and the rest only when
--- both sides have one.
+-- Forever's nameless realms what follows the name is the surname (or, it may
+-- be, the server's number), and UnitName gives the surname as its second value
+-- or inside its first. So the first names decide, and the rest only when both
+-- sides have one that is a name and not a number.
 local function IsSender(sender, unit)
 	local name, rest = Call(UnitName, unit)
 	if type(name) ~= "string" or type(sender) ~= "string" then return false end
-	local first, other = sender:match("^([^%-]+)%-?(.*)$")
-	if Plain(first) ~= Plain(name) then return false end
-	rest = ns.Readable(rest) and type(rest) == "string" and rest or ""
-	return other == "" or rest == "" or Plain(other) == Plain(rest)
+	local senderFirst, senderRest = Split(sender)
+	local unitFirst, unitRest = Split(name)
+	if ns.Readable(rest) and type(rest) == "string" and rest ~= "" then unitRest = Plain(rest) end
+	if senderFirst ~= unitFirst then return false end
+	if senderRest == "" or unitRest == "" or senderRest:find("^%d+$") or unitRest:find("^%d+$") then return true end
+	return senderRest == unitRest
 end
+Group.IsSender = IsSender
 
 local function Display(unit)
 	local name, rest = Call(UnitName, unit)
@@ -102,10 +123,9 @@ local function Display(unit)
 	return name
 end
 
--- The unit that leads the group, if it's the sender.
-local function FromLeader(sender)
+local function LeaderUnit()
 	for _, unit in ipairs(Others()) do
-		if Call(UnitIsGroupLeader, unit) == true then return IsSender(sender, unit) and unit or nil end
+		if Call(UnitIsGroupLeader, unit) == true then return unit end
 	end
 end
 
@@ -155,7 +175,7 @@ local function Round(value)
 	return ("%.1f"):format(value)
 end
 
--- What the leader would share now: the W or C message without its seq, or
+-- What the leader would share now: the waypoint's fields, "C" for none, or
 -- nil to leave the members' waypoint as it is (the arrow is on your corpse).
 local function Current()
 	local rec = ns.Navigation:GetWaypoint()
@@ -163,12 +183,12 @@ local function Current()
 	if rec.source == CORPSE or rec.source == SOURCE then return nil end
 	if not (rec.c and rec.x and rec.y) then return nil end
 	local label = tostring(rec.n or "Waypoint"):gsub("[\t\n|]", " "):sub(1, LABEL_LIMIT)
-	return Join("W", rec.c, Round(rec.x), Round(rec.y), tonumber(rec.m) or 0, label)
+	return Join(rec.c, Round(rec.x), Round(rec.y), tonumber(rec.m) or 0, label)
 end
 
 -- The leader's report on who got the waypoint, a moment after a change.
-local function Report(changeSeq)
-	if changeSeq ~= seq or not replies then return end
+local function Report(id)
+	if id ~= reportFor or not replies then return end
 	local got, off, silent = {}, {}, {}
 	for _, unit in ipairs(Others()) do
 		local status
@@ -178,7 +198,7 @@ local function Report(changeSeq)
 		local list = status == "got" and got or status == "off" and off or silent
 		list[#list + 1] = Display(unit)
 	end
-	replies = nil
+	replies, reportFor = nil, nil
 	if #got + #off + #silent == 0 then return end
 	local parts = {}
 	if #got > 0 then parts[#parts + 1] = "got it: " .. table.concat(got, ", ") end
@@ -187,26 +207,42 @@ local function Report(changeSeq)
 	ns.Print("Shared your waypoint. " .. table.concat(parts, "; ") .. ".")
 end
 
--- `quiet`: answering a member's request, so no answers are asked for and the
--- unchanged waypoint goes out again.
+local function NextID()
+	seq = seq + 1
+	return session .. "." .. seq
+end
+
+-- The members' waypoint goes: no waypoint to share, sharing turned off, or the
+-- lead handed on.
+function Group:Withdraw()
+	if not lastSent or lastSent == "C" then return false end
+	lastSent, lastID = "C", NextID()
+	replies, reportFor = nil, nil
+	Send(Join("C", VERSION, lastID))
+	return true
+end
+
+-- `quiet`: answering a member who asked, so the same waypoint goes out again
+-- under the same id, and no answers are asked for.
 function Group:Share(quiet)
 	sendPending = false
 	if not (IsLeader() and ns:GetSetting("shareGroupWaypoint")) then return false end
-	local state = Current()
-	if not state then return false end
-	if not quiet and state == lastSent then return false end
-	if state == "C" and not lastSent then return false end -- nothing was ever shared
-	local wantReply = not quiet and ns:GetSetting("reportGroupWaypoint") and "1" or "0"
-	seq = seq + 1
-	lastSent = state
-	local kind, rest = state:match("^(%a)\t?(.*)$")
-	local text = rest ~= "" and Join(kind, VERSION, seq, rest, wantReply) or Join(kind, VERSION, seq, wantReply)
-	if wantReply == "1" then
-		replies = {}
-		local changeSeq = seq
-		if C_Timer then C_Timer.After(REPLY_WAIT, function() Report(changeSeq) end) end
+	if quiet then
+		if not lastSent or lastSent == "C" then return false end
+		Send(Join("W", VERSION, lastID, lastSent, "0"))
+		return true
 	end
-	Send(text)
+	local state = Current()
+	if not state or state == lastSent then return false end
+	if state == "C" then return self:Withdraw() end
+	lastSent, lastID = state, NextID()
+	local wantReply = ns:GetSetting("reportGroupWaypoint") and "1" or "0"
+	if wantReply == "1" then
+		replies, reportFor = {}, lastID
+		local id = lastID
+		if C_Timer then C_Timer.After(REPLY_WAIT, function() Report(id) end) end
+	end
+	Send(Join("W", VERSION, lastID, state, wantReply))
 	return true
 end
 
@@ -219,33 +255,38 @@ end
 ---------------------------------------------------------------------------
 -- Receiving
 ---------------------------------------------------------------------------
-local function Answer(changeSeq, status)
-	Send(Join("A", VERSION, changeSeq, status))
-end
-
-local function Take(unit, fields)
-	local cont, x, y, mapID = tonumber(fields[4]), tonumber(fields[5]), tonumber(fields[6]), tonumber(fields[7])
-	if not (cont and x and y) then return false end
-	local label = fields[8] ~= "" and fields[8] or "Waypoint"
-	local leader = Display(unit)
-	ns.Navigation:PlaceSourceWaypoint(SOURCE, cont, x, y, label, mapID ~= 0 and mapID or nil,
-		{ focus = true, note = ("Shared by %s, your group leader. Middle-click the arrow to let it go."):format(leader) })
-	return true
-end
-
 local function Drop()
 	local rec = ns.Navigation:GetSourceWaypoint(SOURCE)
-	if rec then ns.Navigation:RemoveWaypoint(rec, true) end
+	taken = nil
+	if rec then
+		dropping = true
+		ns.Navigation:RemoveWaypoint(rec, true)
+		dropping = false
+	end
+end
+
+local function Take(unit, id, fields)
+	local cont, x, y, mapID = tonumber(fields[4]), tonumber(fields[5]), tonumber(fields[6]), tonumber(fields[7])
+	if not (cont and x and y) then return false end
+	local leader = Display(unit)
+	-- The same waypoint again, sent to someone who has just joined: leave
+	-- yours where it is, or gone if you removed it.
+	if dismissed[id] or (taken and taken.id == id and ns.Navigation:GetSourceWaypoint(SOURCE)) then return true end
+	local label = fields[8] ~= "" and fields[8] or "Waypoint"
+	ns.Navigation:PlaceSourceWaypoint(SOURCE, cont, x, y, label, mapID ~= 0 and mapID or nil,
+		{ focus = true, note = ("Shared by %s, your group leader. Middle-click the arrow to let it go."):format(leader) })
+	taken = { id = id, leader = leader }
+	return true
 end
 
 function Group:OnMessage(prefix, text, _, sender)
 	if prefix ~= PREFIX or type(text) ~= "string" or FromSelf(sender) then return end
 	local fields = {}
 	for field in (text .. "\t"):gmatch("([^\t]*)\t") do fields[#fields + 1] = field end
-	local kind, version = fields[1], fields[2]
+	local kind, version, id = fields[1], fields[2], fields[3]
 	if version ~= VERSION then return end
 	if kind == "A" then
-		if IsLeader() and replies and tonumber(fields[3]) == seq and (fields[4] == "got" or fields[4] == "off") then
+		if IsLeader() and replies and id == reportFor and (fields[4] == "got" or fields[4] == "off") then
 			replies[sender] = fields[4]
 		end
 		return
@@ -255,36 +296,36 @@ function Group:OnMessage(prefix, text, _, sender)
 		return
 	end
 	if kind ~= "W" and kind ~= "C" then return end
-	local unit = FromLeader(sender)
-	if not unit then return end
-	local wantReply = fields[#fields] == "1"
+	local unit = LeaderUnit()
+	if not (unit and IsSender(sender, unit)) then return end
 	local follow = ns:GetSetting("followGroupWaypoint")
-	if follow then
-		if kind == "W" then Take(unit, fields) else Drop() end
+	if kind == "C" then
+		if follow then Drop() end
+		return
 	end
-	if wantReply then Answer(fields[3], follow and "got" or "off") end
+	if follow then Take(unit, id, fields) end
+	if fields[9] == "1" then Send(Join("A", VERSION, id, follow and "got" or "off")) end
 end
 
--- A member who joins (or reloads) asks the leader once for the waypoint.
-local function LeaderName()
-	for _, unit in ipairs(Others()) do
-		if Call(UnitIsGroupLeader, unit) == true then return Display(unit) end
-	end
-end
-
+-- Joining, the lead changing hands, or a reload: a member asks the (new)
+-- leader once for the waypoint, and lets the last leader's go.
 function Group:OnRoster()
 	if not InGroup() then
-		asked, lastSent, replies = nil, nil, nil
+		asked, lastSent, lastID, replies = nil, nil, nil, nil
 		Drop()
 		return
 	end
 	if IsLeader() then
 		asked = nil
+		if taken then Drop() end
 		ScheduleShare()
 		return
 	end
-	lastSent = nil -- someone else leads now
-	local leader = LeaderName()
+	-- someone else leads now: what this one shared was for the old group
+	lastSent, lastID, replies = nil, nil, nil
+	local unit = LeaderUnit()
+	local leader = unit and Display(unit)
+	if taken and leader and taken.leader ~= leader then Drop() end
 	if leader and leader ~= asked and ns:GetSetting("followGroupWaypoint") then
 		asked = leader
 		Send(Join("R", VERSION))
@@ -302,8 +343,18 @@ function Group:OnLogin()
 	ns:RegisterEvent("PLAYER_REGEN_ENABLED", Flush)
 	ns:RegisterEvent("ENCOUNTER_END", Flush)
 	ns:On("WAYPOINT_CHANGED", ScheduleShare)
+	ns:On("WAYPOINT_REMOVED", function(rec)
+		-- removed by the player: it stays gone until the leader picks another
+		if not dropping and type(rec) == "table" and rec.source == SOURCE and taken then
+			dismissed[taken.id] = true
+			taken = nil
+		end
+	end)
 	ns:On("SETTING_CHANGED", function(key)
-		if key == "shareGroupWaypoint" and ns:GetSetting(key) then ScheduleShare()
-		elseif key == "followGroupWaypoint" and not ns:GetSetting(key) then Drop() end
+		if key == "shareGroupWaypoint" then
+			if ns:GetSetting(key) then ScheduleShare() elseif IsLeader() then Group:Withdraw() end
+		elseif key == "followGroupWaypoint" and not ns:GetSetting(key) then
+			Drop()
+		end
 	end)
 end

@@ -28,6 +28,7 @@ local NOTE = "Following this quest: it moves on as objectives are done, and to t
 local CHECK_DELAY = 0.3 -- seconds: quest updates come in bursts
 
 local tracked      -- the quest followed
+local followedFrom -- the continent you were on when its waypoint was placed
 local signature    -- that quest's state when its waypoint was placed
 local dropping = false
 local checkPending = false
@@ -427,6 +428,7 @@ function QuestWaypoints:Follow(questID, again)
 		return false
 	end
 	tracked, signature = questID, Signature(questID)
+	followedFrom = ns.GetPlayerWorld()
 	local rec = ns.Navigation:PlaceSourceWaypoint(SOURCE, cont, wx, wy, Label(Title(questID), name, IsComplete(questID)), mapID,
 		{ focus = not again, kept = true, note = NOTE })
 	rec.questID = questID
@@ -459,10 +461,13 @@ function QuestWaypoints:Click(questID)
 end
 
 -- After a burst of quest updates: the followed quest moved on, so does its waypoint.
+-- Arriving on another continent counts too: its camps were out of reach
+-- when the waypoint was placed (only spawns on your continent are weighed).
 function QuestWaypoints:Check()
 	checkPending = false
 	if not tracked or not OnQuest(tracked) then return end
-	if Signature(tracked) ~= signature then
+	local here = ns.GetPlayerWorld()
+	if Signature(tracked) ~= signature or (here and here ~= followedFrom) then
 		self:Follow(tracked, true)
 	end
 end
@@ -630,6 +635,7 @@ function QuestWaypoints:OnLogin()
 		ScheduleCheck()
 	end)
 	ns:RegisterEvent("PLAYER_ENTERING_WORLD", ScheduleCheck)
+	ns:RegisterEvent("ZONE_CHANGED_NEW_AREA", ScheduleCheck)
 	local function Ended(_, questID)
 		if questID ~= nil and questID == tracked then
 			self:Stop(true)

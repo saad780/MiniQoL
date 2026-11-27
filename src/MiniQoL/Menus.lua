@@ -39,15 +39,18 @@ end
 -- One of our dropdowns (WowStyle1DropdownTemplate), set up as usual. With the
 -- Gamepad UI on, a click opens the safe menu from the same generator instead,
 -- and the dropdown's text is brought up to date after each choice.
+-- The safe menu opens on mouse up: opened on mouse down, as the game's does,
+-- its "a click outside closes it" could shut it again within the same click.
 function ns.SetupDropdown(dropdown, generator)
     dropdown:SetupMenu(generator)
     local open = dropdown:GetScript("OnMouseDown")
     dropdown:SetScript("OnMouseDown", function(self, button, ...)
-        if not ns.OwnMenus() then
-            if open then return open(self, button, ...) end
-            return
-        end
-        if self.IsEnabled and not self:IsEnabled() then return end
+        if ns.OwnMenus() then return end
+        if open then return open(self, button, ...) end
+    end)
+    dropdown:HookScript("OnMouseUp", function(self)
+        if not ns.OwnMenus() or (self.IsEnabled and not self:IsEnabled()) then return end
+        if self.IsMouseOver and not self:IsMouseOver() then return end
         ns.ContextMenu(self, function(owner, root)
             generator(owner, root)
             AfterChoices(root, function() if self.GenerateMenu then self:GenerateMenu() end end)

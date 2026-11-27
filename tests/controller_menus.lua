@@ -112,6 +112,7 @@ local generated, opened = 0, 0
 function dropdown:SetupMenu(generator) self.generator = generator end
 function dropdown:GenerateMenu() generated = generated + 1 end
 function dropdown:IsEnabled() return true end
+function dropdown:IsMouseOver() return true end
 dropdown:SetScript("OnMouseDown", function() opened = opened + 1 end)
 local choice
 ns.SetupDropdown(dropdown, function(_, rootMenu)
@@ -122,7 +123,8 @@ assert(dropdown.generator, "the dropdown is set up as usual")
 
 gamepad = false
 dropdown.scripts.OnMouseDown(dropdown, "LeftButton")
-equal(opened, 1, "Gamepad UI off: the dropdown opens its own menu")
+dropdown.scripts.OnMouseUp(dropdown, "LeftButton")
+equal(opened, 1, "Gamepad UI off: the dropdown opens its own menu, once")
 
 gamepad = true
 local captured
@@ -130,7 +132,9 @@ local draw = Safe.CreateContextMenu
 Safe.CreateContextMenu = function(menuOwner, generator) captured = { owner = menuOwner, generator = generator } end
 dropdown.scripts.OnMouseDown(dropdown, "LeftButton")
 equal(opened, 1, "Gamepad UI on: not the game's menu")
-assert(captured and captured.owner == dropdown, "the safe menu opens on the dropdown")
+equal(captured, nil, "and nothing yet on mouse down, so the same click can't close it")
+dropdown.scripts.OnMouseUp(dropdown, "LeftButton")
+assert(captured and captured.owner == dropdown, "the safe menu opens on the dropdown at mouse up")
 local rows = Safe.Flatten(Safe.Describe(dropdown, captured.generator))
 equal(#rows, 2, "with the dropdown's choices")
 local before = generated
@@ -163,16 +167,31 @@ assert(loadfile(root .. "/Modules/Wayfinder/Navigation.lua"))()
 local Navigation = wf.Navigation
 Navigation:AddWaypoint(1, 10, 10, "Inn", nil, { quiet = true })
 Navigation:AddWaypoint(1, 50, 50, "Mailbox", nil, { quiet = true })
-captured = nil
-Navigation:OpenWaypointMenu(owner)
-assert(captured, "the list opens through the safe menu")
-local removals, radios = 0, 0
-for _, row in ipairs(Safe.Flatten(Safe.Describe(owner, captured.generator))) do
-    if row.element.kind == "radio" then radios = radios + 1 end
-    if row.element.kind == "button" and (row.element.text or ""):find("Remove", 1, true) then removals = removals + 1 end
+local function Rows()
+    captured = nil
+    Navigation:OpenWaypointMenu(owner)
+    assert(captured, "the list opens through the safe menu")
+    local rows = Safe.Flatten(Safe.Describe(owner, captured.generator))
+    local removals, radios, clear, more = 0, 0, nil, nil
+    for index, row in ipairs(rows) do
+        local text = row.element.text or ""
+        if row.element.kind == "radio" then radios = radios + 1 end
+        if row.element.kind == "button" and text:find("Remove", 1, true) then removals = removals + 1 end
+        if text == "Clear all waypoints" then clear = index end
+        if text:find("more$") then more = text end
+    end
+    return radios, removals, clear, more, #rows
 end
+local radios, removals, clear = Rows()
 equal(radios, 2, "a row for each waypoint")
 equal(removals, 2, "and a line to remove each")
+equal(clear, 2, "clearing them all comes first, where a short screen still reaches it")
+for i = 1, 40 do Navigation:AddWaypoint(1, 100 + i * 10, 100, "Spot " .. i, nil, { quiet = true }) end
+local more, rows
+radios, removals, clear, more, rows = Rows()
+equal(radios, 15, "a screenful of waypoints at most, since this menu can't scroll")
+equal(more, "and 27 more", "saying how many are left out")
+assert(rows <= 40, "short enough to fit: " .. rows)
 Safe.CreateContextMenu = draw
 
 print("Controller menus: game menus with the Gamepad UI off, our own with it on, dropdowns refreshed, the waypoint list's removal lines passed")
