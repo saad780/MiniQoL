@@ -142,6 +142,7 @@ ns.defaults = {
 	showArrow = true,            -- floating arrow pointing at the waypoint
 	arrowScale = 1.0,
 	routeStyle = "balanced",     -- walking preferences
+	followWalkingRoute = true,
 	antTrails = true,            -- dots marching along the arrow's way (AntTrails.lua)
 	antTrailsWhere = "both",     -- "both", "map" or "minimap"
 	antTrailColor = "cyan",

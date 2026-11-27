@@ -669,6 +669,7 @@ end
 ---------------------------------------------------------------------------
 local walk
 local REROUTE_YARDS = 25
+local ROAD_JOIN_YARDS = 50
 -- The walking leg shown on the maps, including an approach to a transport.
 local trailCont, trailX, trailY, trailWalk
 
@@ -681,6 +682,7 @@ local function ClearWalk()
 	local old = walk
 	walk = nil
 	if old and old.job then old.engine.Cancel(old.job) end
+	if old and old.engine.ReleaseSurfaces then old.engine.ReleaseSurfaces() end
 end
 
 local function PlayerHeight(compat, cont)
@@ -689,18 +691,44 @@ local function PlayerHeight(compat, cont)
 	if instance == cont then return height end
 end
 
+-- Forever can withhold UnitPosition's height. Only use a map floor for
+-- shortcuts when the ground underfoot has one possible height.
+local floors = {}
+local function WalkingHeight(route, cont, x, y)
+	local now = GetTime()
+	if not route.floorAt or now >= route.floorAt and
+		(route.floorPending or x ~= route.floorX or y ~= route.floorY) then
+		local count = route.engine.SurfacesAt(cont, x, y, floors)
+		route.floorX, route.floorY, route.floorAt = x, y, now + 0.2
+		route.floorZ, route.floorPending = count == 1 and floors[1] or nil, count == nil
+	end
+	if (x - route.floorX)^2 + (y - route.floorY)^2 <= 9 then return route.floorZ end
+end
+
 local function AskWalk(engine, follow, compat, danger, cont, wx, wy, mapID, style, ghost, rec)
 	local route = { waypoint = rec, engine = engine, style = style, ghost = ghost,
 		x = wx, y = wy, asked = GetTime(), pending = true }
+	-- Keep guiding on the same leg while a replacement path is being calculated.
+	if walk and walk.xs then route.previous = walk end
 	walk = route
 	local level = danger and danger.Level and danger.Level()
 	local profile = compat and compat.GetPlayerFaction and compat.GetPlayerFaction()
+	if engine.Sight then
+		-- Read only terrain already decoded by the router. The follower caches its
+		-- checks between movements. Indoor reaches allow corridors and stairs.
+		route.sight = function(x, y, ax, ay, az)
+			return engine.Sight(cont, x, y, route.playerZ, ax, ay, az or nil, profile) == true
+		end
+		route.reach = function(x, y, ax, ay, pathZ)
+			return engine.Sight(cont, x, y, route.playerZ or pathZ, ax, ay, nil, profile, true) == true
+		end
+	end
 	local options = { style = style, waterWalking = ghost, profile = profile,
 		walkLevel = profile and danger and danger.Blocked and (level or 0) or nil,
 		danger = level and danger.Table and danger.Table(level, mapID, rec.m) }
 	local function Finished(points, reason, result)
 		if walk ~= route then return end
-		route.job, route.pending = nil, false
+		route.job, route.pending, route.previous = nil, false, nil
 		if not points or #points == 0 then
 			if reason ~= "nodata" and reason ~= "outside" then
 				route.status = "No walking route"
@@ -752,19 +780,39 @@ local function UpdateWalk(cont, wx, wy, mapID, rec)
 	if walk and (walk.waypoint ~= rec or walk.style ~= style or walk.ghost ~= ghost) then
 		ClearWalk()
 	end
-	local hasNext, yards, stray, retryAfter
-	if walk and walk.xs then
-		local xs, ys, zs, left, state = walk.xs, walk.ys, walk.zs, walk.left, walk.state
-		if not walk.caught then
+	local yards, stray, retryAfter
+	local active = walk and (walk.xs and walk or walk.previous)
+	if active then
+		local xs, ys, zs, left, state = active.xs, active.ys, active.zs, active.left, active.state
+		active.playerZ = PlayerHeight(compat, cont)
+		if not active.playerZ and engine.SurfacesAt then
+			active.playerZ = WalkingHeight(active, cont, wx, wy)
+		end
+		if not active.caught then
 			follow.Catch(xs, ys, zs, left, #xs, state, wx, wy,
-				ns.Distance(wx, wy, walk.x, walk.y), REROUTE_YARDS, nil, PlayerHeight(compat, cont))
-			walk.caught = true
+				ns.Distance(wx, wy, active.x, active.y), REROUTE_YARDS, nil, active.playerZ)
+			active.caught = true
 		end
 		local outdoors = compat and compat.IsIndoors and compat.IsIndoors() == false
-		hasNext = follow.Step(xs, ys, zs, left, #xs, state, wx, wy, nil, nil, nil, outdoors) ~= nil
+		local sight = outdoors and active.playerZ and active.sight
+		active.aimX, active.aimY = follow.Step(xs, ys, zs, left, #xs, state, wx, wy, nil,
+			sight and ROAD_JOIN_YARDS, sight, outdoors, active.reach)
 		local nextPoint = min(state.idx, #xs)
 		yards = ns.Distance(wx, wy, xs[nextPoint], ys[nextPoint]) + left[nextPoint]
-		stray = hasNext and state.off or ns.Distance(wx, wy, xs[#xs], ys[#xs])
+		active.joinIndex = nil
+		if active.aimX and state.aimAlong then
+			-- Draw a verified shortcut from the player to the forward aim, then
+			-- resume the trail beyond it without doubling back to skipped points.
+			local remaining = left[1] - state.aimAlong
+			yards = ns.Distance(wx, wy, active.aimX, active.aimY) + remaining
+			while nextPoint <= #xs and left[nextPoint] >= remaining do nextPoint = nextPoint + 1 end
+			active.joinIndex = nextPoint
+		end
+		if not active.aimX then
+			stray = ns.Distance(wx, wy, xs[#xs], ys[#xs])
+		elseif not state.sighted then
+			stray = state.off
+		end
 		retryAfter = yards > 2000 and 10 or 2
 	elseif walk and not walk.job then
 		-- A failed search is often the start's fault (rough ground it cannot
@@ -772,14 +820,16 @@ local function UpdateWalk(cont, wx, wy, mapID, rec)
 		stray = ns.Distance(wx, wy, walk.x, walk.y)
 		retryAfter = ns.Distance(wx, wy, rec.x, rec.y) > 1000 and 15 or 4
 	end
-	local needsWalk = not walk or (stray and stray > REROUTE_YARDS and GetTime() - walk.asked >= retryAfter)
+	local needsWalk = not walk or (not walk.pending and stray and stray > REROUTE_YARDS and GetTime() - walk.asked >= retryAfter)
 	if needsWalk and not InCombatLockdown() and engine.Available(cont) then
 		AskWalk(engine, follow, compat, danger, cont, wx, wy, mapID, style, ghost, rec)
-		hasNext, yards = false, nil
+		-- A synchronous failure or replacement can already have retired the old path.
+		if walk.previous ~= active then active, yards = nil, nil end
 	end
+	if active and active.aimX then return active, yards end
 	local status = walk and (walk.pending and "Finding walking route…" or walk.status)
-	if walk and walk.partial and not hasNext then status = "No walking route" end
-	return hasNext and walk or nil, yards, status
+	if active and active.partial then status = "No walking route" end
+	return nil, yards, status
 end
 
 -- World coordinates of the remaining walk, starting at the next path point.
@@ -787,10 +837,13 @@ end
 function Navigation:GetTrail()
 	if not (current and trailCont and arrow and arrow:IsShown()) then return end
 	local route = trailWalk
-	if route and route == walk and route.xs and #route.xs > 0 then
+	if route and walk and (route == walk or route == walk.previous) then
 		local endX, endY
 		if not route.partial then endX, endY = trailX, trailY end
-		return trailCont, endX, endY, route.xs, route.ys, min(route.state.idx or 1, #route.xs)
+		if route.joinIndex then
+			return trailCont, endX, endY, route.xs, route.ys, route.joinIndex, route.aimX, route.aimY
+		end
+		return trailCont, endX, endY, route.xs, route.ys, min(route.state.idx, #route.xs)
 	end
 	return trailCont, trailX, trailY
 end
@@ -804,7 +857,6 @@ function Navigation:UpdateArrow()
 	local cont, wx, wy, mapID = ns.GetPlayerWorld()
 	local stop, instruction, caption, usingTransport
 	if ns.Travel then stop, instruction, caption, usingTransport = ns.Travel:Aim(current, cont, wx, wy, mapID) end
-	-- Both displays lead to this leg's endpoint. Only the trail follows its turns.
 	local leg = stop or current
 	local away = cont and cont ~= leg.c
 	local step = instruction or caption
@@ -817,6 +869,7 @@ function Navigation:UpdateArrow()
 	end
 
 	local walkDistance, status
+	local guideArrow = ns:GetSetting("followWalkingRoute")
 	if cont and cont == leg.c and not instruction then
 		trailWalk, walkDistance, status = UpdateWalk(cont, wx, wy, mapID, leg)
 		if not status then trailCont, trailX, trailY = cont, leg.x, leg.y end
@@ -839,6 +892,11 @@ function Navigation:UpdateArrow()
 		Sound("MAP_PING")
 		self:ClearWaypoint()
 		return
+	end
+	-- Distance, arrival and the caption refer to the leg's endpoint in either mode.
+	if guideArrow and trailWalk then
+		local ax, ay = trailWalk.aimX - wx, trailWalk.aimY - wy
+		if ax ~= 0 or ay ~= 0 then dx, dy = ax, ay end
 	end
 	-- Both bearing and player facing count counter-clockwise from north.
 	ShowBearing(atan2(dy, dx) - (GetPlayerFacing() or 0))
@@ -1430,7 +1488,7 @@ function Navigation:OnLogin()
 	ns:On("SETTING_CHANGED", function(key)
 		if key == "arrowScale" then
 			arrow:SetScale(ns:GetSetting("arrowScale") or 1)
-		elseif key == "showArrow" or key == "routeStyle" then
+		elseif key == "showArrow" or key == "routeStyle" or key == "followWalkingRoute" then
 			self:RefreshArrow()
 		elseif key == "corpseWaypoint" then
 			if ns:GetSetting("corpseWaypoint") then

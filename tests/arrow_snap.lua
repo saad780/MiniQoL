@@ -264,16 +264,26 @@ near(offset(), 100, "and the cursor no longer moves it")
 print("Arrow placement: drag without a jump, snap to the middle from either side, saved centred, a bigger arrow, hidden mid-drag passed")
 
 ---------------------------------------------------------------------------
--- The arrow faces the objective while the ant trail follows the walking route.
+-- Follow a route using the bundled follower and switch bearings in place.
 ---------------------------------------------------------------------------
 local requests = {}
 local covered = true
-ns.Walking = { Nav = { follow = { Reset = noop, Mark = noop, Catch = noop,
-    Step = function(xs, ys, _, _, _, state)
-        state.idx = 2
-        return xs[2], ys[2]
-    end } }, Compat = { GetPlayerFaction = function() return "Alliance" end, IsOnTaxi = function() return false end } }
+local indoors, clearGround, floorCount = true, false, 1
+local floorReads, sightReads = 0, 0
+ns.db.settings.followWalkingRoute = true
+ns.Walking = { Nav = {}, Compat = { GetPlayerFaction = function() return "Alliance" end,
+    IsOnTaxi = function() return false end, IsIndoors = function() return indoors end } }
+assert(loadfile(root .. "/Modules/Wayfinder/Vendor/PolestarWalking/Follow.lua"))("Wayfinder", ns)
 ns.Walking.Nav.Path = {
+    SurfacesAt = function(_, _, _, out)
+        floorReads = floorReads + 1
+        out[1], out[2] = 10, 54
+        return floorCount
+    end,
+    Sight = function(_, _, _, z, _, _, _, faction)
+        sightReads = sightReads + 1
+        return clearGround and z == 10 and faction == "Alliance"
+    end,
     Available = function(cont) return covered and cont == 1 end,
     Find = function(cont, from, to, done, options)
         local job = { cont = cont, from = from, to = to, done = done, options = options }
@@ -317,8 +327,17 @@ equal(roads.options.style, "roads", "Roads Always uses Polestar's Roads style")
 roads.done({ roads.from, { x = 430, y = 600 }, roads.to })
 Navigation:UpdateArrow()
 assert(arrow.head.shown, "the completed route shows a bearing")
-equal(arrow.bearingFrame, 32, "aims due west at the waypoint while the path turns north")
-equal(arrow.distance.text, "50 yd", "yardage is measured to the arrow's target")
+equal(arrow.bearingFrame, 0, "points north toward the turn around the obstacle")
+equal(arrow.distance.text, "50 yd", "yardage is measured to the leg destination")
+local function SetRouteArrow(enabled)
+    ns.db.settings.followWalkingRoute = enabled
+    ns:Fire("SETTING_CHANGED", "followWalkingRoute")
+end
+SetRouteArrow(false)
+equal(arrow.bearingFrame, 32, "switches back to the direct bearing to the waypoint")
+SetRouteArrow(true)
+equal(arrow.bearingFrame, 0, "switches back to the same walking turn immediately")
+equal(#requests, 3, "switching the arrow never restarts the search")
 -- The walking trail takes the detour around the river.
 local cont, endX, endY, xs, ys, idx = Navigation:GetTrail()
 equal(cont, 1, "the trail is on the player's continent")
@@ -327,6 +346,11 @@ equal(endY, 650, "on both axes")
 equal(xs[idx], 430, "from the route's next point")
 equal(ys[idx], 600, "north of the player, on the route")
 equal(#xs, 3, "along the whole route")
+local originalPosition = ns.GetPlayerWorld
+ns.GetPlayerWorld = function() return 1, 430, 600, 1429 end
+Navigation:UpdateArrow()
+equal(arrow.bearingFrame, 43, "once at the river bend the arrow turns down the next stretch")
+ns.GetPlayerWorld = originalPosition
 
 local nextWaypoint = Navigation:AddWaypoint(1, 420, 650, "Another destination", 1429)
 assert(Navigation:GetWaypoint() == nextWaypoint, "placing a new waypoint changes the route")
@@ -343,7 +367,7 @@ assert(arrow.head.shown, "straight bearings still work on unmapped ground")
 equal(arrow.distance.text, "54 yd", "reports the distance to the original waypoint")
 cont, endX, endY, xs = Navigation:GetTrail()
 assert(cont == 1 and endX == 420 and endY == 650 and xs == nil, "the trail runs straight at it too")
-print("Walking arrow and trail: independent bearings, route styles, stale searches and fallback passed")
+print("Walking arrow and trail: route turns, live direct-bearing toggle, route styles, stale searches and fallback passed")
 
 -- An intercontinental destination stays selected while its local stop drives
 -- the walking path. Being at the dock must never clear the final pin.
@@ -383,7 +407,7 @@ Navigation:UpdateArrow()
 local approach = requests[#requests]
 approach.done({ approach.from, {x=400, y=570}, approach.to })
 Navigation:UpdateArrow()
-assert(arrow.head.shown and arrow.bearingFrame == 0 and arrow.distance.text == "60 yd", "points north at the tower on this continent")
+assert(arrow.head.shown and arrow.bearingFrame == 96 and arrow.distance.text == "60 yd", "walks east around the obstacle on the approach to the tower")
 equal(arrow.label.text, stage.n, "names the transport stop")
 equal(arrow.goal.text, "On the way to " .. localTrip.n, "keeps the quest in view")
 cont, endX, endY, xs, ys, idx = Navigation:GetTrail()
@@ -400,6 +424,43 @@ stage = nil
 Navigation:UpdateArrow()
 assert(arrow.head.shown and arrow.bearingFrame == 32 and arrow.distance.text == "200 yd", "after the last transfer the objective is due west")
 equal(arrow.label.text, localTrip.n, "restores the quest name")
+
+-- In open ground the road runs north at y=600. Join diagonally from its
+-- east side, skipping the perpendicular approach and the next short bend.
+local px, py = 400, 560
+ns.GetPlayerWorld = function() return 1, px, py, 1429 end
+covered, indoors, clearGround = true, false, true
+local function roadRoute(name)
+    Navigation:AddWaypoint(1, 600, 600, name, 1429)
+    local job = requests[#requests]
+    job.done({ job.from, {x=400,y=600,z=10}, {x=420,y=600,z=10}, {x=600,y=600,z=10} })
+    Navigation:UpdateArrow()
+end
+roadRoute("North road")
+local requestCount = #requests
+local _, _, _, _, _, from, joinX, joinY = Navigation:GetTrail()
+assert(joinX and joinX > 420 and joinY == 600 and from == 4, "the dots join at the reachable forward aim and continue past it")
+assert(arrow.bearingFrame > 0 and arrow.bearingFrame < 16, "the arrow leads diagonally onto the road")
+local firstBearing, firstReads, firstSurfaces = arrow.bearingFrame, sightReads, floorReads
+for i = 1, 20 do now = now + .04; Navigation:UpdateArrow() end
+assert(sightReads == firstReads and floorReads == firstSurfaces and arrow.bearingFrame == firstBearing, "stationary look-ahead reuses its terrain checks")
+px, now = 445, 12
+Navigation:UpdateArrow()
+assert(#requests == requestCount and arrow.bearingFrame < 16, "running parallel 40 yards off the road keeps the forward aim")
+-- Across an uncrossable barrier: retain the current leg's guidance while the
+-- new search runs. A change of destination must drop that old aim immediately.
+clearGround, px, py, now = false, 470, 485, 24
+Navigation:UpdateArrow()
+assert(#requests == requestCount + 1 and Navigation:GetTrail(), "a substantial deviation starts a replacement without dropping the trail")
+local pending = requests[#requests]
+floorCount, clearGround = 2, true
+roadRoute("Other side of the ridge")
+assert(pending.cancelled and not select(7, Navigation:GetTrail()), "overlapping floors cannot authorize an outdoor shortcut")
+local newBearing = arrow.bearingFrame
+pending.done({ pending.from, { x = 200, y = 100 }, pending.to })
+Navigation:UpdateArrow()
+equal(arrow.bearingFrame, newBearing, "a late route from a retired leg cannot take the arrow back")
+
 ns.GetPlayerWorld = function() end
 Navigation:UpdateArrow()
 assert(not arrow.head.shown and not Navigation:GetTrail(), "no bearing is available during a loading screen")

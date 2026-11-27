@@ -30,9 +30,10 @@ Under **Maps & travel → Waypoints → Route style**, choose **Direct** for the
 shortest walkable route, **Balanced** (the default) to favor roads with short
 detours, or **Roads Always** to follow roads even on longer detours. Mini QoL
 includes the router and walking maps for Eastern Kingdoms, Kalimdor, and Zephras
-Isle. The arrow points straight at the next flight master, dock, zeppelin tower,
-tram or portal on your route and shows the distance to that stop. On the final
-walking leg it points straight at your objective.
+Isle. The arrow looks ahead along the walking route to your next transport stop
+or objective. The label and distance refer to that stop or objective. Turn off
+**Follow walking turns with the arrow** under **Maps & travel → Waypoints** to
+use the direct bearing again. You can switch while a route is active.
 
 **Show ant trails** (under Waypoints, on by default) draws the walking route
 on the continuous world map and minimap. Follow the dots around obstacles

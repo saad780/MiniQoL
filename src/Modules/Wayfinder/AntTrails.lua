@@ -123,9 +123,13 @@ end
 
 -- The trail's points, in world yards, through To(x, y) into px/py: the player,
 -- the route from its next point on, then the end. Returns how many.
-local function Points(To, wx, wy, endX, endY, xs, ys, idx)
+local function Points(To, wx, wy, endX, endY, xs, ys, idx, joinX, joinY)
 	local n = 1
 	px[1], py[1] = To(wx, wy)
+	if joinX then
+		n = n + 1
+		px[n], py[n] = To(joinX, joinY)
+	end
 	if xs then
 		for i = idx, #xs do
 			n = n + 1
@@ -165,9 +169,9 @@ function Ants:UpdateMap()
 	local engine = ns.ContinuousEngine
 	local controller = engine and engine:GetModule("worldmap")
 	local S = engine and engine.MapStitch
-	local cont, endX, endY, xs, ys, idx
+	local cont, endX, endY, xs, ys, idx, joinX, joinY
 	if Shows("map") and controller and controller.IsStitched() then
-		cont, endX, endY, xs, ys, idx = ns.Navigation:GetTrail()
+		cont, endX, endY, xs, ys, idx, joinX, joinY = ns.Navigation:GetTrail()
 	end
 	local wx, wy
 	if cont then wx, wy = PlayerWorld(cont) end
@@ -189,7 +193,7 @@ function Ants:UpdateMap()
 	-- Above the map's art, its terrain and the fog over it; under its icons.
 	local level = (S.artTop or sc:GetFrameLevel()) + 2
 	if map.frame:GetFrameLevel() ~= level then map.frame:SetFrameLevel(level) end
-	March(map, Points(MapPoint, wx, wy, endX, endY, xs, ys, idx), GetTime(), MapNear, MapInside)
+	March(map, Points(MapPoint, wx, wy, endX, endY, xs, ys, idx, joinX, joinY), GetTime(), MapNear, MapInside)
 end
 
 ---------------------------------------------------------------------------
@@ -238,8 +242,8 @@ function Ants:BuildMinimap()
 end
 
 function Ants:UpdateMinimap()
-	local cont, endX, endY, xs, ys, idx
-	if Shows("minimap") then cont, endX, endY, xs, ys, idx = ns.Navigation:GetTrail() end
+	local cont, endX, endY, xs, ys, idx, joinX, joinY
+	if Shows("minimap") then cont, endX, endY, xs, ys, idx, joinX, joinY = ns.Navigation:GetTrail() end
 	local wx, wy
 	if cont then wx, wy = PlayerWorld(cont) end
 	local viewRadius = wx and C_Minimap and C_Minimap.GetViewRadius and C_Minimap.GetViewRadius()
@@ -252,7 +256,7 @@ function Ants:UpdateMinimap()
 	halfW, halfH = Minimap:GetWidth() / 2, Minimap:GetHeight() / 2
 	if halfW < 16 or halfH < 16 then Show(mini, 0); return end
 	cosine, sine = cos(facing), sin(facing)
-	March(mini, Points(MiniPoint, wx, wy, endX, endY, xs, ys, idx), now, MiniNear, MiniInside)
+	March(mini, Points(MiniPoint, wx, wy, endX, endY, xs, ys, idx, joinX, joinY), now, MiniNear, MiniInside)
 end
 
 ---------------------------------------------------------------------------

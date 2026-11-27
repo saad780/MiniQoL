@@ -92,13 +92,15 @@ wayfinder("nativeMinimapTurnIns", "Live minimap", "Prefer Blizzard's turn-in mar
 
 wayfinder("showArrow", "Waypoints", "Show the waypoint arrow",
     "Middle-click the map (or any icon) to set a waypoint; a floating arrow then points the way. Several can stand at once: type /way 42 65, or let an addon that speaks TomTom's language add them. Drag the arrow to move it, middle-click it to remove the one it is on, right-click it for the whole list.")
+wayfinder("followWalkingRoute", "Waypoints", "Follow walking turns with the arrow",
+    "Aim ahead along the walking route to your objective or next transport stop. Turn this off to point straight at that destination.")
 feature({ id = "wayfinder.routeStyle", page = "maps", group = "Waypoints", label = "Route style",
     addon = "Wayfinder", kind = "select",
     choices = { { "fastest", "Direct" }, { "balanced", "Balanced" }, { "roads", "Roads Always" } },
     get = function() return Wayfinder.Navigation:GetRouteStyle() end,
     set = function(value) Wayfinder:SetSetting("routeStyle", value) end,
     available = mapReady,
-    tooltip = "Direct favors the shortest walkable route. Balanced uses roads when the detour is small. Roads Always strongly favors roads and avoids steep terrain.\n\nWalking maps cover Eastern Kingdoms, Kalimdor, and Zephras Isle. The arrow points straight at the next transport stop on your route, then at your objective. Follow the ant trail for walking turns." })
+    tooltip = "Direct favors the shortest walkable route. Balanced uses roads when the detour is small. Roads Always strongly favors roads and avoids steep terrain.\n\nWalking maps cover Eastern Kingdoms, Kalimdor, and Zephras Isle." })
 wayfinder("antTrails", "Waypoints", "Show ant trails",
     "Follow the dots on the continuous world map and minimap to walk the route to your waypoint or the next transport stop. Outside walking map coverage, the dots lead straight to that point.")
 local function antTrails() return mapReady() and Wayfinder:GetSetting("antTrails") and true or false end

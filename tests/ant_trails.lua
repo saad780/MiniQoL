@@ -85,7 +85,7 @@ function ns:RegisterEvent(event, fn) events[event] = fn end
 function ns.Readable(value) return value ~= nil end
 function ns.GetPlayerWorld() return unitInstance, unitNorth, unitWest end
 local trail
-ns.Navigation = { GetTrail = function() if trail then return unpack(trail, 1, 6) end end }
+ns.Navigation = { GetTrail = function() if trail then return unpack(trail, 1, 8) end end }
 local function set(key, value)
     settings[key] = value
     listeners.SETTING_CHANGED(key)
@@ -153,6 +153,15 @@ near(list[13][2], -150, "at the bottom")
 trail = { 1, nil, nil, { 4600, 4600 }, { 4600, 4800 }, 2 }
 drawMap()
 equal(#dots(map), 6, "100 pixels and no further")
+
+-- Cut diagonally onto a road at the follower's confirmed join, then head
+-- north. The perpendicular approach behind the join is no longer drawn.
+trail = { 1, 4800, 4650, {4600, 4600, 4800}, {4600, 4650, 4650}, 3, 4650, 4650 }
+drawMap(); drawMini()
+local onMap, onMini = dots(map), dots(mini)
+near(onMap[2][1] - onMap[1][1], 18 / math.sqrt(2), "world map dots start toward the forward join")
+near(onMini[1][1], -onMini[1][2], "minimap dots use the same diagonal")
+assert(onMini[1][2] > 0 and onMini[1][1]^2 + onMini[1][2]^2 >= 16^2, "the join leaves room for the player icon")
 
 ---------------------------------------------------------------------------
 -- 3. Only what is in view, and never more than 400 dots
