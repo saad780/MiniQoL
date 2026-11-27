@@ -497,8 +497,17 @@ function MapPins:OnLogin()
 		WorldMapFrame:AddDataProvider(provider)
 	end)
 	EventUtil.ContinueOnAddOnLoaded("Blizzard_BattlefieldMap", function() self:AddToZoneMap() end)
-	-- Quest objectives move as quests do; the world map has its own markers for them.
-	ns:RegisterEvent("QUEST_LOG_UPDATE", function() self:RefreshZoneMap() end)
+	-- Quest objectives move as quests do; the world map has its own markers for
+	-- them. The log updates several times a second while looting, so at most
+	-- one redraw a second.
+	ns:RegisterEvent("QUEST_LOG_UPDATE", function()
+		if self.questRefreshDue or not (ns.db and ns:GetSetting("zoneMapQuests")) then return end
+		self.questRefreshDue = true
+		C_Timer.After(1, function()
+			self.questRefreshDue = false
+			self:RefreshZoneMap()
+		end)
+	end)
 	local function Refresh()
 		self:Refresh()
 	end
