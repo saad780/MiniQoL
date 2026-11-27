@@ -193,6 +193,7 @@ events:SetScript("OnEvent", function(_, event, name)
         if ns.AltGear then ns.AltGear:Start() end
         if ns.Mail then ns.Mail:Start() end
         if ns.Regen then ns.Regen:Start() end
+        if ns.Tips then ns.Tips.OnLogin() end
     end
 end)
 
@@ -211,6 +212,8 @@ SlashCmdList.MINIQOL = function(input)
         else ns.Fishing:ToggleGear() end
     elseif command == "regen" then
         if ns.Regen and ns.Regen.db then ns.Regen:Report() end
+    elseif command == "tip" then
+        if ns.Tips then ns.Tips.ShowNext() end
     elseif command == "blocked" or command == "errors" then
         -- Which addon the game blamed for "Interface action failed", and the
         -- errors counted rather than repeated (Diagnostics.lua).

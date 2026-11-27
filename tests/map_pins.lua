@@ -80,4 +80,17 @@ second:CheckMouseButtonPassthrough("RightButton")
 assert(second.buttons and second.buttons[1] == "RightButton", "a pin made out of combat is set at once")
 events.PLAYER_REGEN_ENABLED()
 assert(second.calls == 2 and first.calls == calls, "leaving combat does not touch pins that are already set")
-print("World map pins: no protected calls in combat, passthrough caught up afterwards passed")
+
+-- Tooltips say how far an icon is and which way: world x counts north, y west.
+function ns.GetPlayerWorld() return 1, 1000, 1000 end
+local function way(x, y, cont) return ns.DistanceAndDirection(cont or 1, x, y) end
+assert(way(1240, 1000) == "240 yd north", way(1240, 1000))
+assert(way(1000, 760) == "240 yd east", way(1000, 760))
+assert(way(1100, 900) == "141 yd northeast", way(1100, 900))
+assert(way(900, 1100) == "141 yd southwest", way(900, 1100))
+assert(way(1000, 1300) == "300 yd west", way(1000, 1300))
+assert(way(700, 1000) == "300 yd south", way(700, 1000))
+assert(way(1001, 1002) == "Here", "standing on it")
+assert(way(1000, 13000) == "12.0k yd west", way(1000, 13000))
+assert(way(1240, 1000, 0) == nil, "nothing for another continent")
+print("World map pins: no protected calls in combat, passthrough caught up afterwards, tooltip distance and direction passed")

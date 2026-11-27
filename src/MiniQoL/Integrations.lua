@@ -156,6 +156,8 @@ wayfinderSlider("arrowScale", "Waypoints", "Arrow size", nil, 0.5, 2, 0.1, Perce
 wayfinder("showOnWorldMap", "World map", "Show icons on the world map")
 wayfinder("showOnContinent", "World map", "Also show icons on continent maps")
 wayfinderSlider("iconScale", "World map", "World map icon size", nil, 0.6, 2, 0.1, Percent)
+wayfinder("tooltipDistance", "World map", "Distance in icon tooltips",
+    "Adds how far away an icon or waypoint is, and in which direction, to its tooltip on the maps: \"240 yd northeast\".")
 feature({ id = "wayfinder.mapButton", page = "maps", group = "World map", label = "Map menu button",
     addon = "Wayfinder", kind = "action", button = "Reset",
     run = function() Wayfinder.Options:ResetMapButtonPosition() end, available = mapReady,
@@ -466,6 +468,10 @@ checkbox("miniqol.icon", "miniqol", "Panel", "Show minimap button", nil,
     function() return not ns.db.minimap.hide end,
     function(value) ns.db.minimap.hide = not value; ns:UpdateMinimapButton() end,
     "The gear button beside the minimap opens this panel. Use /mqol icon to bring it back.")
+checkbox("miniqol.tips", "miniqol", "Panel", "A tip in chat when you log in", nil,
+    function() return ns.db.tips ~= false end,
+    function(value) ns.db.tips = value and true or false end,
+    "One line in chat at login about a click or command that's easy to miss. Each tip shows once, and they stop when you've seen them all. /mqol tip shows the next one now.")
 feature({ id = "miniqol.resetpos", page = "miniqol", group = "Panel", label = "Panel and button position",
     kind = "action", button = "Reset",
     run = function()

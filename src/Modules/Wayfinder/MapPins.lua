@@ -12,6 +12,27 @@ local APPROXIMATE_YARDS = 20
 local Tooltip = {}
 ns.Tooltip = Tooltip
 
+local COMPASS = { "east", "northeast", "north", "northwest", "west", "southwest", "south", "southeast" }
+
+-- "240 yd northeast": how far a world point is from you, and which way.
+-- Nothing on another continent or where the game gives no position.
+function ns.DistanceAndDirection(cont, x, y)
+	local here, wx, wy = ns.GetPlayerWorld()
+	if not (here and cont == here and x and y) then return nil end
+	local north, east = x - wx, wy - y -- (world y counts westward)
+	local yards = math.sqrt(north * north + east * east)
+	if yards < 5 then return "Here" end
+	local sector = math.floor((math.atan2(north, east) / (math.pi / 4)) + 0.5) % 8
+	local distance = yards >= 10000 and ("%.1fk yd"):format(yards / 1000) or ("%d yd"):format(yards + 0.5)
+	return distance .. " " .. COMPASS[sector + 1]
+end
+
+local function AddDistance(rec)
+	if not ns:GetSetting("tooltipDistance") then return end
+	local text = ns.DistanceAndDirection(rec.c, rec.x, rec.y)
+	if text then GameTooltip:AddLine(text, 1, 1, 1) end
+end
+
 function Tooltip:Show(owner, rec, catID)
 	GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
 	if rec.waypoint then
@@ -19,6 +40,7 @@ function Tooltip:Show(owner, rec, catID)
 		if rec.where and rec.where ~= rec.n then
 			GameTooltip:AddLine(rec.where, 0.8, 0.8, 0.8)
 		end
+		AddDistance(rec)
 		GameTooltip:AddLine(rec == ns.Navigation:GetWaypoint() and "Waypoint, the arrow is on this one"
 			or "Waypoint", 0.6, 0.85, 1)
 		GameTooltip:AddLine("Left-click to copy a link to chat", 0.5, 0.5, 0.5)
@@ -31,6 +53,7 @@ function Tooltip:Show(owner, rec, catID)
 	if rec.s and rec.s ~= rec.n then
 		GameTooltip:AddLine("<" .. rec.s .. ">", 0.8, 0.8, 0.8)
 	end
+	AddDistance(rec)
 	local services = {}
 	for _, c in ipairs(ns.CategoryList) do
 		if rec.cats[c.id] and (c.id ~= "quest" or ns.QuestAvailability:HasAvailableQuest(rec)) then

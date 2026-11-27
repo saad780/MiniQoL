@@ -159,6 +159,7 @@ ns.defaults = {
 	useSeedData = true,          -- reveal known town services as you explore
 	recordMouseover = true,      -- record NPCs you mouse over, not only ones you talk to
 	iconScale = 1.0,             -- world map icons
+	tooltipDistance = true,      -- "240 yd northeast" in icon tooltips
 	detailIconScale = 1.0,       -- detail view icons
 	detailEnabled = true,        -- zooming past the map's limit opens the detail view
 	continuousMap = true,        -- stitch world, zones and capitals into one scrollable map
