@@ -165,6 +165,10 @@ wayfinder("showOnContinent", "World map", "Also show icons on continent maps")
 wayfinderSlider("iconScale", "World map", "World map icon size", nil, 0.6, 2, 0.1, Percent)
 wayfinder("tooltipDistance", "World map", "Distance in icon tooltips",
     "Adds how far away an icon or waypoint is, and in which direction, to its tooltip on the maps: \"240 yd northeast\".")
+wayfinder("zoneMap", "Zone map (Shift+M)", "Wayfinder on the zone map",
+    "The small zone map (Shift+M) shows Wayfinder's icons, your waypoints, the ant trail to the one the arrow is on and the area of a followed quest, as the world map does. The icons you've switched on are the same on both.")
+wayfinder("zoneMapQuests", "Zone map (Shift+M)", "Quest objectives on the zone map",
+    "Mark where the quests you're on take you, from the game's own quest markers, which the zone map otherwise leaves out. Hover one for its objectives; middle-click it to follow the quest with the arrow.")
 feature({ id = "wayfinder.mapButton", page = "maps", group = "World map", label = "Map menu button",
     addon = "Wayfinder", kind = "action", button = "Reset",
     run = function() Wayfinder.Options:ResetMapButtonPosition() end, available = mapReady,

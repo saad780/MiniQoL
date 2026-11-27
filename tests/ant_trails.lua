@@ -328,4 +328,59 @@ drawMini()
 assert(mini.shown > 0, "and the trail again once you've left the area")
 set("antTrailsWhere", "both")
 
-print("Ant trails: spaced and marching from the player, round route corners, clipped to the view and capped, minimap rotation and shape, settings, quest area outlines passed")
+---------------------------------------------------------------------------
+-- 8. The zone map (Shift+M): dots placed from where its canvas sits, at the
+-- same size whatever the zoom
+---------------------------------------------------------------------------
+function methods:GetLeft() return self.left end
+function methods:GetTop() return self.top end
+function methods:GetEffectiveScale() return self.scale or 1 end
+local zoneSc = New()
+zoneSc.width, zoneSc.height = 200, 200
+local canvas = New(zoneSc)
+canvas.left, canvas.top, canvas.width, canvas.height, canvas.level = 100, 400, 200, 200, 30
+BattlefieldMapFrame = New()
+BattlefieldMapFrame.ScrollContainer = zoneSc
+function BattlefieldMapFrame:GetCanvas() return canvas end
+function BattlefieldMapFrame:GetMapID() return 1429 end
+-- Elwynn as a 1000-yard square whose north-west corner is 5000 north, 5000 west.
+function ns.GetMapRect(mapID) if mapID == 1429 then return { cont = 1, top = 5000, left = 5000, width = 1000, height = 1000 } end end
+Ants:BuildZone()
+local zone = Ants.zone
+assert(zone.frame, "a layer on the zone map")
+local layer = zone.frame
+layer.left, layer.top, layer.width, layer.height = 100, 400, 200, 200
+local function drawZone() layer.scripts.OnUpdate(layer) end
+now = 0
+settings.questAreas = false
+settings.antTrails, settings.antTrailsWhere = true, "both"
+trail = { 1, 4600, 4500 } -- from the player (4600, 4600) a hundred yards west
+drawZone()
+equal(zone.shown, 0, "nothing without the zone map setting")
+settings.zoneMap = true
+drawZone()
+list = dots(zone)
+assert(#list >= 2, "dots along the way: " .. #list)
+near(list[1][1], 80, "the player is 40% across the map: 80 of its 200 pixels")
+near(list[1][2], -80, "and 40% down")
+near(list[2][1], 92, "the next dot a spacing further west")
+near(list[2][2], -80, "on the same line")
+equal(layer.level, 31, "over the canvas")
+-- Zoomed in twice as far, scrolled: the canvas is bigger and moved; the dots stay
+-- 12 pixels apart on screen.
+canvas.width, canvas.height, canvas.left, canvas.top = 400, 400, 20, 480
+drawZone()
+list = dots(zone)
+near(list[1][1], 80, "zoomed: 40% of 400, less the 80 the canvas moved left")
+near(list[1][2], -80, "and down")
+near(list[2][1] - list[1][1], 12, "the same spacing on screen")
+trail = { 0, 4600, 4500 }
+drawZone()
+equal(zone.shown, 0, "a trail on another continent isn't drawn on this map")
+trail = { 1, 4600, 4500 }
+BattlefieldMapFrame.shown = false
+drawZone()
+equal(zone.shown, 0, "nor on a hidden zone map")
+BattlefieldMapFrame.shown = true
+
+print("Ant trails: spaced and marching from the player, round route corners, clipped to the view and capped, minimap rotation and shape, settings, quest area outlines, the zone map passed")

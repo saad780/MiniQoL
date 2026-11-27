@@ -26,7 +26,8 @@ end
 -- Clearance is measured from the player centre to the first dot's centre.
 local map = { size = 7, spacing = 18, speed = 27, clearance = 0, dots = {}, shown = 0 }
 local mini = { size = 5, spacing = 11, speed = 11, clearance = 16, dots = {}, shown = 0 }
-Ants.map, Ants.mini = map, mini
+local zone = { size = 5, spacing = 12, speed = 14, clearance = 0, dots = {}, shown = 0 } -- Shift+M
+Ants.map, Ants.mini, Ants.zone = map, mini, zone
 
 local function Shows(where)
 	if not ns:GetSetting("antTrails") then return false end
@@ -225,6 +226,70 @@ function Ants:UpdateMap()
 end
 
 ---------------------------------------------------------------------------
+-- The zone map (Shift+M)
+---------------------------------------------------------------------------
+-- An ordinary map canvas: one zone's map, panned and zoomed inside its frame.
+-- The dots go on a layer over the visible part, placed from where the canvas
+-- sits under it, so they keep their size on screen at any zoom.
+local zoneW, zoneH = 0, 0
+local zax, zcx, zay, zby = 0, 0, 0, 0 -- yards to the layer's pixels
+local function ZonePoint(x, y) return zax + zcx * y, zay + zby * x end
+local function ZoneNear(x1, y1, x2, y2)
+	return max(x1, x2) >= -8 and min(x1, x2) <= zoneW + 8 and max(y1, y2) >= -8 and min(y1, y2) <= zoneH + 8
+end
+local function ZoneInside(x, y) return x >= -2 and x <= zoneW + 2 and y >= -2 and y <= zoneH + 2 end
+
+function Ants:BuildZone()
+	if zone.frame or not BattlefieldMapFrame or not BattlefieldMapFrame.ScrollContainer then return end
+	local sc = BattlefieldMapFrame.ScrollContainer
+	local layer = CreateFrame("Frame", nil, sc)
+	layer:SetAllPoints(sc)
+	layer:SetClipsChildren(true)
+	layer:EnableMouse(false)
+	zone.frame, zone.point, zone.up = layer, "TOPLEFT", -1
+	layer:SetScript("OnUpdate", Guarded(function() self:UpdateZone() end, "Wayfinder ant trails (zone map)"))
+end
+
+function Ants:UpdateZone()
+	local zoneMap = BattlefieldMapFrame
+	local canvas = zoneMap and zoneMap:IsShown() and zoneMap.GetCanvas and zoneMap:GetCanvas()
+	local mapID = canvas and ns:GetSetting("zoneMap") and zoneMap:GetMapID()
+	local rect = mapID and ns.GetMapRect(mapID)
+	local cont, endX, endY, xs, ys, idx, joinX, joinY
+	if rect and Shows("map") then cont, endX, endY, xs, ys, idx, joinX, joinY = ns.Navigation:GetTrail() end
+	if cont and cont ~= rect.cont then cont = nil end
+	local areaCont, areaXs, areaYs
+	if rect and not cont and ShowsArea("map") and ns.Navigation.GetArea then
+		areaCont, areaXs, areaYs = ns.Navigation:GetArea()
+		if areaCont ~= rect.cont then areaCont = nil end
+	end
+	local wx, wy
+	if cont then wx, wy = PlayerWorld(cont) end
+	local layer = zone.frame
+	local cl, ct, ll, lt = canvas and canvas:GetLeft(), canvas and canvas:GetTop(), layer:GetLeft(), layer:GetTop()
+	if not ((wx or areaCont) and cl and ct and ll and lt) or rect.width == 0 or rect.height == 0 then
+		Show(zone, 0)
+		return
+	end
+	-- The canvas in the layer's units: where its top left is, and its size.
+	local k = canvas:GetEffectiveScale() / layer:GetEffectiveScale()
+	local cw, ch = canvas:GetWidth() * k, canvas:GetHeight() * k
+	local ox, oy = cl * k - ll, lt - ct * k
+	zoneW, zoneH = layer:GetWidth(), layer:GetHeight()
+	-- (u, v) on the map is ((left - west) / width, (top - north) / height).
+	zax, zcx = ox + cw * rect.left / rect.width, -cw / rect.width
+	zay, zby = oy + ch * rect.top / rect.height, -ch / rect.height
+	-- Over the explored-area art, under the map's icons (MapPins.ZoneTrailLevel).
+	local level = (ns.MapPins and ns.MapPins.ZoneTrailLevel and ns.MapPins.ZoneTrailLevel(zoneMap)) or (canvas:GetFrameLevel() + 1)
+	if layer:GetFrameLevel() ~= level then layer:SetFrameLevel(level) end
+	if areaCont then
+		March(zone, AreaPoints(ZonePoint, areaXs, areaYs), GetTime(), ZoneNear, ZoneInside)
+	else
+		March(zone, Points(ZonePoint, wx, wy, endX, endY, xs, ys, idx, joinX, joinY), GetTime(), ZoneNear, ZoneInside)
+	end
+end
+
+---------------------------------------------------------------------------
 -- The minimap
 ---------------------------------------------------------------------------
 local playerX, playerY, radius, halfW, halfH, cosine, sine, square = 0, 0, 1, 1, 1, 1, 0, false
@@ -306,11 +371,13 @@ end
 function Ants:OnLogin()
 	self:BuildMinimap()
 	EventUtil.ContinueOnAddOnLoaded("Blizzard_WorldMap", function() self:BuildMap() end)
+	EventUtil.ContinueOnAddOnLoaded("Blizzard_BattlefieldMap", function() self:BuildZone() end)
 	ns:RegisterEvent("CVAR_UPDATE", function() viewReadAt = nil end)
 	ns:On("SETTING_CHANGED", function(key)
 		if key == "antTrailColor" then
 			Recolor(map)
 			Recolor(mini)
+			Recolor(zone)
 		end
 	end)
 end

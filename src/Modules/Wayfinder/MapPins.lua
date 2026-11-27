@@ -35,6 +35,21 @@ end
 
 function Tooltip:Show(owner, rec, catID)
 	GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
+	if rec.questObjective then
+		GameTooltip:SetText(rec.n, 1, 0.82, 0)
+		AddDistance(rec)
+		local ok, objectives = pcall(C_QuestLog.GetQuestObjectives, rec.questID)
+		for _, objective in ipairs(ok and type(objectives) == "table" and objectives or {}) do
+			local text = type(objective) == "table" and objective.text
+			if ns.Readable(text) and type(text) == "string" and text ~= "" then
+				local done = ns.Readable(objective.finished) and objective.finished
+				GameTooltip:AddLine("- " .. text, done and 0.5 or 1, done and 0.5 or 1, done and 0.5 or 1, true)
+			end
+		end
+		GameTooltip:AddLine("Middle-click to follow this quest with the arrow", 0.5, 0.5, 0.5)
+		GameTooltip:Show()
+		return
+	end
 	if rec.waypoint then
 		GameTooltip:SetText(rec.n, 1, 0.82, 0)
 		if rec.where and rec.where ~= rec.n then
@@ -161,15 +176,65 @@ function WayfinderMapPinMixin:OnLoad()
 	self:SetScalingLimits(1, 1.0, 1.2)
 end
 
+-- A frame level kind the pin's map knows: the zone map (Shift+M) registers
+-- fewer than the world map, and an unknown kind puts a pin at the map's
+-- default level, under the explored-area art. Read only, never added to:
+-- the levels belong to the game's map.
+local function LevelType(map, wanted, fallback)
+	local manager = map and map.GetPinFrameLevelsManager and map:GetPinFrameLevelsManager()
+	local definitions = type(manager) == "table" and manager.definitions
+	if type(definitions) ~= "table" or definitions[wanted] then return wanted end
+	return fallback
+end
+MapPins.LevelType = LevelType
+
+-- Where the zone map's ant trail layer sits: the level kept for debug pins,
+-- which lies over the explored-area art, fog and highlight and under every
+-- icon. Nothing when the map doesn't say.
+function MapPins.ZoneTrailLevel(map)
+	local manager = map and map.GetPinFrameLevelsManager and map:GetPinFrameLevelsManager()
+	local definitions = type(manager) == "table" and manager.definitions
+	if type(definitions) ~= "table" or not definitions.PIN_FRAME_LEVEL_DEBUG then return nil end
+	local ok, level = pcall(manager.GetFrameLevelStart, manager, "PIN_FRAME_LEVEL_DEBUG")
+	return ok and type(level) == "number" and level or nil
+end
+
+-- The game's quest objective markers on the zone map (see ZoneMap below).
+local QUEST_OBJECTIVE_ATLASES = { "Quest-In-Progress-Icon-yellow", "QuestNormal" }
+local function QuestIcon(texture, rec)
+	if rec.complete and ns.Categories.questTurnInAtlas then
+		texture:SetAtlas(ns.Categories.questTurnInAtlas)
+		return
+	end
+	for _, atlas in ipairs(QUEST_OBJECTIVE_ATLASES) do
+		if C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(atlas) then
+			texture:SetAtlas(atlas)
+			return
+		end
+	end
+	texture:SetTexture("Interface\\GossipFrame\\IncompleteQuestIcon")
+end
+
 function WayfinderMapPinMixin:OnAcquired(rec, catID, x, y)
 	self.rec, self.catID = rec, catID
+	local map = self.GetMap and self:GetMap()
 	-- the waypoint sits above everything else
-	self:UseFrameLevelType(rec.waypoint and "PIN_FRAME_LEVEL_WAYPOINT_LOCATION"
-		or catID == "quest" and "PIN_FRAME_LEVEL_ACTIVE_QUEST" or "PIN_FRAME_LEVEL_AREA_POI")
+	if rec.waypoint then
+		self:UseFrameLevelType(LevelType(map, "PIN_FRAME_LEVEL_WAYPOINT_LOCATION", "PIN_FRAME_LEVEL_CORPSE"))
+	elseif catID == "quest" or rec.questObjective then
+		self:UseFrameLevelType(LevelType(map, "PIN_FRAME_LEVEL_ACTIVE_QUEST", "PIN_FRAME_LEVEL_ENCOUNTER"))
+	else
+		self:UseFrameLevelType("PIN_FRAME_LEVEL_AREA_POI")
+	end
 	local size = (rec.waypoint and 24 or 18) * (ns:GetSetting("iconScale") or 1)
 	self:SetSize(size, size)
-	ns.Categories:ApplyIcon(self.Icon, catID, rec)
-	ns.Categories:ApplyIcon(self.Highlight, catID, rec)
+	if rec.questObjective then
+		QuestIcon(self.Icon, rec)
+		QuestIcon(self.Highlight, rec)
+	else
+		ns.Categories:ApplyIcon(self.Icon, catID, rec)
+		ns.Categories:ApplyIcon(self.Highlight, catID, rec)
+	end
 	self.Icon:SetAlpha((not rec.seed and (rec.a or 0) > APPROXIMATE_YARDS) and 0.7 or 1)
 	self:SetPosition(x, y)
 	ns.OpenMapCompat:RaisePin(self)
@@ -214,6 +279,10 @@ function WayfinderMapPinMixin:OnClick(button) self:HandleClick(button) end
 function WayfinderMapPinMixin:OnMouseUp(button) self:HandleClick(button) end
 
 function WayfinderMapPinMixin:OnPinClicked(button)
+	if self.rec.questObjective then
+		if button == "MiddleButton" and ns.QuestWaypoints then ns.QuestWaypoints:Click(self.rec.questID) end
+		return
+	end
 	if button == "MiddleButton" then
 		ns.Navigation:ToggleWaypointAt(self.rec, self.catID)
 	elseif button == "LeftButton" and IsShiftKeyDown() then
@@ -231,40 +300,12 @@ function WayfinderMapPinMixin:OnPinClicked(button)
 end
 
 ---------------------------------------------------------------------------
--- Data provider
+-- What a map at zone level shows
 ---------------------------------------------------------------------------
-local provider = CreateFromMixins(MapCanvasDataProviderMixin)
-
-function provider:RemoveAllData()
-	self:GetMap():RemoveAllPinsByTemplate(PIN_TEMPLATE)
-	ns.OpenMapCompat.built = nil -- nothing stands until RefreshPins says what does
-end
-
-function provider:RefreshAllData()
-	self:RemoveAllData()
-	if not ns.db or not ns:GetSetting("showOnWorldMap") or ns.DetailView:IsFollowingMap() then
-		return
-	end
-	local map = self:GetMap()
-	local entries = {}
-	local sc = map.ScrollContainer
-	local view = sc:GetViewRect()
-	local function Collect(rec, catID, x, y)
-		entries[#entries+1] = {rec=rec,cat=catID,c=rec.c,id=rec.id,n=rec.n,kind=rec.kind,
-			seed=rec.seed,cats=rec.cats,x=rec.x,y=rec.y,mx=x,my=y,
-			screenX=x*sc:GetWidth()/(view.right-view.left),screenY=y*sc:GetHeight()/(view.bottom-view.top)}
-	end
-	local function Flush()
-		-- Every icon sits on the spot it marks, the one under the player included.
-		for _, entry in ipairs(ns.ServiceLocations:Select(entries)) do
-			map:AcquirePin(PIN_TEMPLATE, entry.rec, entry.cat, entry.mx, entry.my)
-		end
-	end
-	if ns.OpenMapCompat:RefreshPins(map, function(rec, catID, x, y)
-		if rec.waypoint then map:AcquirePin(PIN_TEMPLATE, rec, catID, x, y)
-		else Collect(rec,catID,x,y) end
-	end) then Flush(); return end
-	local mapID = map:GetMapID()
+-- Every visible location on a zone map (or a continent, with the setting), as
+-- collect(rec, catID, x, y) with x, y on the map. Returns the map's rect, or
+-- nothing for a map that shows none.
+local function EachLocation(mapID, collect)
 	local info = mapID and C_Map.GetMapInfo(mapID)
 	if not info then
 		return
@@ -285,23 +326,146 @@ function provider:RefreshAllData()
 		if catID and ns.BelongsToMap(rec, mapID) then
 			local x, y = ns.WorldToMapRect(rect, rec.x, rec.y)
 			if x >= 0 and x <= 1 and y >= 0 and y <= 1 then
-				Collect(rec,catID,x,y)
+				collect(rec, catID, x, y)
 			end
 		end
 	end
 	ns.Database:Query(rect.cont, minX, maxX, minY, maxY, Add)
 	ns.Seeds:Query(rect.cont, minX, maxX, minY, maxY, Add)
 	ns.MinimapTurnIns:QueryServices(rect.cont, minX, maxX, minY, maxY, Add)
-	Flush()
+	return rect
+end
 
+local function EachWaypoint(mapID, rect, fn)
 	for _, waypoint in ipairs(ns.Navigation:GetWaypoints()) do
 		if waypoint.c == rect.cont and ns.BelongsToMap(waypoint, mapID) then
 			local x, y = ns.WorldToMapRect(rect, waypoint.x, waypoint.y)
 			if x >= 0 and x <= 1 and y >= 0 and y <= 1 then
-				map:AcquirePin(PIN_TEMPLATE, waypoint, "waypoint", x, y)
+				fn(waypoint, x, y)
 			end
 		end
 	end
+end
+
+-- Icons are thinned out where they crowd on screen (ServiceLocations), so
+-- each is measured in its map's own view.
+local function Collector(map, entries)
+	local sc = map.ScrollContainer
+	local view = sc:GetViewRect()
+	return function(rec, catID, x, y)
+		entries[#entries+1] = {rec=rec,cat=catID,c=rec.c,id=rec.id,n=rec.n,kind=rec.kind,
+			seed=rec.seed,cats=rec.cats,x=rec.x,y=rec.y,mx=x,my=y,
+			screenX=x*sc:GetWidth()/(view.right-view.left),screenY=y*sc:GetHeight()/(view.bottom-view.top)}
+	end
+end
+
+---------------------------------------------------------------------------
+-- Data provider
+---------------------------------------------------------------------------
+local provider = CreateFromMixins(MapCanvasDataProviderMixin)
+
+function provider:RemoveAllData()
+	self:GetMap():RemoveAllPinsByTemplate(PIN_TEMPLATE)
+	ns.OpenMapCompat.built = nil -- nothing stands until RefreshPins says what does
+end
+
+function provider:RefreshAllData()
+	self:RemoveAllData()
+	if not ns.db or not ns:GetSetting("showOnWorldMap") or ns.DetailView:IsFollowingMap() then
+		return
+	end
+	local map = self:GetMap()
+	local entries = {}
+	local Collect = Collector(map, entries)
+	local function Flush()
+		-- Every icon sits on the spot it marks, the one under the player included.
+		for _, entry in ipairs(ns.ServiceLocations:Select(entries)) do
+			map:AcquirePin(PIN_TEMPLATE, entry.rec, entry.cat, entry.mx, entry.my)
+		end
+	end
+	if ns.OpenMapCompat:RefreshPins(map, function(rec, catID, x, y)
+		if rec.waypoint then map:AcquirePin(PIN_TEMPLATE, rec, catID, x, y)
+		else Collect(rec,catID,x,y) end
+	end) then Flush(); return end
+	local mapID = map:GetMapID()
+	local rect = EachLocation(mapID, Collect)
+	if not rect then return end
+	Flush()
+	EachWaypoint(mapID, rect, function(waypoint, x, y)
+		map:AcquirePin(PIN_TEMPLATE, waypoint, "waypoint", x, y)
+	end)
+end
+
+---------------------------------------------------------------------------
+-- The zone map (Shift+M)
+---------------------------------------------------------------------------
+-- The game's small zone map shows flight points and points of interest, but
+-- none of Wayfinder's icons, no waypoints and no quest objectives. This adds
+-- them through a provider of Wayfinder's own: the map runs each provider in
+-- its own secure call, so nothing here reaches the game's own pins, and these
+-- pins wait out combat for their click passthrough as on the world map.
+-- Quest objectives are Wayfinder pins too, read from C_QuestLog directly, not
+-- the game's quest provider: that one shares caches with the world map and
+-- the quest log, and anything an addon puts in them is blamed on the addon.
+local zoneProvider = CreateFromMixins(MapCanvasDataProviderMixin)
+
+local function ZoneQuests(map, mapID, rect)
+	local ok, quests = pcall(C_QuestLog.GetQuestsOnMap, mapID)
+	if not (ok and type(quests) == "table") then return end
+	for _, info in ipairs(quests) do
+		local questID, x, y = info.questID, info.x, info.y
+		if ns.Readable(questID) and ns.Readable(x) and ns.Readable(y) and type(x) == "number" and type(y) == "number"
+			and x >= 0 and x <= 1 and y >= 0 and y <= 1 then
+			local done, complete = pcall(C_QuestLog.IsComplete, questID)
+			complete = done and complete == true
+			-- A finished quest's turn-in is already an icon of Wayfinder's own (Quests to turn in).
+			if not complete then
+				local named, title = pcall(C_QuestLog.GetTitleForQuestID, questID)
+				local wx, wy = rect.top - y * rect.height, rect.left - x * rect.width
+				local rec = { questObjective = true, questID = questID, c = rect.cont, x = wx, y = wy,
+					n = named and ns.Readable(title) and type(title) == "string" and title or ("Quest " .. questID) }
+				map:AcquirePin(PIN_TEMPLATE, rec, "questObjective", x, y)
+			end
+		end
+	end
+end
+
+function zoneProvider:RemoveAllData()
+	self:GetMap():RemoveAllPinsByTemplate(PIN_TEMPLATE)
+end
+
+function zoneProvider:RefreshAllData()
+	self:RemoveAllData()
+	if not ns.db or not ns:GetSetting("zoneMap") then return end
+	local map = self:GetMap()
+	local mapID = map:GetMapID()
+	local entries = {}
+	local rect = EachLocation(mapID, Collector(map, entries))
+	if not rect then return end
+	for _, entry in ipairs(ns.ServiceLocations:Select(entries)) do
+		map:AcquirePin(PIN_TEMPLATE, entry.rec, entry.cat, entry.mx, entry.my)
+	end
+	if ns:GetSetting("zoneMapQuests") then ZoneQuests(map, mapID, rect) end
+	EachWaypoint(mapID, rect, function(waypoint, x, y)
+		map:AcquirePin(PIN_TEMPLATE, waypoint, "waypoint", x, y)
+	end)
+end
+
+function MapPins:RefreshZoneMap()
+	if self.zonePending or not (BattlefieldMapFrame and BattlefieldMapFrame:IsShown() and self.zoneAdded) then
+		return
+	end
+	self.zonePending = true
+	C_Timer.After(0, function()
+		self.zonePending = false
+		if BattlefieldMapFrame:IsShown() then zoneProvider:RefreshAllData() end
+	end)
+end
+
+function MapPins:AddToZoneMap()
+	if self.zoneAdded or not BattlefieldMapFrame then return end
+	self.zoneAdded = true
+	BattlefieldMapFrame:AddDataProvider(zoneProvider)
 end
 
 function MapPins:OwnsServiceSources()
@@ -314,6 +478,7 @@ function MapPins:RefreshNow()
 end
 
 function MapPins:Refresh()
+	self:RefreshZoneMap()
 	if self.pending or not WorldMapFrame or not WorldMapFrame:IsShown() then
 		return
 	end
@@ -331,6 +496,9 @@ function MapPins:OnLogin()
 	EventUtil.ContinueOnAddOnLoaded("Blizzard_WorldMap", function()
 		WorldMapFrame:AddDataProvider(provider)
 	end)
+	EventUtil.ContinueOnAddOnLoaded("Blizzard_BattlefieldMap", function() self:AddToZoneMap() end)
+	-- Quest objectives move as quests do; the world map has its own markers for them.
+	ns:RegisterEvent("QUEST_LOG_UPDATE", function() self:RefreshZoneMap() end)
 	local function Refresh()
 		self:Refresh()
 	end
@@ -347,9 +515,12 @@ function MapPins:OnLogin()
 	ns:On("MAP_LAYER_CHANGED", Refresh)
 	ns:On("SERVICE_SOURCES_CHANGED", Refresh)
 	ns:RegisterEvent("PLAYER_REGEN_ENABLED", function()
-		if not WorldMapFrame then return end
-		for pin in WorldMapFrame:EnumeratePinsByTemplate(PIN_TEMPLATE) do
-			if pin.passThroughLater then pin:CheckMouseButtonPassthrough(unpack(pin.passThroughLater)) end
+		for _, map in ipairs({ WorldMapFrame or false, self.zoneAdded and BattlefieldMapFrame or false }) do
+			if map then
+				for pin in map:EnumeratePinsByTemplate(PIN_TEMPLATE) do
+					if pin.passThroughLater then pin:CheckMouseButtonPassthrough(unpack(pin.passThroughLater)) end
+				end
+			end
 		end
 	end)
 end
