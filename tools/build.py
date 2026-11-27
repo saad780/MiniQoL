@@ -404,6 +404,7 @@ def build(addons, account, destination, refresh=False, outrider_data=None):
         credits.append(f"\n## {name}\n\nAuthor: {meta.get('Author', 'See retained source headers')}\n\nVersion: {meta.get('Version', 'unknown')}\n\nManifest: Modules/{name}/{toc.name}\n\nLicences: {', '.join(licence_files) or 'See retained source headers; no root licence supplied'}\n")
     entries += ["Fishing\\Core.lua", "Fishing\\Catches.lua", "Fishing\\Sound.lua", "Fishing\\Character.lua", "Fishing\\Lures.lua", "Fishing\\Stats.lua", "Fishing\\EasyCast.lua", "Fishing\\Gear.lua", "Fishing\\Outfit.lua", "Fishing\\Page.lua", "Fishing\\Bar.lua"]
     entries += ["Explorer\\Core.lua", "Explorer\\Search.lua", "Explorer\\Upgrades.lua", "Explorer\\Page.lua"]
+    entries += ["Explorer\\PrepData.lua", "Explorer\\PrepRoute.lua", "Explorer\\PrepPage.lua"]
     if outrider_data is not None:
         entries += import_explorer_data(outrider_data, output)
         credits.append("\n## Local World Search and Nearby Upgrades data\n\n"

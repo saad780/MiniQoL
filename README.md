@@ -10,6 +10,16 @@ module lives there, so the game's AddOns list holds a single **Mini QoL** entry
 whose only job is to open the panel. Other addons keep their own settings and
 minimap icons.
 
+Open **Explore → Location Prep** or enter `/mqol prep Stonetalon Mountains`
+to plan a zone with Questie and QuestieDB for Forever enabled. The first
+stops show what to pick up or finish before traveling. The itinerary groups
+nearby objectives and turn-ins, puts prerequisites before their follow-ups,
+and shows where a chain takes you outside the zone. Click **Waypoint** for
+directions to a known stop. The plan updates as you quest and gain levels.
+Quests with missing locations or unmet requirements appear under **To check**.
+**Shared sources** lists incidental work, such as cloth that also drops in
+other zones. Coverage follows your installed quest data.
+
 The continuous map keeps where you panned and zoomed for as long as it is open,
 and for 45 seconds after you close it. Opened later than that, or opened and
 closed without being moved, it shows the whole zone you are in (or your city),
