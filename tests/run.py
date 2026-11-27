@@ -63,6 +63,9 @@ LuaRuntime(unpack_returned_tuples=True).execute(
 LuaRuntime(unpack_returned_tuples=True).execute(
     (root / "tests/tips.lua").read_text(encoding="utf-8"), shell.as_posix())
 
+LuaRuntime(unpack_returned_tuples=True).execute(
+    (root / "tests/group_waypoints.lua").read_text(encoding="utf-8"), package.resolve().as_posix())
+
 share = LuaRuntime(unpack_returned_tuples=True)
 share.execute((root / "tests/waypoint_share.lua").read_text(), str(package).replace("\\", "/"))
 

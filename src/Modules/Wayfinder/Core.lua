@@ -186,6 +186,9 @@ ns.defaults = {
 	corpseWaypoint = true,       -- releasing your spirit points the arrow at your corpse
 	followPolestar = false,      -- Polestar's guide on the arrow (Polestar.lua)
 	questMiddleClick = true,     -- middle-click a quest to follow it (QuestWaypoints.lua)
+	shareGroupWaypoint = true,   -- as group leader, your waypoint goes to the group (GroupWaypoints.lua)
+	followGroupWaypoint = true,  -- take the group leader's waypoint
+	reportGroupWaypoint = true,  -- as leader, say who got it
 	questAreas = true,           -- in a followed quest's camp, outline its area instead of pointing
 	debug = false,
 }

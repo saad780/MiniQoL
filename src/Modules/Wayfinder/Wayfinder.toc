@@ -54,6 +54,7 @@ Navigation.lua
 TomTom.lua
 Polestar.lua
 QuestWaypoints.lua
+GroupWaypoints.lua
 TargetFinder.lua
 TargetFinderQuests.lua
 TargetFinderUI.lua

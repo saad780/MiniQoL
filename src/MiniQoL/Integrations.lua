@@ -153,6 +153,13 @@ wayfinder("arrowTime", "Waypoints", "Show the time to get there",
     "Under the arrow's distance, how long the rest of the way takes at the speed you're moving (or would run or ride at, standing still). Along a walking route the distance is the walk itself, not the straight line.")
 wayfinderSlider("arrowScale", "Waypoints", "Arrow size", nil, 0.5, 2, 0.1, Percent)
 
+wayfinder("shareGroupWaypoint", "Group waypoint", "Share my waypoint as group leader",
+    "When you lead a party or raid, the waypoint your arrow is on goes to the group members who have Mini QoL, and lands on their arrow. Remove yours and theirs goes too. A waypoint on your corpse is never shared.")
+wayfinder("reportGroupWaypoint", "Group waypoint", "Tell me who got it",
+    "As leader, a few seconds after your waypoint changes, chat lists who got it, who has following turned off, and who didn't answer (no Mini QoL, or an older one).")
+wayfinder("followGroupWaypoint", "Group waypoint", "Take the group leader's waypoint",
+    "Your arrow takes the waypoint your group leader shares, and lets it go when they remove theirs or you leave the group. You can still remove it yourself.")
+
 wayfinder("showOnWorldMap", "World map", "Show icons on the world map")
 wayfinder("showOnContinent", "World map", "Also show icons on continent maps")
 wayfinderSlider("iconScale", "World map", "World map icon size", nil, 0.6, 2, 0.1, Percent)
