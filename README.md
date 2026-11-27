@@ -31,12 +31,15 @@ shortest walkable route, **Balanced** (the default) to favor roads with short
 detours, or **Roads Always** to follow roads even on longer detours. Mini QoL
 includes the router and walking maps for Eastern Kingdoms, Kalimdor, and Zephras
 Isle. The arrow looks ahead along the walking route to your next transport stop
-or objective. The label and distance refer to that stop or objective. Turn off
+or objective. The label and distance refer to that stop or objective: the
+distance is the walk left along the route, not the straight line, and beside it
+is how long that takes at the speed you're moving (or would run or ride at,
+standing still). **Show the time to get there** turns the time off. Turn off
 **Follow walking turns with the arrow** under **Maps & travel → Waypoints** to
 use the direct bearing again. You can switch while a route is active.
 
 **Show ant trails** (under Waypoints, on by default) draws the walking route
-on the continuous world map and minimap. Follow the dots around obstacles
+on the continuous world map, the zone map (Shift+M) and the minimap. Follow the dots around obstacles
 and to any flight master, dock or portal on the way. Outside walking map
 coverage, the dots lead straight to the next stop or waypoint. **Ant trails on**
 chooses which maps show the dots, and **Ant trail color** sets their color.
@@ -56,12 +59,28 @@ to the waypoint it was on before. **Point the arrow at your corpse** under
 Waypoints turns this off.
 
 Middle-click a quest in the quest log, the objective tracker (its title, lines
-or quest icon) or Questie's tracker, and the waypoint arrow points at the nearest
-place still to do for it, or at where to hand it in once it is complete. The
-waypoint follows the quest: it moves as objectives are finished and goes when the
-quest is handed in or abandoned. Middle-click the same quest again to stop. With
-Questie loaded its quest data picks the spot; otherwise the game's quest markers
-do. **Middle-click a quest to follow it** under Waypoints turns this off.
+or quest icon) or Questie's tracker, and the waypoint arrow points at where its
+creatures or objects stand thickest for what you still need (a camp of ten
+boars a little further on beats one stray boar next to you when you need
+eight), or at where to hand it in once it is complete. Once you're among them
+the arrow rests and the area they're spread over is outlined with the ant
+trail's dots: what you're after is somewhere inside it. The waypoint follows the
+quest: it moves as objectives are finished and goes when the quest is handed in
+or abandoned. Middle-click the same quest again to stop. With Questie loaded its
+quest data picks the spot; otherwise the game's quest markers do. **Middle-click
+a quest to follow it** and **Outline a quest's area once you're in it** under
+Waypoints turn these off.
+
+The small zone map (Shift+M) shows Wayfinder's icons, your waypoints, the ant
+trail and the game's quest objectives, which it otherwise leaves out. Hover an
+objective for its progress and middle-click it to follow the quest. **Zone map
+(Shift+M)** on the Maps & travel page turns either part off. Icon tooltips on
+both maps say how far away the icon is and which way ("240 yd northeast").
+
+When you lead a group, the waypoint your arrow is on goes to the members who
+have Mini QoL and lands on their arrow; remove yours and theirs goes too, and
+chat says who got it. A waypoint on your corpse is never shared. Each side has
+its own switch under **Group waypoint**.
 
 On a Skyborne character, Wayfinder puts each Elemental Convergence on the map
 and minimap as you come across it, so you can find your way back to cast
@@ -133,6 +152,15 @@ badge waits at the edge of the screen instead: hover it to see your character
 side by side in both versions and keep whichever you prefer. Items you turn down
 never ask again.
 
+With the game's Gamepad UI on, Mini QoL's right-click menus and dropdowns draw
+themselves outside the game's controller system (with
+[ControllerSafeMenu](https://github.com/ArtisanGW/ControllerSafeMenu)), since a
+menu an addon opens through the game's own breaks its controller handling
+until a reload. Seen "Interface action failed"? `/mqol blocked` lists which
+addon the game blamed, and for what, since login. Once a login, a line in chat
+points out a click or command that's easy to miss; `/mqol tip` shows the next
+one, and the **Mini QoL** page turns them off.
+
 ## Download and install
 
 Download **MiniQoL-1.1.0.zip** from the [latest release](https://github.com/saad780/MiniQoL/releases/latest).
@@ -177,6 +205,7 @@ includes these contributions from other projects:
 | [Carbonite All-in-One](https://github.com/IrcDirk/Carbonite-All-in-One-Retail-Classic) town-service and transport data | Carbonite contributors, maintained by IrcDirk | GPLv3 |
 | [Polestar](https://github.com/fitzforge/polestar) walking router and maps | Polestar contributors, Cillian Berragan, and Leffe | GPLv3; upstream notices retained |
 | [OpenMap](https://github.com/openmap-world/openmap) scroll controller and coordinate/layout adaptations | OpenMap contributors | MIT; notice retained |
+| [ControllerSafeMenu](https://github.com/ArtisanGW/ControllerSafeMenu), unchanged | Artisan | MIT; notice retained |
 | Game-derived map masks and client artwork | Blizzard Entertainment; mask tracing/generation by OpenMap contributors | Separate asset rights; see the retained provenance notices |
 
 The panel's layout is inspired by [Leatrix Plus](https://www.curseforge.com/wow/addons/leatrix-plus)
