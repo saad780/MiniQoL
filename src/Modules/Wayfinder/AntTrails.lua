@@ -4,6 +4,7 @@
 -- march around its outline instead.
 local _, ns = ...
 local Ants = ns:NewModule("AntTrails")
+local Guarded = ns.Guarded or function(fn) return fn end -- each error once, not every frame (Core.lua)
 
 local COLORS = {
 	cyan = { 0.35, 0.84, 1 }, -- the arrow's own
@@ -179,7 +180,7 @@ function Ants:BuildMap()
 	layer:SetClipsChildren(true)
 	layer:EnableMouse(false)
 	map.frame, map.point, map.up = layer, "TOPLEFT", -1
-	layer:SetScript("OnUpdate", function() self:UpdateMap() end)
+	layer:SetScript("OnUpdate", Guarded(function() self:UpdateMap() end, "Wayfinder ant trails (map)"))
 end
 
 function Ants:UpdateMap()
@@ -265,7 +266,7 @@ function Ants:BuildMinimap()
 	layer:SetFrameLevel(Minimap:GetFrameLevel() + 5) -- under Wayfinder's service icons
 	layer:EnableMouse(false)
 	mini.frame, mini.point, mini.up = layer, "CENTER", 1
-	layer:SetScript("OnUpdate", function() self:UpdateMinimap() end)
+	layer:SetScript("OnUpdate", Guarded(function() self:UpdateMinimap() end, "Wayfinder ant trails (minimap)"))
 end
 
 function Ants:UpdateMinimap()

@@ -3,6 +3,7 @@
 local _, ns = ...
 
 local Navigation = ns:NewModule("Navigation")
+local Guarded = ns.Guarded or function(fn) return fn end -- each error once, not every frame (Core.lua)
 
 local MEDIA = "Interface\\AddOns\\Wayfinder\\Media\\"
 local NEAR_YARDS = 40      -- arrow turns green inside this distance
@@ -1182,7 +1183,7 @@ local function CreateArrow()
 	f.goal:SetTextColor(0.75, 0.75, 0.75)
 
 	local elapsedSince = 0
-	f:SetScript("OnUpdate", function(self, elapsed)
+	f:SetScript("OnUpdate", Guarded(function(self, elapsed)
 		if self.grab then Navigation:FollowCursor(self) end
 		elapsedSince = elapsedSince + elapsed
 		if elapsedSince >= 0.03 then
@@ -1190,7 +1191,7 @@ local function CreateArrow()
 			Navigation:UpdateArrow()
 		end
 		AnimateBearing(elapsed)
-	end)
+	end, "Wayfinder arrow"))
 	f:Hide()
 	return f
 end
@@ -1522,9 +1523,9 @@ function Navigation:CreateLocateButton()
 		Navigation:ShowLocateTooltip(self)
 	end)
 	button:SetScript("OnLeave", GameTooltip_Hide)
-	button:SetScript("OnUpdate", function(_, elapsed)
+	button:SetScript("OnUpdate", Guarded(function(_, elapsed)
 		Navigation:OnTrackingUpdate(elapsed)
-	end)
+	end, "Wayfinder map tracking"))
 	self.locateButton = button
 
 	WorldMapFrame:HookScript("OnShow", function()

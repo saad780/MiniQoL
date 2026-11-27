@@ -1,4 +1,5 @@
 local _, ns = ...
+local Guarded = ns.Guarded or function(fn) return fn end -- each error once, not every frame (Diagnostics.lua)
 -- The fishing outfit: swap into it with one click, swap back to exactly what
 -- you were wearing with the same click. The set can be filled from the fishing
 -- gear you carry, snapshotted from what you have on, or picked slot by slot.
@@ -432,7 +433,7 @@ function Fishing:StartSwap(job)
     end
     self.job = job
     if not self.swapTicker then
-        self.swapTicker = C_Timer.NewTicker(TICK, function() self:RunSwap() end)
+        self.swapTicker = C_Timer.NewTicker(TICK, Guarded(function() self:RunSwap() end, "Fishing outfit swap"))
     end
     self:RunSwap()
 end

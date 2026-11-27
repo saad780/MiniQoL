@@ -38,6 +38,15 @@ function ns.ContextMenu(owner, generator)
 	if MenuUtil and MenuUtil.CreateContextMenu then return MenuUtil.CreateContextMenu(owner, generator) end
 end
 
+-- A handler for code that runs again and again (every frame, or on a ticker):
+-- each distinct error is reported once and then only counted, instead of a
+-- flood that buries the first report. Mini QoL keeps the count (/mqol blocked).
+function ns.Guarded(fn, label)
+	local shell = MiniQoL
+	if type(shell) == "table" and type(shell.Guarded) == "function" then return shell.Guarded(fn, label) end
+	return fn
+end
+
 -- Whether menus are being drawn by ControllerSafeMenu: rows then have no
 -- frames of their own to add buttons to.
 function ns.OwnMenus()

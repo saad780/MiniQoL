@@ -1,4 +1,5 @@
 local _, ns = ...
+local Guarded = ns.Guarded or function(fn) return fn end -- each error once, not every frame (Diagnostics.lua)
 -- Regen ticks: a slim bar under the player frame that says when health and
 -- power come back, and by how much.
 --
@@ -647,7 +648,7 @@ end
 function Regen:Animate(on)
     if not self.box or (on and true or false) == (self.animating or false) then return end
     self.animating = on and true or false
-    self.box:SetScript("OnUpdate", on and function() self:Refresh() end or nil)
+    self.box:SetScript("OnUpdate", on and Guarded(function() self:Refresh() end, "Regen ticks") or nil)
 end
 
 ---------------------------------------------------------------------------

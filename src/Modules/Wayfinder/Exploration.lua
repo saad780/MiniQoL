@@ -7,6 +7,7 @@
 -- Saved as WayfinderDB.explored[character][continent][tileKey] = { row1 .. row16 },
 -- each row a 16-bit mask of explored cells (bit 0 = westmost).
 local _, ns = ...
+local Guarded = ns.Guarded or function(fn) return fn end -- each error once, not every frame (Core.lua)
 
 local Exploration = ns:NewModule("Exploration")
 
@@ -256,9 +257,9 @@ function Exploration:StartSampling()
 	if self.ticker then
 		return
 	end
-	self.ticker = C_Timer.NewTicker(0.5, function()
+	self.ticker = C_Timer.NewTicker(0.5, Guarded(function()
 		self:Sample()
-	end)
+	end, "Wayfinder exploration"))
 	ns:RegisterEvent("ZONE_CHANGED_NEW_AREA", function()
 		lastCont = nil
 		self:QueueImportCurrentZone()

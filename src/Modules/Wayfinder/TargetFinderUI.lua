@@ -1,4 +1,5 @@
 local _, ns = ...
+local Guarded = ns.Guarded or function(fn) return fn end -- each error once, not every frame (Core.lua)
 local Finder = ns.TargetFinder
 local PAGE = 7
 local function Tip(button)
@@ -131,10 +132,10 @@ function Finder:BuildButton()
 	b:SetScript("OnEnter", Tip)
 	b:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	local elapsed = 0
-	b:SetScript("OnUpdate", function(_, dt)
+	b:SetScript("OnUpdate", Guarded(function(_, dt)
 		elapsed = elapsed + dt
 		if elapsed >= 0.3 then elapsed = 0; self:Scan() end
-	end)
+	end, "Wayfinder target finder"))
 end
 
 function Finder:UpdateList()

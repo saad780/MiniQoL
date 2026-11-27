@@ -211,6 +211,10 @@ SlashCmdList.MINIQOL = function(input)
         else ns.Fishing:ToggleGear() end
     elseif command == "regen" then
         if ns.Regen and ns.Regen.db then ns.Regen:Report() end
+    elseif command == "blocked" or command == "errors" then
+        -- Which addon the game blamed for "Interface action failed", and the
+        -- errors counted rather than repeated (Diagnostics.lua).
+        if ns.Diagnostics then ns.Diagnostics.Print() end
     elseif command == "track" then
         if Wayfinder and Wayfinder.TargetFinder and Wayfinder.db then
             Wayfinder.TargetFinder:Open(rest)

@@ -1,5 +1,6 @@
 -- One Wayfinder marker per nearby service location on the live minimap.
 local _, ns = ...
+local Guarded = ns.Guarded or function(fn) return fn end -- each error once, not every frame (Core.lua)
 local Mini = ns:NewModule("MinimapServices")
 local pins, tracking = {}, {}
 -- These static town services are projected from known positions. Some Forever
@@ -270,7 +271,7 @@ end
 function Mini:StartMotion()
 	if not self.motionFrame then
 		self.motionFrame = CreateFrame("Frame")
-		self.motionFrame:SetScript("OnUpdate", function() self:UpdatePositions() end)
+		self.motionFrame:SetScript("OnUpdate", Guarded(function() self:UpdatePositions() end, "Wayfinder minimap services"))
 	end
 	if self.motionFrame:GetParent() ~= Minimap then self.motionFrame:SetParent(Minimap) end
 	if not hookedMinimaps[Minimap] then
@@ -473,9 +474,9 @@ function Mini:OnLogin()
 	-- quests of each map above the player, sorted and shared out. It was the
 	-- addon's largest standing cost. It now only asks whether the player or
 	-- the view has moved on from what was gathered.
-	C_Timer.NewTicker(0.2, function()
+	C_Timer.NewTicker(0.2, Guarded(function()
 		if not self.settingSelection and self:Outdated() then self:RequestUpdate() end
-	end)
+	end, "Wayfinder minimap services"))
 	for _, message in ipairs({ "POI_UPDATED", "POI_REMOVED", "EXPLORED", "DATA_CHANGED",
 		"QUEST_AVAILABILITY_CHANGED", "QUEST_TURN_INS_CHANGED" }) do ns:On(message, Update) end
 	ns:On("SETTING_CHANGED",function()
