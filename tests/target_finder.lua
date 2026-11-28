@@ -419,6 +419,66 @@ assert(not ns.Navigation.pin and units.target==previous and nameRow("Ancient Che
 assert(finder.namePages>1)
 chest.scripts.OnMouseWheel(chest,-1)
 assert(finder.namePage==2 and nameRow("Search 9"))
+
+-- Ctrl-drag a name: more rows at once, so no scrolling; fewer the other way.
+local cursorY, leftDown = 500, true
+function GetCursorPosition() return 0, cursorY end
+function IsMouseButtonDown(button) return button == "LeftButton" and leftDown end
+local function shownRows()
+    local n = 0
+    for _, row in ipairs(finder.nameRows) do if row:IsShown() then n = n + 1 end end
+    return n
+end
+local function equal(a, b, what) assert(a == b, what .. ": " .. tostring(a) .. " ~= " .. tostring(b)) end
+local tipText
+GameTooltip.SetOwner, GameTooltip.AddLine, GameTooltip.Show, GameTooltip.Hide = noop, noop, noop, noop
+function GameTooltip:SetText(text) tipText = text end
+equal(finder:PageSize(), 8, "eight names at once to start")
+local first = finder.nameRows[1]
+equal(first.attrs["ctrl-type1"], "", "a Ctrl click on a name is a no-op, not a target")
+ctrl = true
+first.scripts.OnMouseDown(first, "LeftButton")
+assert(finder.resizing, "Ctrl + mouse down on a name starts resizing")
+local downward = finder.namesAbove and 1 or -1
+cursorY = 500 + downward * 21 * 10 -- ten rows further from the icon
+finder.resizer.scripts.OnUpdate(finder.resizer, 0)
+equal(finder:PageSize(), 18, "dragged ten rows on: eighteen")
+equal(tipText, "18 names at a time", "saying how many")
+equal(finder.db.nameRows, 18, "kept for this character")
+equal(finder.namePages, 1, "all the names on one page now")
+equal(finder.namePage, 1, "so back to the first")
+assert(nameRow("Search 1") and nameRow("Search 9"), "first and last both listed, no scrolling")
+local before = units.target
+first.scripts.PreClick(first, "LeftButton")
+first.scripts.PostClick(first, "LeftButton")
+assert(units.target == before and not finder.pendingPick, "the Ctrl click itself targets nothing")
+leftDown = false
+finder.resizer.scripts.OnUpdate(finder.resizer, 0)
+assert(not finder.resizing, "letting go ends it")
+cursorY, leftDown = 500, true
+first.scripts.OnMouseDown(first, "LeftButton")
+cursorY = 500 - downward * 21 * 20 -- far back toward the icon
+finder.resizer.scripts.OnUpdate(finder.resizer, 0)
+equal(finder:PageSize(), 3, "never fewer than three")
+equal(shownRows(), 3, "the rows past them hide")
+assert(finder.namePages > 1, "and the rest scroll again")
+cursorY = 500 + downward * 21 * 3
+finder.resizer.scripts.OnUpdate(finder.resizer, 0)
+equal(finder:PageSize(), 21, "back out again in the same drag")
+leftDown = false
+finder.resizer.scripts.OnUpdate(finder.resizer, 0)
+ctrl = false
+-- Not in combat: the rows are secure.
+combat = true
+cursorY, leftDown = 500, true
+ctrl = true
+first.scripts.OnMouseDown(first, "LeftButton")
+assert(not finder.resizing, "no resizing in combat")
+ctrl, combat, leftDown = false, false, false
+finder.db.nameRows = nil
+finder:PaintNames(true)
+equal(finder:PageSize(), 8, "the default again")
+equal(shownRows(), 8, "eight rows shown")
 finder.db.manual, finder.db.quests = {}, {}
 finder:Reindex()
 for _,row in ipairs(finder.nameRows) do assert(not row:IsShown()) end

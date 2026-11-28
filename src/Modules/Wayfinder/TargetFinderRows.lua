@@ -1,7 +1,10 @@
 local _, ns = ...
 local Finder = ns.TargetFinder
 local Read = Finder.Read
-local PAGE = 8
+local Guarded = ns.Guarded or function(fn) return fn end -- each error once, not every frame (Core.lua)
+local DEFAULT_PAGE = 8      -- names listed at once until Ctrl-drag changes it
+local MIN_PAGE, MAX_PAGE = 3, 40
+local ROW_STEP = 21         -- pixels from one name row to the next
 local WAYPOINT = "TargetFinder"
 local lastPick = {}
 
@@ -237,12 +240,19 @@ local function Tooltip(row)
 	if Finder.namePages > 1 then
 		GameTooltip:AddLine(("Scroll for more names (%d/%d)."):format(Finder.namePage, Finder.namePages), 0.85, 0.8, 0.65)
 	end
+	GameTooltip:AddLine("Ctrl-drag to show more or fewer names at once.", 0.85, 0.8, 0.65)
 	GameTooltip:Show()
+end
+
+-- How many names the list shows at once (per character; Ctrl-drag a name).
+function Finder:PageSize()
+	local rows = tonumber(self.db and self.db.nameRows) or DEFAULT_PAGE
+	return math.max(MIN_PAGE, math.min(MAX_PAGE, math.floor(rows)))
 end
 
 local function Anchor(self, row, index)
 	local side = self.nameSide
-	local offset = 2 + (index - 1) * 21
+	local offset = 2 + (index - 1) * ROW_STEP
 	row:ClearAllPoints()
 	if self.namesAbove then
 		row:SetPoint("BOTTOM" .. side, self.markButton, "TOP" .. side, 0, offset)
@@ -253,9 +263,75 @@ end
 
 function Finder:AnchorNames()
 	local bottom, right = self.button:GetBottom(), self.button:GetRight()
-	self.namesAbove = bottom and bottom < PAGE * 21 + 2
+	self.namesAbove = bottom and bottom < self:PageSize() * ROW_STEP + 2
 	self.nameSide = right and right < 180 and "LEFT" or "RIGHT"
 	for i, row in ipairs(self.nameRows or {}) do Anchor(self, row, i) end
+end
+
+---------------------------------------------------------------------------
+-- Ctrl-drag a name: the list grows away from the icon or shrinks toward it,
+-- as far as the screen's edge. The rows are secure buttons, so only out of
+-- combat; the Ctrl click itself is a no-op ("ctrl-type1"), never a target.
+---------------------------------------------------------------------------
+-- The rows that fit between the icon and the screen's edge, on the side the names hang.
+local function Room(self)
+	local mark, room = self.markButton, nil
+	if self.namesAbove then
+		local top, height = mark:GetTop(), UIParent:GetHeight()
+		if top and height then room = height - top end
+	else
+		room = mark:GetBottom()
+	end
+	if not room then return MAX_PAGE end
+	return math.max(MIN_PAGE, math.min(MAX_PAGE, math.floor((room - 2) / ROW_STEP)))
+end
+
+local function CursorY()
+	local _, y = GetCursorPosition()
+	return (y or 0) / (UIParent:GetEffectiveScale() or 1)
+end
+
+local function ResizeTip(self, row)
+	if not (row and row:IsShown()) then return end
+	GameTooltip:SetOwner(row, "ANCHOR_LEFT")
+	GameTooltip:SetText(("%d names at a time"):format(self:PageSize()))
+	GameTooltip:AddLine("Drag away from the icon for more, toward it for fewer.", 0.85, 0.8, 0.65, true)
+	GameTooltip:Show()
+end
+
+function Finder:StartResize(row)
+	if InCombatLockdown() or not IsControlKeyDown() then return end
+	self.resizing = { row = row, y = CursorY(), rows = self:PageSize(), most = Room(self) }
+	local driver = self.resizer
+	if not driver then
+		driver = CreateFrame("Frame", nil, UIParent)
+		self.resizer = driver
+		driver:SetScript("OnUpdate", Guarded(function() self:UpdateResize() end, "Wayfinder target finder resize"))
+	end
+	driver:Show()
+	ResizeTip(self, row)
+end
+
+function Finder:UpdateResize()
+	local resize = self.resizing
+	if not resize then return self:StopResize() end
+	-- (the mouse-up can land on a row hidden by the shrinking list)
+	if InCombatLockdown() or not IsMouseButtonDown("LeftButton") then return self:StopResize() end
+	local moved = (resize.y - CursorY()) / ROW_STEP -- rows dragged downward
+	if self.namesAbove then moved = -moved end
+	local rows = math.max(MIN_PAGE, math.min(resize.most, resize.rows + math.floor(moved + 0.5)))
+	if rows ~= self:PageSize() then
+		self.db.nameRows = rows
+		self:PaintNames(true)
+		ResizeTip(self, resize.row)
+	end
+end
+
+function Finder:StopResize()
+	local resize = self.resizing
+	self.resizing = nil
+	if self.resizer then self.resizer:Hide() end
+	if resize and GameTooltip:IsOwned(resize.row) then GameTooltip:Hide() end
 end
 
 local function NewRow(self, index)
@@ -275,6 +351,7 @@ local function NewRow(self, index)
 	row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
 	row:SetAttribute("type1", "macro")
 	row:SetAttribute("type2", "macro")
+	row:SetAttribute("ctrl-type1", "") -- Ctrl + left button resizes the list
 	-- The physical middle click can hide its own secure row, even in combat.
 	row:SetAttribute("type3", "untrack")
 	SecureHandlerSetFrameRef(row, "icon", self.markButton)
@@ -287,8 +364,12 @@ local function NewRow(self, index)
 	]])
 	row:SetAttribute("useOnKeyDown", false)
 	row:RegisterForClicks("LeftButtonUp", "RightButtonUp", "MiddleButtonUp")
+	row:SetScript("OnMouseDown", function(b, mouse)
+		if mouse == "LeftButton" then self:StartResize(b) end
+	end)
 	row:SetScript("PreClick", function(b, mouse)
-		if mouse == "LeftButton" then self:PreparePick(b)
+		if mouse == "LeftButton" then
+			if not IsControlKeyDown() then self:PreparePick(b) end
 		elseif mouse == "RightButton" then
 			self.pendingPick = nil
 			if not InCombatLockdown() then b:SetAttribute("macrotext2", nil) end
@@ -297,7 +378,8 @@ local function NewRow(self, index)
 		end
 	end)
 	row:SetScript("PostClick", function(b, mouse)
-		if mouse == "LeftButton" then self:FinishPick(b)
+		if mouse == "LeftButton" then
+			if not IsControlKeyDown() then self:FinishPick(b) end
 		elseif mouse == "MiddleButton" and b.key then
 			self.pendingPick, lastPick[b.key] = nil, nil
 			self:Untrack(b.key, b.displayName)
@@ -338,7 +420,8 @@ function Finder:PaintNames(pageChanged)
 			self.markButton:SetAttribute("macrotext1", self.markButton.combatMacro)
 		end
 	end
-	self.namePages = math.max(1, math.ceil(#list / PAGE))
+	local page = self:PageSize()
+	self.namePages = math.max(1, math.ceil(#list / page))
 	self.namePage = math.min(self.namePage or 1, self.namePages)
 	local hold = locked
 	if #list > 0 and not pageChanged and not hold then
@@ -346,9 +429,10 @@ function Finder:PaintNames(pageChanged)
 			if row:IsShown() and row:IsMouseOver() and groups[row.key] then hold = true; break end
 		end
 	end
-	for i = 1, PAGE do
+	-- (rows past the page, left from a longer list, empty out and hide)
+	for i = 1, math.max(page, #rows) do
 		local row = rows[i]
-		local g = list[(self.namePage - 1) * PAGE + i]
+		local g = i <= page and list[(self.namePage - 1) * page + i] or nil
 		if not hold then
 			if g and not row then row = NewRow(self, i); rows[i] = row end
 			if row and row.key ~= (g and g.key) then
