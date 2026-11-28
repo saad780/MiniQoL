@@ -52,8 +52,9 @@ the middle. The game doesn't tell addons how high you are, so the floor shown is
 worked out: the ground floor when you come in, then the stairs and doorways you
 take. If it's wrong, pick a floor with the buttons on its left (G, B, 2 ...); your
 pick holds until you walk on a few yards or take a staircase. Scroll over it to
-zoom, and its x hides it until you next go indoors. `/wf indoors` says what it
-knows about where you stand.
+zoom, and its x hides it until you next go indoors. A smaller copy sits in the
+zone map's (Shift+M) bottom right corner. `/wf indoors` says what it knows about
+where you stand.
 
 Middle-click a destination to get travel instructions for any flight, boat,
 zeppelin, tram or portal that gets you there sooner. At the stop, the guide

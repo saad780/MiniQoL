@@ -81,13 +81,17 @@ local canvas = New()
 canvas.width, canvas.height, canvas.level = 900, 600, 10
 WorldMapFrame = New()
 function WorldMapFrame:GetCanvasContainer() return canvas end
+local zoneCanvas = New()
+zoneCanvas.width, zoneCanvas.height, zoneCanvas.level = 300, 200, 10
+BattlefieldMapFrame = New()
+function BattlefieldMapFrame:GetCanvasContainer() return zoneCanvas end
 
 local indoors, north, west, cont, facing = true, 0, 0, 0, 0
 function IsIndoors() return indoors end
 function UnitPosition() return north, west, 0, cont end
 function GetPlayerFacing() return facing end
 
-local settings = { indoorView = true }
+local settings = { indoorView = true, zoneMap = true }
 local function Namespace()
 	local ns = { Categories = { GetMediaPath = function(_, name) return "Media\\" .. name end } }
 	function ns:NewModule(name) self[name] = {}; return self[name] end
@@ -209,6 +213,8 @@ assert(n > 1000 and w > 2000 + 9.9, "+x heads west, a touch north")
 I:OnLogin()
 assert(I.worldMap, "an inset on the world map")
 equal(I.worldMap.parent, canvas, "on the map's canvas")
+assert(I.zoneMap, "and a smaller one on the zone map")
+equal(I.zoneMap.parent, zoneCanvas, "on the zone map's canvas")
 equal(#tickers, 1, "a ticker follows the rooms while the map is closed")
 assert(At(5, 5), "the hall, where the upper room is over it too")
 equal(state.room, 1, "came in to the hall")
@@ -441,6 +447,27 @@ other.width, other.height, other.level = 300, 300, 5
 local second = I:CreateInset(other, { size = 150 })
 second.driver.scripts.OnUpdate(second.driver)
 assert(second.frame.shown and second.frame.width == 150, "a second inset, its own size")
+
+-- The zone map's: small, so fewer floor buttons fit up its side; and it
+-- follows the zone map setting.
+local zone = I.zoneMap
+zone.driver.scripts.OnUpdate(zone.driver)
+assert(zone.frame.shown and zone.frame.width == 104, "the zone map's inset, small")
+local zoneButtons = 0
+for _, button in ipairs(zone.floorButtons) do
+	if button.shown then
+		zoneButtons = zoneButtons + 1
+		assert(button.points and button.points[1], "placed")
+	end
+end
+assert(zoneButtons <= 5, "no more floor buttons than fit 104 pixels: " .. zoneButtons)
+settings.zoneMap = false
+zone.driver.scripts.OnUpdate(zone.driver)
+assert(not zone.frame.shown, "hidden with the zone map setting off")
+assert(inset.frame.shown, "the world map's stays")
+settings.zoneMap = true
+zone.driver.scripts.OnUpdate(zone.driver)
+assert(zone.frame.shown, "back with it on")
 
 ---------------------------------------------------------------------------
 -- 8. A cave whose levels never overlap is drawn whole; blocks of a big room

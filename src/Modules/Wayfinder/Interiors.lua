@@ -34,6 +34,7 @@
 -- buttons are there for those.
 local _, ns = ...
 local Interiors = ns:NewModule("Interiors")
+local Guarded = ns.Guarded or function(fn) return fn end -- each error once, not every frame (Core.lua)
 
 local floor, max, min, abs, huge = math.floor, math.max, math.min, math.abs, math.huge
 local cos, sin, rad = math.cos, math.sin, math.rad
@@ -49,6 +50,7 @@ local TRACK_EVERY = 0.2   -- seconds between checks while the map is closed
 local DRAW_EVERY = 0.05   -- and while an inset shows
 local ARROW = 20          -- pixels
 local MAX_FLOOR_BUTTONS = 8
+local ZONE_INSET = 104    -- pixels: the inset on the zone map (Shift+M), which is 300 by 200
 local NEAR_FLOORS = 30    -- yards: the floors of rooms this close are "this building's"
 
 ---------------------------------------------------------------------------
@@ -711,7 +713,8 @@ local function NoSnap(texture)
 end
 
 -- options: point, x, y (where the inset sits on its parent; default its
--- bottom right) and size (pixels; default a third of the parent's shorter side).
+-- bottom right), size (pixels; default a third of the parent's shorter side)
+-- and enabled (a function; while it returns false the inset stays hidden).
 function Interiors:CreateInset(parent, options)
 	options = options or {}
 	local inset = setmetatable({ parent = parent, options = options, zoom = DEFAULT_ZOOM,
@@ -722,7 +725,7 @@ function Interiors:CreateInset(parent, options)
 	driver:SetSize(1, 1)
 	driver:SetPoint("BOTTOMRIGHT")
 	driver:EnableMouse(false)
-	driver:SetScript("OnUpdate", function() inset:Update() end)
+	driver:SetScript("OnUpdate", Guarded(function() inset:Update() end, "Wayfinder indoor view"))
 	inset.driver = driver
 
 	local frame = CreateFrame("Frame", nil, parent, BackdropTemplateMixin and "BackdropTemplate" or nil)
@@ -832,11 +835,13 @@ function Inset:LayoutFloors()
 	for i, f in ipairs(list) do
 		if f == shown then at = i end
 	end
-	if count > MAX_FLOOR_BUTTONS then -- (keep the shown floor among them)
-		first = max(1, min(count - MAX_FLOOR_BUTTONS + 1, at - floor(MAX_FLOOR_BUTTONS / 2)))
+	-- As many as fit up the side (a small inset holds fewer).
+	local most = max(2, min(MAX_FLOOR_BUTTONS, floor(((self.size or 0) - 26) / 18) + 1))
+	if count > most then -- (keep the shown floor among them)
+		first = max(1, min(count - most + 1, at - floor(most / 2)))
 	end
 	local slot = 0
-	for position = first, min(count, first + MAX_FLOOR_BUTTONS - 1) do
+	for position = first, min(count, first + most - 1) do
 		local index = list[position]
 		slot = slot + 1
 		local button = self:FloorButton(slot)
@@ -961,7 +966,8 @@ end
 
 function Inset:Update()
 	local frame = self.frame
-	if not Interiors:Refresh(DRAW_EVERY) then
+	local enabled = self.options.enabled
+	if (enabled and not enabled()) or not Interiors:Refresh(DRAW_EVERY) then
 		if frame:IsShown() then frame:Hide() end
 		self.drawn = nil
 		return
@@ -1028,10 +1034,20 @@ function Interiors:OnLogin()
 		-- Left of the map's quest log toggle in its bottom right corner.
 		self.worldMap = self:CreateInset(WorldMapFrame:GetCanvasContainer(), { x = -38, y = 4 })
 	end)
+	-- A smaller one in the zone map's (Shift+M) bottom right, with its other
+	-- Wayfinder markings.
+	EventUtil.ContinueOnAddOnLoaded("Blizzard_BattlefieldMap", function()
+		if not (BattlefieldMapFrame and BattlefieldMapFrame.GetCanvasContainer) then return end
+		self.zoneMap = self:CreateInset(BattlefieldMapFrame:GetCanvasContainer(), {
+			size = ZONE_INSET, x = -4, y = 4,
+			enabled = function() return ns:GetSetting("zoneMap") end,
+		})
+	end)
 	-- Follow the rooms you walk through while the map is closed too, so the
 	-- floor is right when it opens.
 	if C_Timer and C_Timer.NewTicker then
-		self.ticker = C_Timer.NewTicker(TRACK_EVERY, function() Interiors:Refresh(TRACK_EVERY * 0.5) end)
+		self.ticker = C_Timer.NewTicker(TRACK_EVERY,
+			Guarded(function() Interiors:Refresh(TRACK_EVERY * 0.5) end, "Wayfinder indoor tracking"))
 	end
 	ns:On("SETTING_CHANGED", function(key)
 		if key == "indoorView" then refreshedAt = nil end
