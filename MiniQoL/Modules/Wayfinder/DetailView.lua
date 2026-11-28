@@ -10,6 +10,7 @@ MiniQoLRuntime:Execute("Wayfinder", function(...)
 -- Everything is positioned on the "plane" (yards; x east, y south). A single scaled
 -- frame holds the terrain and map art, so panning or zooming is one SetPoint call.
 local _, ns = ...
+local Guarded = ns.Guarded or function(fn) return fn end -- each error once, not every frame (Core.lua)
 
 local DetailView = ns:NewModule("DetailView")
 
@@ -1183,7 +1184,7 @@ local function CreateFrames()
 			pinsDirty = true
 		end
 	end)
-	view:SetScript("OnUpdate", OnUpdate)
+	view:SetScript("OnUpdate", Guarded(OnUpdate, "Wayfinder detail view"))
 end
 
 ---------------------------------------------------------------------------

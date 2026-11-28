@@ -112,6 +112,17 @@ CMaNGOS and Shortest Path Forever sources.
 Paths above describe the installable addon. The same notices and module sources
 are retained under `src/Modules` in the repository.
 
+## ControllerSafeMenu
+
+- Author: Artisan; copyright (c) 2026 Artisan.
+- Source: https://github.com/ArtisanGW/ControllerSafeMenu (commit bb8dfb8,
+  2026-11-26), `ControllerSafeMenu.lua` version 1, included unchanged as
+  `Vendor/ControllerSafeMenu/ControllerSafeMenu.lua`.
+- License: MIT. The complete notice is retained in
+  `Vendor/ControllerSafeMenu/LICENSE`.
+- Mini QoL opens its right-click menus and dropdowns through it, so that with
+  the game's Gamepad UI on they are drawn outside the controller focus system.
+
 ## Design inspiration
 
 - **Leatrix Plus**, by Leatrix: https://www.curseforge.com/wow/addons/leatrix-plus

@@ -3,6 +3,7 @@ MiniQoLRuntime:Execute("Wayfinder", function(...)
 -- Carry other addons' displayed world-map markers into the terrain detail view.
 -- Read the live frames rather than importing addon databases or moving their pins.
 local _, ns = ...
+local Guarded = ns.Guarded or function(fn) return fn end -- each error once, not every frame (Core.lua)
 local AddonPins = ns:NewModule("AddonPins")
 local entries = {}
 local byFrame = {}
@@ -498,9 +499,9 @@ function AddonPins:OnLogin()
 				self:NavigateTo(entry)
 			end
 		end)
-		C_Timer.NewTicker(0.25, function()
+		C_Timer.NewTicker(0.25, Guarded(function()
 			if WorldMapFrame:IsShown() and (ns.DetailView:IsActive() or ns.DetailView:IsFollowingMap()) then self:Refresh() end
-		end)
+		end, "Wayfinder addon pins"))
 	end)
 end
 

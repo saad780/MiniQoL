@@ -1,6 +1,7 @@
 -- Lightweight keyboard access to Blizzard's NPC windows. Native buttons keep
 -- their text, artwork, tooltips and OnClick handlers (including addon hooks).
 local _, ns = ...
+local Guarded = ns.Guarded or function(fn) return fn end -- each error once, not every frame (Diagnostics.lua)
 local D = { targets = {}, badges = {}, held = {}, hooked = {}, elapsed = 0 }
 ns.Dialogue = D
 
@@ -185,7 +186,8 @@ function D:Refresh()
         self.observer:SetScript("OnUpdate", nil)
         return
     end
-    self.observer:SetScript("OnUpdate", self.poll)
+    self.guardedPoll = self.guardedPoll or Guarded(self.poll, "NPC dialogue keys")
+    self.observer:SetScript("OnUpdate", self.guardedPoll)
     if self:Blocked(root) then self:Suspend(); return end
     if kind == "rewards" and QuestInfoFrame and QuestInfoFrame.questLog then self:Suspend(); return end
     self.root, self.kind = root, kind

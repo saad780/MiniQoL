@@ -11,6 +11,10 @@
 ## SavedVariablesPerCharacter: AutoSellBlueItems, AutoSellGreenItems, AutoSellGreyItems, AutoSellPurpleItems, AutoSellUnwantedItems, AutoSellWhiteItems, BaganatorAltMailGroups, BaganatorAltMailRoutes, GearwiseDB, ItemsToSell, SoulboundOnly, UnmarkedItems
 
 Core.lua
+Vendor\ControllerSafeMenu\ControllerSafeMenu.lua
+Menus.lua
+Diagnostics.lua
+Tips.lua
 Theme.lua
 Runtime.lua
 LegacyProfiles.lua
@@ -42,6 +46,7 @@ Modules\Wayfinder\Data\MapOverlays.lua
 Modules\Wayfinder\Data\Seed.lua
 Modules\Wayfinder\Data\Transports.lua
 Modules\Wayfinder\Data\Independent.lua
+Modules\Wayfinder\Data\Interiors.lua
 Modules\Wayfinder\Database.lua
 Modules\Wayfinder\Observations.lua
 Modules\Wayfinder\QuestAvailability.lua
@@ -73,12 +78,14 @@ Modules\Wayfinder\Navigation.lua
 Modules\Wayfinder\TomTom.lua
 Modules\Wayfinder\Polestar.lua
 Modules\Wayfinder\QuestWaypoints.lua
+Modules\Wayfinder\GroupWaypoints.lua
 Modules\Wayfinder\TargetFinder.lua
 Modules\Wayfinder\TargetFinderQuests.lua
 Modules\Wayfinder\TargetFinderUI.lua
 Modules\Wayfinder\TargetFinderRows.lua
 Modules\Wayfinder\MinimapServices.lua
 Modules\Wayfinder\AntTrails.lua
+Modules\Wayfinder\Interiors.lua
 Modules\Wayfinder\Options.lua
 Modules\Wayfinder\_MiniQoLComplete.lua
 Modules\XPCounter\XPCounter.lua

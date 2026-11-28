@@ -132,7 +132,7 @@ function Fishing:OpenSlotPicker(tile)
         return
     end
     local candidates = self:SlotCandidates(slot)
-    MenuUtil.CreateContextMenu(tile, function(_, root)
+    ns.ContextMenu(tile, function(_, root)
         root:CreateTitle(self.SLOT_NAMES[slot])
         if #candidates == 0 then
             local none = root:CreateButton(Hex(T.FAINT) .. "Nothing you carry fits here|r", function() end)

@@ -1,4 +1,5 @@
 local _, ns = ...
+local Guarded = ns.Guarded or function(fn) return fn end -- each error once, not every frame (Diagnostics.lua)
 -- The small window that appears while you are holding a pole: lures, fishing
 -- food, what your skill is made of, the last thing you landed and everything
 -- the session has given so far.
@@ -318,12 +319,12 @@ function Fishing:SetupBar()
     self:CreateBar()
     local ticker = CreateFrame("Frame")
     local elapsed = 0
-    ticker:SetScript("OnUpdate", function(_, delta)
+    ticker:SetScript("OnUpdate", Guarded(function(_, delta)
         elapsed = elapsed + delta
         if elapsed < 1 then return end
         elapsed = 0
         if bar:IsShown() then self:RefreshBar() end
-    end)
+    end, "Fishing bar"))
     for _, event in ipairs({ "CATCHES_CHANGED", "GEAR_CHANGED", "CASTING_CHANGED" }) do
         self:On(event, function() self:UpdateBar() end)
     end

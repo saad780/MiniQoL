@@ -5,6 +5,7 @@ MiniQoLRuntime:Execute("Wayfinder", function(...)
 -- to the corner minimap. Service pins in either view share Wayfinder's location
 -- resolver; native blips and world-map quest markers keep their original owners.
 local _, ns = ...
+local Guarded = ns.Guarded or function(fn) return fn end -- each error once, not every frame (Core.lua)
 local Mini = ns:NewModule("MinimapTurnIns")
 local observed = setmetatable({}, { __mode = "k" })
 local questLists, manualLists = setmetatable({}, { __mode = "k" }), setmetatable({}, { __mode = "k" })
@@ -379,7 +380,7 @@ function Mini:Install()
 end
 function Mini:OnLogin()
 	C_Timer.After(0,function() self:Install() end)
-	C_Timer.NewTicker(0.25,function() if next(completeFrames) then self:RequestRefresh() end end)
+	C_Timer.NewTicker(0.25,Guarded(function() if next(completeFrames) then self:RequestRefresh() end end, "Wayfinder minimap turn-ins"))
 	ns:On("QUEST_TURN_INS_CHANGED",function()
 		self.questRevision = (self.questRevision or 0) + 1
 		self:RequestRefresh()

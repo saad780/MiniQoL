@@ -81,6 +81,8 @@ wayfinder("shareExploration", "Detail view", "Share exploration between characte
 wayfinder("showLiveQuests", "Detail view", "Show quest markers",
     "Mark available quests and completed quests ready to turn in, using the game's map locations.")
 wayfinderSlider("detailIconScale", "Detail view", "Detail view icon size", nil, 0.6, 2, 0.1, Percent)
+wayfinder("indoorView", "Detail view", "Indoor view",
+    "Inside a building, cave or tunnel, show the rooms around you in the bottom right corner of the world map and the zone map (Shift+M), drawn from the game's own room maps. The floor shown is worked out from the stairs and doorways you take; pick another with the buttons on its left. Scroll over it to zoom.")
 wayfinderSlider("revealRadius", "Detail view", "Reveal radius",
     "How far around you counts as explored. Minimap uses whatever your minimap currently shows.",
     0, 300, 10, Yards)
@@ -128,7 +130,9 @@ wayfinder("clearOnArrival", "Waypoints", "Remove the waypoint when you arrive")
 wayfinder("corpseWaypoint", "Waypoints", "Point the arrow at your corpse",
     "When you release your spirit, a waypoint is set on your corpse and the arrow points to it. Coming back to life completes it, wherever that happens, and the arrow returns to the waypoint it was on before.")
 wayfinder("questMiddleClick", "Waypoints", "Middle-click a quest to follow it",
-    "Middle-click a quest in the quest log, the objective tracker (its title, lines or quest icon) or Questie's tracker. The arrow then points at the nearest place still to do for it or, once it is complete, at where to hand it in. The waypoint moves on as objectives are done and goes when the quest is handed in. Middle-click the same quest again to stop. Uses Questie's quest data when Questie is loaded, otherwise the game's quest markers.")
+    "Middle-click a quest in the quest log, the objective tracker (its title, lines or quest icon) or Questie's tracker. The arrow then points at where its creatures or objects stand thickest for what you still need or, once it is complete, at where to hand it in. The waypoint moves on as objectives are done and goes when the quest is handed in. Middle-click the same quest again to stop. Uses Questie's quest data when Questie is loaded, otherwise the game's quest markers.")
+wayfinder("questAreas", "Waypoints", "Outline a quest's area once you're in it",
+    "A quest you follow by middle-click leads to the camp where its creatures or objects stand thickest, not the nearest stray one. Once you're among them, the arrow rests and the area they're spread over is outlined with the ant trail's dots on the world map and minimap: what you're after is somewhere inside it.")
 feature({ id = "wayfinder.targetFinder", page = "maps", group = "Waypoints", addon = "Wayfinder",
     kind = "action", label = "Target Finder", button = "Open", available = mapReady,
     run = function() Wayfinder.TargetFinder:Open() end,
@@ -147,11 +151,26 @@ feature({ id = "wayfinder.polestarArrow", page = "maps", group = "Waypoints", ad
     kind = "info", label = "Polestar's own arrow", available = mapReady,
     hidden = function() return not (polestar() and Wayfinder:GetSetting("followPolestar")) end,
     get = function() return Wayfinder.PolestarFollow:Status() end })
+wayfinder("arrowTime", "Waypoints", "Show the time to get there",
+    "Under the arrow's distance, how long that walk takes at the speed you're moving (or would run or ride at, standing still). The distance is the walk itself, not the straight line. On a trip with a flight, boat or portal it is the walk to the next stop.")
 wayfinderSlider("arrowScale", "Waypoints", "Arrow size", nil, 0.5, 2, 0.1, Percent)
+
+wayfinder("shareGroupWaypoint", "Group waypoint", "Share my waypoint as group leader",
+    "When you lead a party or raid, the waypoint your arrow is on goes to the group members who have Mini QoL, and lands on their arrow. As your arrow moves on, theirs follows; with no waypoint left, or sharing switched off, theirs goes. A waypoint on your corpse is never shared.")
+wayfinder("reportGroupWaypoint", "Group waypoint", "Tell me who got it",
+    "As leader, a few seconds after your waypoint changes, chat lists who got it, who has following turned off, and who didn't answer (no Mini QoL, or an older one).")
+wayfinder("followGroupWaypoint", "Group waypoint", "Take the group leader's waypoint",
+    "Your arrow takes the waypoint your group leader shares and follows it as theirs moves on. It goes when they have none left, stop sharing or hand on the lead, or when you leave the group. Remove it yourself and it stays gone until they pick another.")
 
 wayfinder("showOnWorldMap", "World map", "Show icons on the world map")
 wayfinder("showOnContinent", "World map", "Also show icons on continent maps")
 wayfinderSlider("iconScale", "World map", "World map icon size", nil, 0.6, 2, 0.1, Percent)
+wayfinder("tooltipDistance", "World map", "Distance in icon tooltips",
+    "Adds how far away an icon or waypoint is, and in which direction, to its tooltip on the maps: \"240 yd northeast\".")
+wayfinder("zoneMap", "Zone map (Shift+M)", "Wayfinder on the zone map",
+    "The small zone map (Shift+M) shows Wayfinder's icons, your waypoints, the ant trail to the one the arrow is on and the area of a followed quest, as the world map does. The icons you've switched on are the same on both.")
+wayfinder("zoneMapQuests", "Zone map (Shift+M)", "Quest objectives on the zone map",
+    "Mark where the quests you're on take you, from the game's own quest markers, which the zone map otherwise leaves out. Hover one for its objectives; middle-click it to follow the quest with the arrow.")
 feature({ id = "wayfinder.mapButton", page = "maps", group = "World map", label = "Map menu button",
     addon = "Wayfinder", kind = "action", button = "Reset",
     run = function() Wayfinder.Options:ResetMapButtonPosition() end, available = mapReady,
@@ -462,6 +481,10 @@ checkbox("miniqol.icon", "miniqol", "Panel", "Show minimap button", nil,
     function() return not ns.db.minimap.hide end,
     function(value) ns.db.minimap.hide = not value; ns:UpdateMinimapButton() end,
     "The gear button beside the minimap opens this panel. Use /mqol icon to bring it back.")
+checkbox("miniqol.tips", "miniqol", "Panel", "A tip in chat when you log in", nil,
+    function() return ns.db.tips ~= false end,
+    function(value) ns.db.tips = value and true or false end,
+    "One line in chat at login about a click or command that's easy to miss. Each tip shows once, and they stop when you've seen them all. /mqol tip shows the next one now.")
 feature({ id = "miniqol.resetpos", page = "miniqol", group = "Panel", label = "Panel and button position",
     kind = "action", button = "Reset",
     run = function()

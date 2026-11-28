@@ -2,6 +2,7 @@
 MiniQoLRuntime:Execute("Wayfinder", function(...)
 -- Mark the recommended destination on the flight master's open selection map.
 local _, ns = ...
+local Guarded = ns.Guarded or function(fn) return fn end -- each error once, not every frame (Core.lua)
 local Highlight = ns:NewModule("FlightHighlight")
 local ticker, marker, markedButton
 local lines = {}
@@ -170,7 +171,7 @@ function Highlight:OnLogin()
 		refresh()
 		-- Pins may appear a frame later, be recycled when zooming, or change
 		-- while the asynchronous planner incorporates newly discovered flights.
-		ticker = C_Timer.NewTicker(0.25, refresh)
+		ticker = C_Timer.NewTicker(0.25, Guarded(refresh, "Wayfinder flight highlight"))
 	end)
 	ns:RegisterEvent("TAXIMAP_CLOSED", close)
 end

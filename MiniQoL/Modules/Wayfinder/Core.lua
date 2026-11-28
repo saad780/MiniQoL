@@ -24,6 +24,39 @@ function ns.Debug(...)
 end
 
 ---------------------------------------------------------------------------
+-- Menus: the game's, unless its Gamepad UI is on. A menu an addon opens through
+-- the game's menu system then taints the controller focus handling, and the
+-- game blocks its own gamepad calls. Mini QoL bundles ControllerSafeMenu, which
+-- draws a plain menu of its own in that case from the same generator.
+---------------------------------------------------------------------------
+local function SafeMenu()
+	local shell = MiniQoL
+	return type(shell) == "table" and type(shell.ControllerSafeMenu) == "table" and shell.ControllerSafeMenu or nil
+end
+
+function ns.ContextMenu(owner, generator)
+	local safe = SafeMenu()
+	if safe then return safe.CreateContextMenu(owner, generator) end
+	if MenuUtil and MenuUtil.CreateContextMenu then return MenuUtil.CreateContextMenu(owner, generator) end
+end
+
+-- A handler for code that runs again and again (every frame, or on a ticker):
+-- each distinct error is reported once and then only counted, instead of a
+-- flood that buries the first report. Mini QoL keeps the count (/mqol blocked).
+function ns.Guarded(fn, label)
+	local shell = MiniQoL
+	if type(shell) == "table" and type(shell.Guarded) == "function" then return shell.Guarded(fn, label) end
+	return fn
+end
+
+-- Whether menus are being drawn by ControllerSafeMenu: rows then have no
+-- frames of their own to add buttons to.
+function ns.OwnMenus()
+	local safe = SafeMenu()
+	return safe ~= nil and safe.IsControllerUIOn() == true
+end
+
+---------------------------------------------------------------------------
 -- Secret values (12.x combat / identity restrictions)
 -- Anything read from a unit can come back as a secret value that addon code
 -- may not inspect. Never compare, index or concatenate such a value.
@@ -122,12 +155,15 @@ ns.defaults = {
 	cats = {},
 	showOnWorldMap = true,       -- draw icons on the regular world map
 	showOnContinent = false,     -- also on continent-level maps
+	zoneMap = true,              -- icons, waypoints and the ant trail on the zone map (Shift+M)
+	zoneMapQuests = true,        -- and the game's quest objectives there
 	showOtherFaction = false,    -- show NPCs hostile to your faction
 	showAllClassTrainers = false, -- otherwise only trainers for your class
 	showApproximate = true,      -- NPCs only seen from a distance (mouseover)
 	useSeedData = true,          -- reveal known town services as you explore
 	recordMouseover = true,      -- record NPCs you mouse over, not only ones you talk to
 	iconScale = 1.0,             -- world map icons
+	tooltipDistance = true,      -- "240 yd northeast" in icon tooltips
 	detailIconScale = 1.0,       -- detail view icons
 	detailEnabled = true,        -- zooming past the map's limit opens the detail view
 	continuousMap = true,        -- stitch world, zones and capitals into one scrollable map
@@ -141,11 +177,13 @@ ns.defaults = {
 	showMinimapServices = true,  -- Wayfinder owns service icons on the corner minimap
 	showArrow = true,            -- floating arrow pointing at the waypoint
 	arrowScale = 1.0,
+	arrowTime = true,            -- how long the rest of the way takes, under the arrow's distance
 	routeStyle = "balanced",     -- walking preferences
 	followWalkingRoute = true,
 	antTrails = true,            -- dots marching along the arrow's way (AntTrails.lua)
 	antTrailsWhere = "both",     -- "both", "map" or "minimap"
 	antTrailColor = "cyan",
+	indoorView = true,           -- the rooms around you in a corner of the map, indoors (Interiors.lua)
 	travelFlights = true,
 	travelHearth = true,
 	travelTransports = true,
@@ -153,6 +191,10 @@ ns.defaults = {
 	corpseWaypoint = true,       -- releasing your spirit points the arrow at your corpse
 	followPolestar = false,      -- Polestar's guide on the arrow (Polestar.lua)
 	questMiddleClick = true,     -- middle-click a quest to follow it (QuestWaypoints.lua)
+	shareGroupWaypoint = true,   -- as group leader, your waypoint goes to the group (GroupWaypoints.lua)
+	followGroupWaypoint = true,  -- take the group leader's waypoint
+	reportGroupWaypoint = true,  -- as leader, say who got it
+	questAreas = true,           -- in a followed quest's camp, outline its area instead of pointing
 	debug = false,
 }
 
@@ -498,6 +540,8 @@ local function HandleSlash(input)
 		else
 			ns.Print(("%d independent observations collected. /wf survey transport records a dock or portal."):format(CountTable(ns.db.observations)))
 		end
+	elseif command == "indoors" then
+		ns.Interiors:Command(rest:lower())
 	elseif command == "convergence" then
 		ns.Convergences:MarkHere()
 	elseif command == "share" then
@@ -542,6 +586,7 @@ local function HandleSlash(input)
 		print("   /wf add <shared waypoint>  - add a pasted waypoint")
 		print("   /wf clear [all]  - remove the arrow's waypoint, or all of them")
 		print("   /wf arrow  - show or hide the waypoint arrow")
+		print("   /wf indoors [rotate]  - what the indoor view knows here; rotate: draw rooms the other way")
 		print("   /wf import  - re-read explored areas from the world map")
 		print("   /wf reset pois|exploration|all")
 	end
