@@ -2,6 +2,142 @@ local _, ns = ...
 -- The Fishing page in the Mini QoL panel. Settings live here; the outfit has
 -- its own window, and the live readout while you fish is the floating bar.
 local Fishing = ns.Fishing
+local T = ns.Theme
+local history
+
+local function RefreshHistory()
+    if not history or not history:IsShown() then return end
+    local zone = history.pickedZone
+    if zone == nil then zone = GetRealZoneText() or "" end
+    local total, entries = Fishing:FishHistory(zone or nil, history.allLoot)
+    local name = zone == "" and "Current zone" or zone or "All zones"
+    history.zoneButton:SetText(name .. "  |TInterface\\ChatFrame\\UI-ChatIcon-ScrollDown-Up:12|t")
+    local record = Fishing.db.zones[zone]
+    local missing = record and record.unidentified or 0
+    history.note:SetShown(missing > 0)
+    if missing > 0 then
+        history.note:SetText(missing == 1 and "One earlier catch lacks item details."
+            or ("%d earlier catches lack item details."):format(missing))
+    end
+    history.total:SetText(history.allLoot and ("%d items caught"):format(total) or ("%d fish caught"):format(total))
+    history.fish:SetPrimary(not history.allLoot)
+    history.loot:SetPrimary(history.allLoot)
+    for i, entry in ipairs(entries) do
+        local row = history.rows[i]
+        if not row then
+            row = CreateFrame("Frame", nil, history.list)
+            row:SetSize(310, 21)
+            row:SetPoint("TOPLEFT", 0, -(i - 1) * 21)
+            row.name = T:Text(row, "", "GameFontHighlightSmall", 202, T.TEXT)
+            row.name:SetWordWrap(false)
+            row.name:SetPoint("LEFT")
+            row.count = T:Text(row, "", "GameFontHighlightSmall", 52, T.TEXT)
+            row.count:SetJustifyH("RIGHT")
+            row.count:SetPoint("RIGHT", -54, 0)
+            row.share = T:Text(row, "", "GameFontHighlightSmall", 52, T.GOLD)
+            row.share:SetJustifyH("RIGHT")
+            row.share:SetPoint("RIGHT")
+            history.rows[i] = row
+        end
+        row.name:SetText(entry.name or ("Item %d"):format(entry.itemID))
+        row.count:SetText(entry.count)
+        row.share:SetText(entry.percent < 0.1 and "<0.1%" or ("%.1f%%"):format(entry.percent))
+        row:Show()
+    end
+    for i = #entries + 1, #history.rows do history.rows[i]:Hide() end
+    history.list:SetHeight(math.max(1, #entries * 21))
+end
+
+local function PickHistoryZone(button)
+    local options = {}
+    for zone in pairs(Fishing.db.zones) do
+        if zone ~= "" then options[#options + 1] = zone end
+    end
+    table.sort(options)
+    local function pick(zone)
+        history.pickedZone = zone
+        history.scroll:SetVerticalScroll(0)
+        RefreshHistory()
+    end
+    if not (ns.ControllerSafeMenu or (MenuUtil and MenuUtil.CreateContextMenu)) then
+        if history.pickedZone == nil then pick(options[1] or false)
+        elseif history.pickedZone == false then pick(nil)
+        else
+            for i, zone in ipairs(options) do
+                if zone == history.pickedZone then pick(options[i + 1] or false); return end
+            end
+            pick(nil)
+        end
+        return
+    end
+    ns.ContextMenu(button, function(_, root)
+        root:CreateTitle("Fishing zone")
+        local function option(label, zone)
+            root:CreateRadio(label, function() return history.pickedZone == zone end, function() pick(zone) end)
+        end
+        option("Follow current zone", nil)
+        for _, zone in ipairs(options) do option(zone, zone) end
+        option("All zones", false)
+    end)
+end
+
+function Fishing:OpenHistory()
+    if not history then
+        history = CreateFrame("Frame", "MiniQoLFishHistory", UIParent, "BackdropTemplate")
+        history:Hide()
+        history:SetSize(360, 388)
+        history:SetPoint("CENTER")
+        history:SetFrameStrata("DIALOG")
+        history:SetClampedToScreen(true)
+        history:SetMovable(true)
+        history:EnableMouse(true)
+        history:RegisterForDrag("LeftButton")
+        history:SetScript("OnDragStart", history.StartMoving)
+        history:SetScript("OnDragStop", history.StopMovingOrSizing)
+        T:Window(history, 28)
+        T:Text(history, "Fishing history by zone", "GameFontNormal", 280, T.GOLD):SetPoint("TOPLEFT", 14, -8)
+        T:CloseButton(history, function() history:Hide() end):SetPoint("TOPRIGHT", -4, -4)
+
+        local function selectLoot(all)
+            history.allLoot = all
+            history.scroll:SetVerticalScroll(0)
+            RefreshHistory()
+        end
+        history.zoneButton = T:Button(history, "", 330, 22, PickHistoryZone)
+        history.zoneButton:SetPoint("TOPLEFT", 14, -36)
+        history.fish = T:Button(history, "Fish", 56, 22, function() selectLoot(false) end)
+        history.fish:SetPoint("TOPLEFT", 14, -66)
+        history.loot = T:Button(history, "All catches", 84, 22, function() selectLoot(true) end)
+        history.loot:SetPoint("LEFT", history.fish, "RIGHT", 4, 0)
+        history.total = T:Text(history, "", "GameFontHighlightSmall", 172, T.TEXT)
+        history.total:SetJustifyH("RIGHT")
+        history.total:SetPoint("TOPRIGHT", -16, -72)
+        history.note = T:Text(history, "", "GameFontDisableSmall", 328, T.MUTED)
+        history.note:SetPoint("BOTTOMLEFT", 14, 10)
+        history.scroll = CreateFrame("ScrollFrame", "MiniQoLFishHistoryScroll", history, "UIPanelScrollFrameTemplate")
+        history.scroll:SetPoint("TOPLEFT", 14, -100)
+        history.scroll:SetPoint("BOTTOMRIGHT", -36, 32)
+        T:SkinScrollBar(history.scroll, "MiniQoLFishHistoryScroll")
+        history.list = CreateFrame("Frame", nil, history.scroll)
+        history.list:SetSize(310, 1)
+        history.rows = {}
+        history.scroll:SetScrollChild(history.list)
+        history:SetScript("OnShow", RefreshHistory)
+        history:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+        history:RegisterEvent("ZONE_CHANGED")
+        history:RegisterEvent("PLAYER_ENTERING_WORLD")
+        history:SetScript("OnEvent", function()
+            if history.pickedZone == nil then RefreshHistory() end
+        end)
+        self:On("CATCHES_CHANGED", RefreshHistory)
+    end
+    if not history:IsShown() then
+        history.pickedZone = nil
+        history.scroll:SetVerticalScroll(0)
+        history:Show()
+    end
+    history:Raise()
+end
 
 local function ready() return Fishing.db ~= nil end
 
@@ -90,6 +226,9 @@ function Fishing:RegisterPage()
         "A small window with your lures, fishing food, skill breakdown, your last catch and everything caught this session. It appears on its own when you equip a pole; /mqol fish show opens it anywhere.")
     checkbox("statsIncludeMissed", "Fishing window", "Count empty casts",
         "Adds the casts that caught nothing to the window's session line, along with the share of casts that caught something.")
+    feature({ id = "fishing.history", group = "Catch record", label = "Catch percentages by zone",
+        kind = "action", button = "View history", available = ready,
+        run = function() Fishing:OpenHistory() end })
     feature({ id = "fishing.resetSession", group = "Catch record", label = "This session",
         kind = "action", button = "Reset", available = ready,
         run = function() Fishing:ResetSession(); ns:Print("Started a new fishing session.") end,

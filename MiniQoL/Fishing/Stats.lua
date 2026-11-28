@@ -51,18 +51,69 @@ function Fishing:SessionCasts()
     return landed, empty
 end
 
-local function FromItems(items)
+local function FromItems(items, counts)
     local total, entries = 0, {}
-    for itemID, item in pairs(items) do
+    for itemID in pairs(counts or items) do
+        local item = items[itemID] or {}
+        local count = counts and counts[itemID] or item.count
         entries[#entries + 1] = { itemID = itemID, link = item.link, icon = item.icon,
-            name = Fishing.LinkName(item.link), count = item.count, lastSeen = item.lastSeen }
-        total = total + item.count
+            name = Fishing.LinkName(item.link), count = count, lastSeen = item.lastSeen }
+        total = total + count
     end
     return total, Rank(entries, total)
 end
 
 function Fishing:AllTimeSummary()
     return FromItems(self.db.items)
+end
+
+-- Fishing loot uses ordinary item IDs. Some species have a different ID
+-- for each trophy weight or bloated variant. IDs also work with a cold cache.
+local fishSpecies = {
+    ["Brilliant Smallfish"] = {6291, 6643},
+    ["Longjaw Mud Snapper"] = {6289, 6292, 6294, 6295, 6645},
+    ["Bristle Whisker Catfish"] = {6308, 6309, 6310, 6311, 6363, 6364, 6647},
+    ["Slitherskin Mackerel"] = {6303, 6644},
+    ["Rainbow Fin Albacore"] = {6361, 6646},
+    ["Oily Blackmouth"] = {6358, 21162},
+    ["Firefin Snapper"] = {6359, 21163},
+    ["Rockscale Cod"] = {6362, 21164},
+    ["Mithril Head Trout"] = {8365, 8366},
+    ["Spotted Yellowtail"] = {4603, 13876, 13877, 13878, 13879, 13880},
+    ["Redgill"] = {13758, 13881, 13882, 13883, 13884, 13885, 13886, 13887},
+    ["Whitescale Salmon"] = {13889, 13891},
+    ["Salmon (trophy)"] = {13901, 13902, 13903, 13904, 13905, 13906},
+    ["Mightfish"] = {13754, 13893, 13914, 13915, 13916, 13917, 21243},
+    ["Spotted Sunfish"] = {1467}, ["Sickly Looking Fish"] = {6299},
+    ["Loch Frenzy"] = {6317}, ["Steelscale Crushfish"] = {6360},
+    ["Oil Covered Fish"] = {6458}, ["Deviate Fish"] = {6522},
+    ["Spinefin Halibut"] = {8959}, ["Darkshore Grouper"] = {12238},
+    ["Stonescale Eel"] = {13422}, ["Summer Bass"] = {13756}, ["Lightning Eel"] = {13757},
+    ["Nightfin Snapper"] = {13759}, ["Sunscale Salmon"] = {13760}, ["Plated Armorfish"] = {13890, 286152},
+    ["Feralas Ahi"] = {16967}, ["Sar'theris Striker"] = {16968},
+    ["Savage Coast Blue Sailfin"] = {16969}, ["Misty Reed Mahi Mahi"] = {16970},
+    ["Brownell's Blue Striped Racer"] = {19803}, ["Pale Ghoulfish"] = {19804}, ["Keefer's Angelfish"] = {19805},
+    ["Dezian Queenfish"] = {19806}, ["Speckled Tastyfish"] = {19807}, ["Rockhide Strongfish"] = {19808},
+    ["Zulian Mudskunk"] = {19975}, ["Sagefish"] = {21071}, ["Greater Sagefish"] = {21153},
+}
+
+function Fishing:FishHistory(zoneName, allLoot)
+    local zone = self.db.zones[zoneName]
+    local counts = zoneName and (zone and zone.itemCounts or {})
+    if allLoot then return FromItems(self.db.items, counts) end
+    local entries, total = {}, 0
+    for name, ids in pairs(fishSpecies) do
+        local count = 0
+        for _, id in ipairs(ids) do
+            if counts then count = count + (counts[id] or 0)
+            elseif self.db.items[id] then count = count + self.db.items[id].count end
+        end
+        if count > 0 then
+            entries[#entries + 1] = { name = name, count = count }
+            total = total + count
+        end
+    end
+    return total, Rank(entries, total)
 end
 
 function Fishing:LureSummary()

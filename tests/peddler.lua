@@ -113,4 +113,68 @@ assert(passes == 1, "five bag updates are one marking pass: " .. passes)
 assert(#slots == 1 and slots[1] == "0:1", "which asked about the slot it was shown")
 assert(made == 1, "through the one location Peddler keeps: " .. made)
 
-print("Peddler: new characters start unmarked, each keeps its own junk rule, a burst of bag updates is one pass")
+-- Baganator may finish assigning pooled buttons well after its opening event.
+-- No inventory change or modified click is needed to paint the finished view.
+local callbacks, regions, scans = {}, {}, 0
+Baganator = {
+    CallbackRegistry = { RegisterCallback = function(_, event, fn) callbacks[event] = fn end },
+    API = { Skins = { GetAllFrames = function() scans = scans + 1; return regions end } },
+}
+function IsAddOnLoaded(name) return name == "Baganator" end
+function IsControlKeyDown() return true end
+function IsAltKeyDown() return false end
+function IsShiftKeyDown() return false end
+local itemAtSlot, loaded = { 4540, 3300 }, {}
+local pricedItem = GetItemInfo
+function GetItemInfo(id) if loaded[id] then return pricedItem(id) end end
+C_Container.GetContainerItemInfo = function(_, slot)
+    local id = itemAtSlot[slot]
+    if id then return { itemID = id, hyperlink = "item:" .. id, stackCount = 1 } end
+end
+local function flushFrame()
+    local due = timers
+    timers = {}
+    for _, fn in ipairs(due) do fn() end
+end
+local function bagButton(slot)
+    return {
+        slot = slot, IsVisible = function() return true end,
+        GetSlotAndBagID = function(self) return self.slot, 0 end,
+        CreateTexture = function()
+            return { SetTexture = noop, SetSize = noop, SetPoint = noop,
+                Show = function(self) self.visible = true end, Hide = function(self) self.visible = false end }
+        end,
+    }
+end
+sells = Login({ ItemsToSell = { [4540] = 1 }, UnmarkedItems = {}, AutoSellGreyItems = true })
+for _, f in ipairs(frames) do if f.handlers.OnEvent then listener = f end end
+callbacks.BagShow()
+flushFrame() -- no buttons yet
+local bread, grey = bagButton(1), bagButton(2)
+regions = { { regionType = "ItemButton", region = bread }, { regionType = "ItemButton", region = grey } }
+callbacks.ViewComplete()
+callbacks.ViewComplete()
+flushFrame()
+assert(scans == 2, "one scan for each completed frame")
+assert(bread.coins and bread.coins.visible and ItemsToSell[4540], "show a saved mark on opening, even with cold item data")
+assert(not sells(4540), "a provisional icon cannot authorize a sale while the price is unknown")
+assert(not grey.coins, "automatic marks wait for the quality and price")
+loaded[3300], loaded[4540] = true, true
+listener.handlers.OnEvent(listener, "GET_ITEM_INFO_RECEIVED", 3300, true)
+listener.handlers.OnEvent(listener, "ITEM_DATA_LOAD_RESULT", 4540, true)
+flushFrame()
+assert(scans == 3 and grey.coins and grey.coins.visible and bread.coins.visible, "late item data updates the open bags")
+
+local item = { GetBagAndSlot = function() return 0, 1 end }
+handlePeddlerItemClick(bread, item, "RightButton")
+assert(not ItemsToSell[4540] and not bread.coins.visible and grey.coins.visible, "one intentional click unmarks the visible bread")
+bread.slot, grey.slot = 2, 1
+callbacks.ViewComplete()
+flushFrame()
+assert(bread.coins.visible and not grey.coins.visible, "coins follow their items when buttons are reused")
+itemAtSlot[2] = nil
+callbacks.ViewComplete()
+flushFrame()
+assert(not bread.coins.visible, "an emptied slot loses its coin")
+
+print("Peddler: character rules, batched updates, late Baganator layouts and item data, and recycled buttons passed")

@@ -116,6 +116,7 @@ function Fishing:CreateBar()
 
     bar.title = T:Text(bar, "Fishing", "GameFontNormalSmall", 120, T.GOLD)
     bar.title:SetPoint("TOPLEFT", PAD, -8)
+    T:Button(bar, "History", 60, 20, function() Fishing:OpenHistory() end):SetPoint("TOPRIGHT", -29, -3)
     T:CloseButton(bar, function() Fishing:Set("bar", false) end):SetPoint("TOPRIGHT", -4, -4)
 
     bar.skill = T:Text(bar, "", "GameFontNormalLarge", WIDTH - PAD * 2, T.GOLD)
