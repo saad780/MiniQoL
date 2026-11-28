@@ -135,11 +135,11 @@ local function isUnwantedItem(itemType, subType, equipSlot)
 end
 
 function Peddler.itemIsToBeSold(itemID, uniqueItemID, isSoulbound)
-  local _, link, quality, itemLevel, _, itemType, subType, _, equipSlot, _, price = GetItemInfo(itemID)
+  local name, link, quality, itemLevel, _, itemType, subType, _, equipSlot, _, price = GetItemInfo(itemID)
 
   -- No price?  No sale!
   if not price or price <= 0 then
-    return
+    return nil, name == nil
   end
 
   local unmarkedItem = UnmarkedItems[uniqueItemID]
@@ -270,21 +270,29 @@ local function showCoinTexture(itemButton)
   end
 end
 
+local pendingItemInfo = {}
+
 local function displayCoins(itemID, uniqueItemID, itemButton, isSoulbound)
+  local marked, waiting
   if uniqueItemID then
-    if Peddler.itemIsToBeSold(itemID, uniqueItemID, isSoulbound) then
-      showCoinTexture(itemButton)
-    elseif itemButton.coins then
-      itemButton.coins:Hide()
+    marked, waiting = Peddler.itemIsToBeSold(itemID, uniqueItemID, isSoulbound)
+    if waiting then
+      marked = ItemsToSell[uniqueItemID]
     end
+  end
+  if marked then
+    showCoinTexture(itemButton)
   elseif itemButton.coins then
     itemButton.coins:Hide()
   end
+  return waiting
 end
 
 local function checkItem(bagNumber, slotNumber, itemButton)
   local itemID, uniqueItemID, isSoulbound = getUniqueItemID(bagNumber, slotNumber)
-  displayCoins(itemID, uniqueItemID, itemButton, isSoulbound)
+  if displayCoins(itemID, uniqueItemID, itemButton, isSoulbound) then
+    pendingItemInfo[itemID] = true
+  end
 end
 
 local function markBagginsBags()
@@ -547,6 +555,8 @@ local function markBaganatorBags()
     if type(containerNumber) == "number" and containerNumber >= 0 and containerNumber <= BAG_COUNT
         and type(slotNumber) == "number" and slotNumber > 0 then
       checkItem(containerNumber, slotNumber, itemButton)
+    elseif itemButton.coins then
+      itemButton.coins:Hide()
     end
   end
 
@@ -635,6 +645,16 @@ end
 
 Peddler.markWares = markWares
 
+local refreshQueued = false
+local function queueBagMarks()
+  if refreshQueued then return end
+  refreshQueued = true
+  C_Timer.After(0, function()
+    refreshQueued = false
+    markWares()
+  end)
+end
+
 local function onUpdate()
   markCounter = markCounter + 1
   if markCounter <= countLimit then
@@ -693,8 +713,8 @@ end
 
 local markGeneration = 0
 
-local function handleEvent(self, event, addonName)
-  if event == "ADDON_LOADED" and addonName == "Peddler" then
+local function handleEvent(self, event, arg1, success)
+  if event == "ADDON_LOADED" and arg1 == "Peddler" then
     peddler:UnregisterEvent("ADDON_LOADED")
 
     setupDefaults()
@@ -707,18 +727,19 @@ local function handleEvent(self, event, addonName)
       Baggins:RegisterSignal("Baggins_BagOpened", handleBagginsOpened, Baggins)
     end
     if IsAddOnLoaded("Baganator") and Baganator and Baganator.CallbackRegistry then
-      local function refreshBaganator()
-        C_Timer.After(0, markWares)
-        -- Its buttons can be filled in a few frames after the bag opens.
-        C_Timer.After(0.5, markWares)
-      end
-      Baganator.CallbackRegistry:RegisterCallback("BagShow", refreshBaganator, peddler)
-      Baganator.CallbackRegistry:RegisterCallback("BackpackFrameChanged", refreshBaganator, peddler)
-      -- Baganator says when its bags open or lay themselves out again, and
-      -- bag updates cover the rest. The half-second poll only ever stopped
-      -- once a coin had been drawn, so on a character with nothing marked
-      -- in the bags it walked Baganator's whole frame registry for good.
+      -- BagShow can precede button assignment. Both backpack layouts send
+      -- ViewComplete after assigning the slots, including on later rebuilds.
+      Baganator.CallbackRegistry:RegisterCallback("BagShow", queueBagMarks, peddler)
+      Baganator.CallbackRegistry:RegisterCallback("BackpackFrameChanged", queueBagMarks, peddler)
+      Baganator.CallbackRegistry:RegisterCallback("ViewComplete", queueBagMarks, peddler)
       peddler:SetScript("OnUpdate", nil)
+    end
+    peddler:RegisterEvent("GET_ITEM_INFO_RECEIVED")
+    pcall(peddler.RegisterEvent, peddler, "ITEM_DATA_LOAD_RESULT")
+  elseif event == "GET_ITEM_INFO_RECEIVED" or event == "ITEM_DATA_LOAD_RESULT" then
+    if pendingItemInfo[arg1] and success then
+      pendingItemInfo[arg1] = nil
+      queueBagMarks()
     end
   elseif event == "PLAYER_ENTERING_WORLD" then
     peddler:RegisterEvent("BAG_UPDATE")

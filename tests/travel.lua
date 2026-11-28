@@ -9,6 +9,11 @@ function ns:NewModule(name) self[name] = {}; return self[name] end
 function ns:On(event, fn) events[event] = fn end
 function ns:Fire(event, ...) if events[event] then events[event](...) end end
 function ns:RegisterEvent(event, fn) events[event] = fn end
+function GetTaxiMapID() return 1 end
+local function openTaxiMap(nodes)
+	C_TaxiMap = { GetAllTaxiNodes = function() return nodes end }
+	events.TAXIMAP_OPENED()
+end
 function ns.Readable(value) return value ~= nil end
 function ns.Distance(x, y, a, b) return math.sqrt((x-a)^2 + (y-b)^2) end
 function ns.Background:Has() return job ~= nil end
@@ -98,8 +103,7 @@ stone, now = 0, now + 4
 local bluff = spot(1, -1197.2, 29.7, 1456)
 local taurajo = spot(1, -2376.4, -1995.9, 1413)
 local quest = spot(1, -2500, -2195, 1413)
-T:RememberTaxi(22)
-T:RememberTaxi(77)
+openTaxiMap({ { nodeID=22, state=0 }, { nodeID=77, state=1 } })
 bind, stone, duration = "Camp Taurajo", 1, 0
 local hearthToCamp = "Use Hearthstone to Camp Taurajo"
 local flyToCamp = "Fly to Camp Taurajo, The Barrens"
@@ -141,9 +145,7 @@ setting("travelTransports", false)
 local cross = spot(1, -437.1, -2596, 1413)
 local orgMaster = spot(1, 1676, -4314, 1454)
 assert(not route(orgMaster, cross))
-GetTaxiMapID = function() return 1 end
-C_TaxiMap = { GetAllTaxiNodes = function() return { { nodeID=23, state=1 }, { nodeID=999, state=2 } } end }
-events.TAXIMAP_OPENED()
+openTaxiMap({ { nodeID=23, state=1 }, { nodeID=999, state=2 } })
 assert(ns.db.knownFlights.tester[23] and not ns.db.knownFlights.tester[999])
 local _, instruction, name = route(orgMaster, cross)
 local crossNode
@@ -159,8 +161,8 @@ local hintStop, hintAction, hint = route(localGoal, crossNode)
 assert(not hintStop and not hintAction and hint and hint:find("Learn the flight point"))
 local _, board = route(orgMaster, crossNode)
 assert(board and board:find("Learn the flight point") and board:find("Orgrimmar"), tostring(name or instruction or board))
-T:RememberTaxi(25)
-assert(select(2, aim(orgMaster, crossNode)):find("^Fly to"))
+openTaxiMap({ { nodeID=25, state=0 } })
+assert(select(2, route(orgMaster, crossNode)):find("^Fly to"))
 flying = true
 local _, inFlight, _, riding = aim(orgMaster, crossNode)
 assert(inFlight:find("^Flying to") and riding, "keep the ride instruction until landing")
@@ -296,7 +298,7 @@ ns.playerFaction = 2
 assert(loadfile(base .. "Travel.lua"))()
 T = ns.Travel
 T:OnLogin()
-for _, id in ipairs({ 22, 25, 29 }) do T:RememberTaxi(id) end -- Thunder Bluff, Crossroads, Sun Rock
+openTaxiMap({ { nodeID=29, state=0 }, { nodeID=22, state=1 }, { nodeID=25, state=1 } })
 setting("travelFlights", true)
 local sunRockRoad = spot(1, 1099.7, 677.2, 1442)
 local gaeaSeed = spot(1, 1447.8, 816.9, 1442)
@@ -321,4 +323,59 @@ T:WalkFailed(master)
 local masterAgain = route(crossroadsQuest, byMaster)
 assert(masterAgain and masterAgain.taxi == 29, "keep Sun Rock's flight: " .. tostring(masterAgain and masterAgain.n))
 
-print("Waypoint travel: faction crossings, hearth, flights, loading screens, alternate landings and zone changes passed")
+-- Freewind was in the old cache even though the character had only learned
+-- nearby Camp Taurajo. Test the upgrade before the first flight map opens.
+local freewind = spot(1, -5407.7, -2414.3, 1441)
+waypoint = freewind
+ns.db.knownFlights.tester = { [22]=true, [77]=true, [30]=true }
+Polestar = { Nav = { GetKnownTaxiNodes = function() return { [30]=true } end } }
+ForeverDungeonJournal_NS = { FoundFlightNames = function()
+	return { ["thunder bluff, mulgore"]=true, ["camp taurajo, the barrens"]=true }
+end }
+assert(loadfile(base .. "Travel.lua"))()
+T = ns.Travel
+T:OnLogin()
+T:ObserveTaxi(30, false) -- a visible zone-map pin on Forever
+assert(not ns.db.knownFlights.tester[30], "a world-map pin and the legacy cache cannot unlock Freewind")
+assert(select(2, route(freewind, bluff)) == flyToCamp, "use the confirmed Taurajo flight on the way to Freewind")
+assert(select(2, T:GetRecommendedFlight()).taxi == 77)
+
+local kind = "DISTANT"
+NumTaxiNodes = function() return 2 end
+TaxiNodeGetType = function(slot) return slot == 1 and "CURRENT" or kind end
+local listed = { { nodeID=22, state=0, slotIndex=1 }, { nodeID=30, state=1, slotIndex=2 } }
+openTaxiMap(listed)
+assert(not ns.db.knownFlights.tester[30], "a DISTANT flight-master slot overrides a positive map row")
+kind = "REACHABLE"
+events.TAXI_NODE_STATUS_CHANGED()
+assert(select(2, route(freewind, bluff)) == "Fly to Freewind Post, Thousand Needles")
+kind = "DISTANT"
+events.TAXI_NODE_STATUS_CHANGED()
+assert(not T:GetRecommendedFlight(), "withdraw a stale flight even while standing at its master")
+assert(select(2, route(freewind, bluff)) == flyToCamp)
+
+-- Repeat during a suspended route search and then reload the character.
+kind = "REACHABLE"
+openTaxiMap(listed)
+T:Reset()
+aim(freewind, bluff)
+assert(job and coroutine.resume(job))
+kind = "DISTANT"
+events.TAXI_NODE_STATUS_CHANGED()
+drain()
+assert(not T:GetRecommendedFlight() and select(2, route(freewind, bluff)) == flyToCamp)
+events.TAXIMAP_CLOSED()
+kind = "REACHABLE"
+events.TAXI_NODE_STATUS_CHANGED()
+assert(not ns.db.knownFlights.tester[30], "ignore status changes after the map closes")
+ForeverDungeonJournal_NS = nil
+assert(loadfile(base .. "Travel.lua"))()
+T = ns.Travel
+T:OnLogin()
+assert(select(2, route(freewind, bluff)) == flyToCamp, "retain verified flights across reloads")
+TaxiNodeName = function(slot) return slot == 1 and "Thunder Bluff, Mulgore" or "Freewind Post, Thousand Needles" end
+C_TaxiMap = nil
+events.TAXIMAP_OPENED()
+assert(select(2, route(freewind, bluff)) == "Fly to Freewind Post, Thousand Needles", "learn from classic slots alone")
+
+print("Waypoint travel: faction crossings, hearth, confirmed flights, loading screens, alternate landings and zone changes passed")

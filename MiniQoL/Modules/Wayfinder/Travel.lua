@@ -143,7 +143,7 @@ local function plan(g, start, goal, inn, opts, pause)
 		local n = nodes[u]
 		for _, e in ipairs(g.incoming[u]) do
 			local flying = e.kind == "fly"
-			local usable = flying and opts.flights and (opts.known[n.taxi] or n.class)
+			local usable = flying and opts.flights and opts.known[n.taxi]
 				or (not flying and opts.transports and (not e.item or opts.items[e.item]))
 			if usable then
 				local i = e.from.index
@@ -217,18 +217,70 @@ function Travel:WalkFailed(stop)
 end
 
 function Travel:ObserveTaxi(id, missing)
-	if missing then
-		if not (known and known[id]) then undiscovered[id] = true end
-		return
-	end
-	self:RememberTaxi(id)
+	-- Forever also returns isUndiscovered=false for unlearned world-map pins.
+	-- These pins can supply a nearby discovery hint, never a flight destination.
+	if missing and not (known and known[id]) then undiscovered[id] = true end
 end
 
-function Travel:RememberTaxi(id)
-	undiscovered[id] = nil
-	if known and not known[id] then
-		known[id] = true
+local function recordTaxi(id, learned)
+	if learned then undiscovered[id] = nil end
+	if learned ~= (known[id] == true) then
+		known[id] = learned or nil
 		revision = revision + 1
+		-- A search can be between frames, or the arrow may
+		-- already be telling the player to board at this master.
+		if not learned then journey = nil end
+	end
+end
+
+local taxiNames
+local function taxiByName(name)
+	if not ns.Readable(name) or type(name) ~= "string" then return end
+	if not taxiNames then
+		taxiNames = {}
+		for _, row in ipairs(network.taxi) do
+			if available(row[8]) and (not row[10] or row[10] == ns.playerClass) then
+				local key = row[9]:lower()
+				if taxiNames[key] == nil then taxiNames[key] = row[1] else taxiNames[key] = false end
+			end
+		end
+	end
+	return taxiNames[name:lower()]
+end
+
+local function readFlightMap()
+	local map = GetTaxiMapID and GetTaxiMapID()
+	local nodes
+	if ns.Readable(map) and C_TaxiMap and C_TaxiMap.GetAllTaxiNodes then
+		local ok, list = pcall(C_TaxiMap.GetAllTaxiNodes, map)
+		if ok and type(list) == "table" then nodes = list end
+	end
+	local count = NumTaxiNodes and NumTaxiNodes()
+	if TaxiNodeGetType and ns.Readable(count) and type(count) == "number" and count > 0 then
+		-- On Forever the selectable slot is authoritative, including DISTANT
+		-- slots that also appear in the modern map data.
+		local ids = {}
+		for _, node in ipairs(nodes or {}) do
+			if ns.Readable(node.slotIndex) and type(node.slotIndex) == "number"
+				and ns.Readable(node.nodeID) and type(node.nodeID) == "number" then
+				ids[node.slotIndex] = node.nodeID
+			end
+		end
+		for slot = 1, count do
+			local id = ids[slot] or (TaxiNodeName and taxiByName(TaxiNodeName(slot)))
+			local kind = TaxiNodeGetType(slot)
+			if id and ns.Readable(kind) then
+				if kind == "CURRENT" or kind == "REACHABLE" then recordTaxi(id, true)
+				elseif kind == "DISTANT" or kind == "NONE" or kind == "UNREACHABLE" then recordTaxi(id, false) end
+			end
+		end
+	elseif not TaxiNodeGetType or not NumTaxiNodes then
+		for _, node in ipairs(nodes or {}) do
+			if ns.Readable(node.nodeID) and type(node.nodeID) == "number" and ns.Readable(node.state) then
+				if node.state == 0 or node.state == 1 then recordTaxi(node.nodeID, true)
+				elseif node.state == 2 then recordTaxi(node.nodeID, false) end
+			end
+		end
 	end
 end
 
@@ -411,11 +463,11 @@ function Travel:Aim(target, c, x, y, map)
 			end
 		end
 		local leftBlockedArea = check and rejected and not near(rejected.start, c, x, y, 150)
-		-- A taxi is committed only after takeoff (handled above). While the
-		-- player stands at its master, a newly ready hearth can still win.
-		local canHearth = not committed or a.kind == "fly"
-		local hearthChanged = check and canHearth and readyInn(graph) ~= j.inn
-		if hearthChanged or (not committed and (j.revision ~= revision or detour or leftBlockedArea)) then
+		-- At a flight master the player can still change flights or hearth
+		-- until takeoff. Keep a committed ship or zeppelin through boarding.
+		local canReplan = not committed or a.kind == "fly"
+		local hearthChanged = check and canReplan and readyInn(graph) ~= j.inn
+		if hearthChanged or (canReplan and j.revision ~= revision) or (not committed and (detour or leftBlockedArea)) then
 			self:Reset()
 			j, a = nil, nil
 		elseif check then
@@ -463,8 +515,24 @@ function Travel:OnLogin()
 	end
 	ns.db.knownFlights = ns.db.knownFlights or {}
 	local key = ns:GetCharacterKey()
-	ns.db.knownFlights[key] = ns.db.knownFlights[key] or {}
-	known = ns.db.knownFlights[key]
+	known = key ~= "unknown" and ns.db.knownFlights[key]
+	if type(known) ~= "table" or known.flightMapVersion ~= 1 then
+		-- Older entries mixed world-map pins and actual flight offers.
+		known = { flightMapVersion = 1 }
+		if key ~= "unknown" then ns.db.knownFlights[key] = known end
+		-- An installed Forever Dungeon Journal can already have this
+		-- character's CURRENT/REACHABLE names from earlier flight maps.
+		local journal = ForeverDungeonJournal_NS
+		if journal and type(journal.FoundFlightNames) == "function" then
+			local ok, names = pcall(journal.FoundFlightNames)
+			if ok and type(names) == "table" then
+				for name, learned in pairs(names) do
+					local id = learned == true and taxiByName(name)
+					if id then recordTaxi(id, true) end
+				end
+			end
+		end
+	end
 	ns.db.hearthBinds = ns.db.hearthBinds or {}
 	bound = ns.db.hearthBinds[key]
 	ns:RegisterEvent("HEARTHSTONE_BOUND", function()
@@ -474,28 +542,13 @@ function Travel:OnLogin()
 		ns.db.hearthBinds[key] = bound
 		self:Reset()
 	end)
-	-- Polestar may already have this character's discoveries before the
-	-- first taxi map opens. Its read-only API is an optional warm start.
-	local nav = type(Polestar) == "table" and Polestar.Nav
-	if nav and type(nav.GetKnownTaxiNodes) == "function" then
-		local ok, ids = pcall(nav.GetKnownTaxiNodes)
-		if ok and type(ids) == "table" then
-			for id, learned in pairs(ids) do
-				if type(id) == "number" and learned == true then self:RememberTaxi(id) end
-			end
-		end
-	end
+	local mapOpen
 	ns:RegisterEvent("TAXIMAP_OPENED", function()
-		local id = GetTaxiMapID and GetTaxiMapID()
-		if not (id and C_TaxiMap and C_TaxiMap.GetAllTaxiNodes) then return end
-		local ok, nodes = pcall(C_TaxiMap.GetAllTaxiNodes, id)
-		if ok and type(nodes) == "table" then
-			for _, node in ipairs(nodes) do
-				if ns.Readable(node.nodeID) and type(node.nodeID) == "number" and ns.Readable(node.state)
-					and (node.state == 0 or node.state == 1) then self:RememberTaxi(node.nodeID) end
-			end
-		end
+		mapOpen = true
+		readFlightMap()
 	end)
+	ns:RegisterEvent("TAXI_NODE_STATUS_CHANGED", function() if mapOpen then readFlightMap() end end)
+	ns:RegisterEvent("TAXIMAP_CLOSED", function() mapOpen = false end)
 	ns:On("SETTING_CHANGED", function(key)
 		if key == "travelHearth" or key == "travelFlights" or key == "travelTransports" then self:Reset() end
 	end)

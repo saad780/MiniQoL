@@ -54,6 +54,8 @@ function frame:SetBackdropBorderColor() RequiresBackdrop(self, "SetBackdropBorde
 function frame:IsShown() return self.shown == true end
 function frame:GetFrameLevel() return 1 end
 function frame:GetStringHeight() return 12 end
+function frame:SetScrollChild(child) self.child = child end
+function frame:SetVerticalScroll(offset) self.scrollOffset = offset end
 function frame:GetPoint() return "CENTER", nil, "CENTER", 0, 0 end
 function frame:CreateTexture() return setmetatable({ handlers = {}, events = {} }, frame) end
 function frame:CreateFontString() return setmetatable({ handlers = {}, events = {} }, frame) end
@@ -785,4 +787,68 @@ AURAS = {}
 auraEvents:Fire("UNIT_AURA", "player")
 equal(F:Skill().buffs, 0, "and so is a buff ending")
 
-print("Fishing outfit swap, outfit window, gear finder, catch record, stats, splash, settings page, window and skill breakdown passed")
+print("-- lifetime catch percentages --")
+F:ResetAll()
+-- An older save has item detail by named subzone, plus the last session.
+ZONE = "Hillsbrad Foothills"
+F.db.items = { [6289] = { count = 3 }, [6292] = { count = 1 }, [6291] = { count = 1 },
+    [21113] = { count = 4, link = link(21113) }, [3820] = { count = 2, link = link(3820) },
+    [21071] = { count = 8, link = link(21071) } }
+F.db.zones = { [ZONE] = { count = 11, subzones = { River = 9 } },
+    ["The Barrens"] = { count = 8, subzones = { Oasis = 8 } } }
+F.db.areaItems = { [ZONE] = { River = { [6289] = { count = 3 }, [6291] = { count = 1 },
+    [21113] = { count = 4 }, [3820] = { count = 1 } } },
+    ["The Barrens"] = { Oasis = { [21071] = { count = 8 } } } }
+F.db.catches = { { zone = ZONE, subzone = "", itemID = 6292, quantity = 1 },
+    { zone = ZONE, subzone = "River", itemID = 6289, quantity = 2 } }
+F.db.zoneHistoryVersion = nil
+F:Initialize()
+F:Initialize() -- a second reload must not repeat the migration
+F:RecordCast({ time = CLOCK, caught = false })
+byID["fishing.history"].run()
+local history = MiniQoLFishHistory
+equal(history.total:GetText(), "5 fish caught", "only fish from the current zone are in the denominator")
+equal(history.rows[1].name:GetText(), "Longjaw Mud Snapper", "ordinary and trophy snappers share a species")
+equal(history.rows[1].share:GetText(), "80.0%", "four snappers")
+equal(history.rows[2].share:GetText(), "20.0%", "one smallfish")
+F:RecordCatch({ itemID = 6359, quantity = 5, time = CLOCK, zone = ZONE, subzone = "" })
+F:Fire("CATCHES_CHANGED")
+equal(history.total:GetText(), "10 fish caught", "live refresh counts stacked fish")
+equal(history.rows[1].share:GetText(), "50.0%", "a third species updates the denominator")
+F:ResetSession()
+equal(history.rows[2].share:GetText(), "40.0%", "session reset preserves the lifetime distribution")
+history.loot.handlers.OnClick()
+equal(history.total:GetText(), "16 items caught", "all catches includes kelp and the crate")
+history.fish.handlers.OnClick()
+equal(history.rows[3].share:GetText(), "10.0%", "fish view restores its own denominator")
+local function chooseZone(label)
+    history.zoneButton.handlers.OnClick(history.zoneButton)
+    for _, entry in ipairs(MENU.entries) do if entry.text == label then entry.pick(); return end end
+    error("Missing fishing zone " .. label)
+end
+chooseZone("The Barrens")
+equal(history.total:GetText(), "8 fish caught", "view another recorded zone")
+equal(history.rows[1].share:GetText(), "100.0%", "its own percentage")
+ZONE = "Desolace"
+history:Fire("ZONE_CHANGED_NEW_AREA")
+equal(history.total:GetText(), "8 fish caught", "browsing stays in the chosen zone")
+chooseZone("Follow current zone")
+equal(history.total:GetText(), "0 fish caught", "new zone starts empty")
+ZONE = "Hillsbrad Foothills"
+history:Fire("ZONE_CHANGED_NEW_AREA")
+equal(history.total:GetText(), "10 fish caught", "following switches when the player travels")
+chooseZone("All zones")
+equal(history.total:GetText(), "18 fish caught", "all zones remains an explicit choice")
+F:ResetAll()
+equal(history.total:GetText(), "0 fish caught", "no percentages on an empty history")
+assert(not history.rows[1]:IsShown(), "reset hides old rows")
+-- Two zones lack details. Their combined totals cannot identify where each fish came from.
+F.db.zoneHistoryVersion = nil
+F.db.zones = { [ZONE] = { count = 1, subzones = {} }, ["The Barrens"] = { count = 1, subzones = {} } }
+F.db.items = { [6359] = { count = 1 }, [6289] = { count = 1 } }
+F:Initialize()
+chooseZone("Follow current zone")
+equal(history.total:GetText(), "0 fish caught", "ambiguous historical fish are never assigned to a zone")
+assert(history.note:IsShown(), "incomplete historical coverage is visible")
+
+print("Fishing outfit, catches, lifetimes by species, splash, settings, window and skill breakdown passed")

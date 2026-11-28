@@ -7,6 +7,59 @@ local Fishing = ns.Fishing
 local currentCast
 local lootRecorded = false
 
+local function AddQuantity(counts, id, quantity)
+    counts[id] = (counts[id] or 0) + quantity
+end
+
+-- Older saves have item counts for named subzones and individual catches
+-- from the last session, including catches made outside a named subzone.
+function Fishing:RestoreZoneHistory()
+    local data = self.db
+    if data.zoneHistoryVersion == 1 then return end
+    for name, zone in pairs(data.zones) do
+        zone.itemCounts = {}
+        for _, items in pairs(data.areaItems[name] or {}) do
+            for id, item in pairs(items) do AddQuantity(zone.itemCounts, id, item.count) end
+        end
+    end
+    for _, catch in ipairs(data.catches or {}) do
+        local zone = data.zones[catch.zone]
+        if zone and (not catch.subzone or catch.subzone == "") then
+            AddQuantity(zone.itemCounts, catch.itemID, catch.quantity or 1)
+        end
+    end
+
+    -- If only one zone lacks details, the remaining account counts identify
+    -- its items exactly when both totals reconcile.
+    local remaining, gaps, onlyGap = {}, 0, nil
+    local consistent = true
+    for id, item in pairs(data.items) do remaining[id] = item.count end
+    for _, zone in pairs(data.zones) do
+        local attributed = 0
+        for id, count in pairs(zone.itemCounts) do
+            attributed = attributed + count
+            AddQuantity(remaining, id, -count)
+        end
+        if attributed > zone.count then consistent = false end
+        zone.unidentified = math.max(0, zone.count - attributed)
+        if zone.unidentified > 0 then gaps, onlyGap = gaps + 1, zone end
+    end
+    if gaps == 1 and consistent then
+        local sum = 0
+        for _, count in pairs(remaining) do
+            if count < 0 then consistent = false end
+            sum = sum + count
+        end
+        if consistent and sum == onlyGap.unidentified then
+            for id, count in pairs(remaining) do
+                if count > 0 then AddQuantity(onlyGap.itemCounts, id, count) end
+            end
+            onlyGap.unidentified = 0
+        end
+    end
+    data.zoneHistoryVersion = 1
+end
+
 local function Count(items, catch)
     local item = items[catch.itemID]
     if not item then
@@ -24,13 +77,14 @@ function Fishing:RecordCatch(catch)
     local data = self.db
     table.insert(data.catches, catch)
     Count(data.items, catch)
-    if catch.zone then
+    if catch.zone and catch.zone ~= "" then
         local zone = data.zones[catch.zone]
         if not zone then
-            zone = { count = 0, subzones = {} }
+            zone = { count = 0, subzones = {}, itemCounts = {} }
             data.zones[catch.zone] = zone
         end
         zone.count = zone.count + (catch.quantity or 1)
+        AddQuantity(zone.itemCounts, catch.itemID, catch.quantity or 1)
         -- Away from a named area the subzone is empty.
         if catch.subzone and catch.subzone ~= "" then
             zone.subzones[catch.subzone] = (zone.subzones[catch.subzone] or 0) + (catch.quantity or 1)

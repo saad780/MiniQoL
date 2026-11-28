@@ -83,6 +83,7 @@ function Fishing:Initialize()
         if type(data[key]) ~= "number" then data[key] = 0 end
     end
     if type(data.sessions) ~= "number" then data.sessions = 0 end
+    self:RestoreZoneHistory()
     -- This session only.
     data.catches, data.casts, data.sessionStart = {}, {}, nil
     data.sessions = data.sessions + 1
