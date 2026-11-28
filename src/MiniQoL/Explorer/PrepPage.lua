@@ -152,8 +152,15 @@ local function controls(y)
         edit:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
         T:Button(row, "Plan zone", 93, 26, function() submit(edit:GetText()) end):SetPoint("TOPLEFT", 277, 0)
         T:Button(row, "Current zone", 105, 26, function() submit("") end):SetPoint("TOPLEFT", 377, 0)
+        row.route = T:Button(row, "Route this zone", 127, 26, function()
+            local route = Wayfinder and Wayfinder.QuestRoute
+            if not (selected and route) then return end
+            if row.routing then route:Stop() else route:Start(selected.mapID) end
+            ns:Refresh()
+        end)
+        row.route:SetPoint("TOPLEFT", 489, 0)
     end
-    return y + 34, row.edit
+    return y + 34, row.edit, row
 end
 
 local function renderStep(i, step, y)
@@ -166,15 +173,19 @@ local function renderStep(i, step, y)
         row.detail = T:Text(row, "", "GameFontHighlightSmall", 495, T.MUTED)
         row.detail:SetPoint("TOPLEFT", 4, -22)
         row.detail:SetWordWrap(false)
-        row.pin = T:Button(row, "Waypoint", 94, 23, function() E.Waypoint(row.target) end)
+        row.pin = T:Button(row, "Waypoint", 94, 23, function()
+            if row.routeKey then Wayfinder.QuestRoute:Click(row.routeKey, "follow") else E.Waypoint(row.target) end
+        end)
         row.pin:SetPoint("RIGHT", -5, 0)
         T:Tip(row, function() return row.title:GetText() end, function() return row.detail:GetText() end)
     end
     local place = step.place
     local title = step.kind and (step.label .. " · " .. step.quest) or step.quest
     local parts = {}
-    if not step.kind then parts[#parts + 1] = step.label end
-    if step.after then parts[#parts + 1] = step.after end
+    row.routeKey = step.routeKey
+    if step.routeKey then title = step.title end
+    if not step.kind and (not step.routeKey or not title:find(step.label, 1, true)) then parts[#parts + 1] = step.label end
+    if step.after and (not step.routeKey or not title:find(step.after, 1, true)) then parts[#parts + 1] = step.after end
     if place then
         if place.name then parts[#parts + 1] = place.name end
         parts[#parts + 1] = (place.mapID and E.MapName(place.mapID)) or C_Map.GetAreaInfo(place.area) or "Unknown area"
@@ -183,7 +194,8 @@ local function renderStep(i, step, y)
     row.title:SetText(title)
     row.detail:SetText(table.concat(parts, " · "))
     row.target = place and { mapID = place.mapID, name = title, x = place.x, y = place.y }
-    row.pin:SetShown(place and place.x and true or false)
+    row.pin:SetText(step.routeKey and "Follow" or "Waypoint")
+    row.pin:SetShown((step.routeKey or (place and place.x)) and true or false)
     return y + 45
 end
 
@@ -192,8 +204,8 @@ function Prep:Render(y)
         return ns:Note("prep.provider", Questie and "Waiting for Questie's Forever database to finish loading."
             or "Enable Questie and QuestieDB for WoW Forever to plan a zone.", y)
     end
-    local edit
-    y, edit = controls(y)
+    local edit, form
+    y, edit, form = controls(y)
     if request or (not selected and not message) then
         local key = ns.Characters and ns.Characters.PlayerKey()
         local saved = key and ns.db.prepZones and ns.db.prepZones[key]
@@ -202,6 +214,15 @@ function Prep:Render(y)
         selectZone(text)
         edit:SetText(selected and not message and selected.name or text)
     end
+    local route = Wayfinder and Wayfinder.db and Wayfinder.QuestRoute
+    local active = route and route:Enabled()
+    local destination = active and (route:Destination() or currentZone())
+    form.routing = selected and destination == selected.mapID
+    form.route:SetEnabled(not not (selected and not message and route))
+    form.route:SetText(form.routing and "Stop zone route" or "Route this zone")
+    local live = active and selected and route:GetView()
+    if live and live.mapID ~= selected.mapID then live = nil end
+    if form.routing then y = ns:Note("prep.routeStatus", route:Status(), y) end
     if message then y = ns:Note("prep.message", message, y) end
     if not job then return y end
     if job.error then return ns:Note("prep.error", "Quest data could not be read. Choose Plan zone to retry.", y) end
@@ -209,9 +230,10 @@ function Prep:Render(y)
     if not job.sections then return ns:Note("prep.progress", "Finding quests and their prerequisites for " .. selected.name .. "…", y) end
     y = ns:Section("prep.zone", selected.name, y)
     y = ns:Note("prep.summary", job.summary, y)
-    if not job.view or #job.sections[job.view] == 0 then
+    local sections = {job.sections[1], job.sections[2], job.sections[3], job.sections[4], live and live.stops or {}}
+    if not job.view or #sections[job.view] == 0 then
         job.view = nil
-        for i, section in ipairs(job.sections) do
+        for i, section in ipairs(sections) do
             if #section > 0 then job.view = i; page = 1; break end
         end
     end
@@ -219,26 +241,26 @@ function Prep:Render(y)
     local filter = ns:Row("prep.views", 30)
     filter:SetPoint("TOPLEFT", 0, -y)
     filter.buttons = filter.buttons or {}
-    for i, label in ipairs({ "Before travel", "Zone itinerary", "To check", "Shared sources" }) do
+    for i, label in ipairs({ "Before travel", "Zone itinerary", "To check", "Shared sources", "Live route" }) do
         local button = filter.buttons[i]
         if not button then
-            button = T:Button(filter, "", 143, 23, function()
+            button = T:Button(filter, "", 118, 23, function()
                 job.view, page = i, 1
                 ns.scroll:SetVerticalScroll(0)
                 ns:Refresh()
             end)
-            button:SetPoint("TOPLEFT", (i - 1) * 149, 0)
+            button:SetPoint("TOPLEFT", (i - 1) * 124, 0)
             filter.buttons[i] = button
         end
-        button:SetText(label .. " (" .. #job.sections[i] .. ")")
+        button:SetText(label .. " (" .. #sections[i] .. ")")
         button:SetPrimary(job.view == i)
-        button:SetEnabled(#job.sections[i] > 0)
+        button:SetEnabled(#sections[i] > 0)
     end
     y = y + 30
     if job.view == 4 then
         y = ns:Note("prep.optional", "These quests have a source here and in other zones. Their pickups are optional for this trip.", y)
     end
-    local rows = job.sections[job.view]
+    local rows = sections[job.view]
     local total = #rows
     local pages = math.ceil(total / perPage)
     page = math.min(page, pages)
@@ -261,8 +283,17 @@ function Prep:Render(y)
     end
     local phase
     for i = 1, perPage do
-        local step = rows[(page - 1) * perPage + i]
+        local index = (page - 1) * perPage + i
+        local step = rows[index]
         if not step then break end
+        if job.view == 5 then
+            local t, p = step.task, step.point
+            local rect = Wayfinder.GetMapRect(live.mapID)
+            local place = { mapID = live.mapID, name = p.name }
+            if rect then place.x, place.y = Wayfinder.WorldToMapRect(rect, p.x, p.y) end
+            step = { routeKey = t.key, title = index .. ". " .. t.label, label = t.quest,
+                after = t.progress, place = place }
+        end
         if step.phase ~= phase then
             phase = step.phase
             y = ns:Section("prep.phase." .. i, phase, y)
@@ -289,4 +320,15 @@ events:SetScript("OnEvent", function()
 end)
 if Questie and Questie.API and Questie.API.RegisterOnReady then
     Questie.API.RegisterOnReady(function() if visible() then ns:Refresh() end end)
+end
+if Wayfinder and Wayfinder.On and Wayfinder.QuestRoute then
+    local shown, status
+    Wayfinder:On("QUEST_ROUTE_CHANGED", function()
+        local route = Wayfinder.QuestRoute
+        local view, nextStatus = route:GetView(), route:Status()
+        if view ~= shown or status ~= nextStatus then
+            shown, status = view, nextStatus
+            if visible() then ns:Refresh() end
+        end
+    end)
 end

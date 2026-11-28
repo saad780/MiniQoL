@@ -126,10 +126,10 @@ end
 local function PlayerWorld(cont)
 	if UnitPosition then
 		local ok, north, west, _, instance = pcall(UnitPosition, "player")
-		if ok and Number(north) and Number(west) and instance == cont then return north, west end
+		if ok and Number(north) and Number(west) and Number(instance) and instance == cont then return north, west end
 	end
-	local playerCont, wx, wy = ns.GetPlayerWorld()
-	if playerCont == cont then return wx, wy end
+	local ok, playerCont, wx, wy = pcall(ns.GetPlayerWorld)
+	if ok and Number(playerCont) and playerCont == cont and Number(wx) and Number(wy) then return wx, wy end
 end
 
 -- The trail's points, in world yards, through To(x, y) into px/py: the player,
@@ -181,43 +181,44 @@ function Ants:BuildMap()
 	layer:SetClipsChildren(true)
 	layer:EnableMouse(false)
 	map.frame, map.point, map.up = layer, "TOPLEFT", -1
+	if ns.QuestRouteView then ns.QuestRouteView:Attach("map", map) end
 	layer:SetScript("OnUpdate", Guarded(function() self:UpdateMap() end, "Wayfinder ant trails (map)"))
 end
 
-function Ants:UpdateMap()
+local function MapProjection(cont)
 	local engine = ns.ContinuousEngine
 	local controller = engine and engine:GetModule("worldmap")
 	local S = engine and engine.MapStitch
-	local cont, endX, endY, xs, ys, idx, joinX, joinY
-	local stitched = controller and controller.IsStitched()
-	if Shows("map") and stitched then
-		cont, endX, endY, xs, ys, idx, joinX, joinY = ns.Navigation:GetTrail()
-	end
-	local areaCont, areaXs, areaYs
-	if not cont and stitched and ShowsArea("map") and ns.Navigation.GetArea then
-		areaCont, areaXs, areaYs = ns.Navigation:GetArea()
-	end
-	local wx, wy
-	if cont then wx, wy = PlayerWorld(cont) end
-	local u, v, zoom
-	if wx or areaCont then u, v, zoom = controller.ViewNow() end
+	if not (S and controller and controller.IsStitched()) then return end
+	local u, v, zoom = controller.ViewNow()
 	local u0, v0, u1, v1, u2, v2
 	if u then
-		local on = cont or areaCont
-		u0, v0 = S.FromYards(on, 0, 0)
-		u1, v1 = S.FromYards(on, 1000, 0)
-		u2, v2 = S.FromYards(on, 0, 1000)
+		u0, v0 = S.FromYards(cont, 0, 0)
+		u1, v1 = S.FromYards(cont, 1000, 0)
+		u2, v2 = S.FromYards(cont, 0, 1000)
 	end
-	if not u2 then Show(map, 0); return end
+	if not u2 then return end
 	local sc = WorldMapFrame.ScrollContainer
 	mapW, mapH = sc:GetWidth(), sc:GetHeight()
 	local hu, hv = controller.ViewHalfExtents(zoom)
+	if not (hu and hv and hu > 0 and hv > 0) then return end
 	local kx, ky = mapW / (2 * hu), mapH / (2 * hv)
 	ax, bx, cx = (u0 - u) * kx + mapW / 2, (u1 - u0) / 1000 * kx, (u2 - u0) / 1000 * kx
 	ay, by, cy = (v0 - v) * ky + mapH / 2, (v1 - v0) / 1000 * ky, (v2 - v0) / 1000 * ky
 	-- Above the map's art, its terrain and the fog over it; under its icons.
 	local level = (S.artTop or sc:GetFrameLevel()) + 2
 	if map.frame:GetFrameLevel() ~= level then map.frame:SetFrameLevel(level) end
+	return MapPoint, mapW, mapH
+end
+
+function Ants:UpdateMap()
+	local cont, endX, endY, xs, ys, idx, joinX, joinY
+	if Shows("map") then cont, endX, endY, xs, ys, idx, joinX, joinY = ns.Navigation:GetTrail() end
+	local areaCont, areaXs, areaYs
+	if not cont and ShowsArea("map") and ns.Navigation.GetArea then areaCont, areaXs, areaYs = ns.Navigation:GetArea() end
+	local wx, wy
+	if cont then wx, wy = PlayerWorld(cont) end
+	if not ((wx or areaCont) and MapProjection(cont or areaCont)) then Show(map, 0); return end
 	if areaCont then
 		March(map, AreaPoints(MapPoint, areaXs, areaYs), GetTime(), MapNear, MapInside)
 	else
@@ -247,14 +248,38 @@ function Ants:BuildZone()
 	layer:SetClipsChildren(true)
 	layer:EnableMouse(false)
 	zone.frame, zone.point, zone.up = layer, "TOPLEFT", -1
+	if ns.QuestRouteView then ns.QuestRouteView:Attach("zone", zone) end
 	layer:SetScript("OnUpdate", Guarded(function() self:UpdateZone() end, "Wayfinder ant trails (zone map)"))
 end
 
-function Ants:UpdateZone()
+local function ZoneCanvas()
 	local zoneMap = BattlefieldMapFrame
 	local canvas = zoneMap and zoneMap:IsShown() and zoneMap.GetCanvas and zoneMap:GetCanvas()
 	local mapID = canvas and ns:GetSetting("zoneMap") and zoneMap:GetMapID()
 	local rect = mapID and ns.GetMapRect(mapID)
+	return canvas, rect
+end
+
+local function ZoneProjection(canvas, rect)
+	local layer = zone.frame
+	local cl, ct, ll, lt = canvas and canvas:GetLeft(), canvas and canvas:GetTop(), layer:GetLeft(), layer:GetTop()
+	if not (cl and ct and ll and lt) or rect.width == 0 or rect.height == 0 then return end
+	-- The canvas in the layer's units: where its top left is, and its size.
+	local k = canvas:GetEffectiveScale() / layer:GetEffectiveScale()
+	local cw, ch = canvas:GetWidth() * k, canvas:GetHeight() * k
+	local ox, oy = cl * k - ll, lt - ct * k
+	zoneW, zoneH = layer:GetWidth(), layer:GetHeight()
+	-- (u, v) on the map is ((left - west) / width, (top - north) / height).
+	zax, zcx = ox + cw * rect.left / rect.width, -cw / rect.width
+	zay, zby = oy + ch * rect.top / rect.height, -ch / rect.height
+	-- Over the explored-area art, under the map's icons (MapPins.ZoneTrailLevel).
+	local level = (ns.MapPins and ns.MapPins.ZoneTrailLevel and ns.MapPins.ZoneTrailLevel(BattlefieldMapFrame)) or (canvas:GetFrameLevel() + 1)
+	if layer:GetFrameLevel() ~= level then layer:SetFrameLevel(level) end
+	return ZonePoint, zoneW, zoneH
+end
+
+function Ants:UpdateZone()
+	local canvas, rect = ZoneCanvas()
 	local cont, endX, endY, xs, ys, idx, joinX, joinY
 	if rect and Shows("map") then cont, endX, endY, xs, ys, idx, joinX, joinY = ns.Navigation:GetTrail() end
 	if cont and cont ~= rect.cont then cont = nil end
@@ -265,23 +290,7 @@ function Ants:UpdateZone()
 	end
 	local wx, wy
 	if cont then wx, wy = PlayerWorld(cont) end
-	local layer = zone.frame
-	local cl, ct, ll, lt = canvas and canvas:GetLeft(), canvas and canvas:GetTop(), layer:GetLeft(), layer:GetTop()
-	if not ((wx or areaCont) and cl and ct and ll and lt) or rect.width == 0 or rect.height == 0 then
-		Show(zone, 0)
-		return
-	end
-	-- The canvas in the layer's units: where its top left is, and its size.
-	local k = canvas:GetEffectiveScale() / layer:GetEffectiveScale()
-	local cw, ch = canvas:GetWidth() * k, canvas:GetHeight() * k
-	local ox, oy = cl * k - ll, lt - ct * k
-	zoneW, zoneH = layer:GetWidth(), layer:GetHeight()
-	-- (u, v) on the map is ((left - west) / width, (top - north) / height).
-	zax, zcx = ox + cw * rect.left / rect.width, -cw / rect.width
-	zay, zby = oy + ch * rect.top / rect.height, -ch / rect.height
-	-- Over the explored-area art, under the map's icons (MapPins.ZoneTrailLevel).
-	local level = (ns.MapPins and ns.MapPins.ZoneTrailLevel and ns.MapPins.ZoneTrailLevel(zoneMap)) or (canvas:GetFrameLevel() + 1)
-	if layer:GetFrameLevel() ~= level then layer:SetFrameLevel(level) end
+	if not ((wx or areaCont) and ZoneProjection(canvas, rect)) then Show(zone, 0); return end
 	if areaCont then
 		March(zone, AreaPoints(ZonePoint, areaXs, areaYs), GetTime(), ZoneNear, ZoneInside)
 	else
@@ -331,8 +340,33 @@ function Ants:BuildMinimap()
 	layer:SetFrameLevel(Minimap:GetFrameLevel() + 5) -- under Wayfinder's service icons
 	layer:EnableMouse(false)
 	mini.frame, mini.point, mini.up = layer, "CENTER", 1
+	if ns.QuestRouteView then ns.QuestRouteView:Attach("mini", mini) end
 	layer:SetScript("OnUpdate", Guarded(function() self:UpdateMinimap() end, "Wayfinder ant trails (minimap)"))
 end
+
+local function MiniProjection(wx, wy)
+	local viewRadius = wx and C_Minimap and C_Minimap.GetViewRadius and C_Minimap.GetViewRadius()
+	if not Number(viewRadius) or viewRadius <= 0 then return end
+	local now = GetTime()
+	ReadMinimap(now)
+	local facing = mini.rotate and GetPlayerFacing and GetPlayerFacing() or 0
+	if not Number(facing) then facing = 0 end
+	playerX, playerY, radius = wx, wy, viewRadius
+	halfW, halfH = Minimap:GetWidth() / 2, Minimap:GetHeight() / 2
+	if halfW < 16 or halfH < 16 then return end
+	cosine, sine = cos(facing), sin(facing)
+	return MiniPoint, halfW * 2, halfH * 2, not square
+end
+
+-- Each projection is valid for the current draw call. The route and the
+-- waypoint trail share the canvas transform, including minimap rotation.
+function Ants:RouteProjection(name, cont, wx, wy)
+	if name == "map" then return MapProjection(cont) end
+	if name == "mini" then return MiniProjection(wx, wy) end
+	local canvas, rect = ZoneCanvas()
+	if rect and rect.cont == cont then return ZoneProjection(canvas, rect) end
+end
+Ants.PlayerWorld = PlayerWorld
 
 function Ants:UpdateMinimap()
 	local cont, endX, endY, xs, ys, idx, joinX, joinY
@@ -343,16 +377,8 @@ function Ants:UpdateMinimap()
 	end
 	local wx, wy
 	if cont or areaCont then wx, wy = PlayerWorld(cont or areaCont) end
-	local viewRadius = wx and C_Minimap and C_Minimap.GetViewRadius and C_Minimap.GetViewRadius()
-	if not Number(viewRadius) or viewRadius <= 0 then Show(mini, 0); return end
+	if not MiniProjection(wx, wy) then Show(mini, 0); return end
 	local now = GetTime()
-	ReadMinimap(now)
-	local facing = mini.rotate and GetPlayerFacing and GetPlayerFacing() or 0
-	if not Number(facing) then facing = 0 end
-	playerX, playerY, radius = wx, wy, viewRadius
-	halfW, halfH = Minimap:GetWidth() / 2, Minimap:GetHeight() / 2
-	if halfW < 16 or halfH < 16 then Show(mini, 0); return end
-	cosine, sine = cos(facing), sin(facing)
 	if areaCont then
 		March(mini, AreaPoints(MiniPoint, areaXs, areaYs), now, MiniNear, MiniInside)
 	else

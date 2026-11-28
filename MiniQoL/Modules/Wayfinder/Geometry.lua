@@ -113,15 +113,15 @@ end
 -- Returns continentID, wx, wy, uiMapID, mapX, mapY or nil (instances, loading).
 function ns.GetPlayerWorld()
 	local mapID = C_Map.GetBestMapForUnit("player")
-	if not mapID then
+	if not ns.Readable(mapID) then
 		return nil
 	end
 	local pos = C_Map.GetPlayerMapPosition(mapID, "player")
-	if not pos then
+	if not ns.Readable(pos) then
 		return nil
 	end
 	local x, y = pos:GetXY()
-	if not x or not y or (x == 0 and y == 0) then
+	if not ns.Readable(x) or not ns.Readable(y) or (x == 0 and y == 0) then
 		return nil
 	end
 	local cont, wx, wy = ns.MapToWorld(mapID, x, y)

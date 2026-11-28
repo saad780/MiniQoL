@@ -55,6 +55,11 @@ Navigation.lua
 TomTom.lua
 Polestar.lua
 QuestWaypoints.lua
+QuestRoute.lua
+QuestRouteData.lua
+QuestRouteWalking.lua
+QuestRouteController.lua
+QuestRouteView.lua
 GroupWaypoints.lua
 TargetFinder.lua
 TargetFinderQuests.lua

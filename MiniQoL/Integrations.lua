@@ -155,6 +155,32 @@ wayfinder("arrowTime", "Waypoints", "Show the time to get there",
     "Under the arrow's distance, how long that walk takes at the speed you're moving (or would run or ride at, standing still). The distance is the walk itself, not the straight line. On a trip with a flight, boat or portal it is the walk to the next stop.")
 wayfinderSlider("arrowScale", "Waypoints", "Arrow size", nil, 0.5, 2, 0.1, Percent)
 
+wayfinder("questRoute", "Zone quest route", "Show my zone quest route",
+    "Number the stops for your current quests on the world map, zone map and minimap. Location Prep can also start a route when you arrive at a destination.")
+wayfinder("questRouteTurnins", "Zone quest route", "Include turn-ins")
+wayfinder("questRoutePickups", "Zone quest route", "Include worthwhile quest pickups")
+wayfinderSlider("questRouteWorth", "Zone quest route", "Detour per new quest",
+    "The extra walking distance worth spending on a new quest.", 100, 5000, 100, Yards)
+feature({ id = "wayfinder.questRouteLevelWindow", page = "maps", group = "Zone quest route", label = "Pickup quest levels",
+    kind = "select", addon = "Wayfinder", available = mapReady,
+    choices = { { "range", "Within level range" }, { "above", "Up to levels above" }, { "below", "Down to levels below" },
+        { "green", "Green quests only" }, { "any", "Any available level" } },
+    get = function() return Wayfinder:GetSetting("questRouteLevelWindow") end,
+    set = function(value) Wayfinder:SetSetting("questRouteLevelWindow", value) end })
+wayfinderSlider("questRouteAbove", "Zone quest route", "Levels above me", nil, 0, 10, 1)
+wayfinderSlider("questRouteBelow", "Zone quest route", "Levels below me", nil, 0, 20, 1)
+wayfinder("questRouteWalk", "Zone quest route", "Follow walking paths")
+wayfinder("questRouteAvoidTowns", "Zone quest route", "Avoid enemy towns")
+wayfinder("questRouteRoads", "Zone quest route", "Prefer roads for quest routes")
+wayfinder("questRouteDry", "Zone quest route", "Prefer dry ground")
+wayfinder("questRouteArrow", "Zone quest route", "Point the arrow at the next stop")
+wayfinder("questRouteMove", "Zone quest route", "Re-plan as I move")
+wayfinder("questRouteOutline", "Zone quest route", "Outline the camp when I arrive")
+wayfinder("questRouteShowSkipped", "Zone quest route", "Show skipped stops")
+wayfinder("questRouteDashed", "Zone quest route", "Draw a dashed line")
+wayfinderSlider("questRouteOpacity", "Zone quest route", "Line opacity", nil, 0.1, 1, 0.05, Percent)
+wayfinderSlider("questRouteMarkerSize", "Zone quest route", "Stop marker size", nil, 12, 36, 1)
+
 wayfinder("shareGroupWaypoint", "Group waypoint", "Share my waypoint as group leader",
     "When you lead a party or raid, the waypoint your arrow is on goes to the group members who have Mini QoL, and lands on their arrow. As your arrow moves on, theirs follows; with no waypoint left, or sharing switched off, theirs goes. A waypoint on your corpse is never shared.")
 wayfinder("reportGroupWaypoint", "Group waypoint", "Tell me who got it",

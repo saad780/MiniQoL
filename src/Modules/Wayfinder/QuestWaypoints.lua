@@ -114,10 +114,11 @@ QuestWaypoints.CAMP_YARDS, QuestWaypoints.AREA_MARGIN = CAMP_YARDS, AREA_MARGIN
 -- CAMP_YARDS, else starts one. Camps are filed in squares CAMP_YARDS wide, so
 -- a quest with thousands of spawns doesn't try every camp for every spawn.
 -- Returns { x, y, count, weight, spawns, names }.
-function QuestWaypoints.Camps(spawns)
+function QuestWaypoints.Camps(spawns, tick)
 	local camps, squares = {}, {}
 	local floor = math.floor
-	for _, spawn in ipairs(spawns) do
+	for index, spawn in ipairs(spawns) do
+		if tick and index % 48 == 0 then tick() end
 		local sx, sy = floor(spawn.x / CAMP_YARDS), floor(spawn.y / CAMP_YARDS)
 		local best, bestDistance
 		for i = sx - 1, sx + 1 do
@@ -145,11 +146,25 @@ function QuestWaypoints.Camps(spawns)
 			best.names[spawn.name] = (best.names[spawn.name] or 0) + 1
 		end
 	end
+	-- Index the final centres again: a growing camp can move out of the
+	-- square in which it was created. Weighting used to compare every pair.
+	local neighbors = {}
 	for _, camp in ipairs(camps) do
+		local key = floor(camp.x / NEARBY_YARDS) * 65536 + floor(camp.y / NEARBY_YARDS)
+		neighbors[key] = neighbors[key] or {}
+		table.insert(neighbors[key], camp)
+	end
+	for index, camp in ipairs(camps) do
+		if tick and index % 48 == 0 then tick() end
 		local near = 0
-		for _, other in ipairs(camps) do
-			if other ~= camp and ns.Distance(camp.x, camp.y, other.x, other.y) <= NEARBY_YARDS then
-				near = near + other.count
+		local sx, sy = floor(camp.x / NEARBY_YARDS), floor(camp.y / NEARBY_YARDS)
+		for i = sx - 1, sx + 1 do
+			for j = sy - 1, sy + 1 do
+				for _, other in ipairs(neighbors[i * 65536 + j] or {}) do
+					if other ~= camp and ns.Distance(camp.x, camp.y, other.x, other.y) <= NEARBY_YARDS then
+						near = near + other.count
+					end
+				end
 			end
 		end
 		camp.weight = camp.count + NEARBY_SHARE * near

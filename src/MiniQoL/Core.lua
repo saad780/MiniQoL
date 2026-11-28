@@ -226,6 +226,12 @@ SlashCmdList.MINIQOL = function(input)
         else
             ns:Print("Enable Wayfinder to use Target Finder.")
         end
+    elseif command == "route" then
+        if Wayfinder and Wayfinder.db and Wayfinder.QuestRoute then
+            Wayfinder.QuestRoute:Command(rest:lower())
+        else
+            ns:Print("Enable Wayfinder to use the zone quest route.")
+        end
     elseif command == "prep" then
         ns.Explorer.Prep:Open(rest)
     elseif command == "find" then

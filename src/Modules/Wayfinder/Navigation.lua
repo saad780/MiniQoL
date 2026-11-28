@@ -792,6 +792,10 @@ local function AskWalk(engine, follow, compat, danger, cont, wx, wy, mapID, styl
 	local options = { style = style, waterWalking = ghost, profile = profile,
 		walkLevel = profile and danger and danger.Blocked and (level or 0) or nil,
 		danger = level and danger.Table and danger.Table(level, mapID, rec.m) }
+	if rec.source == "route" and ns.QuestRouteWalking then
+		options = ns.QuestRouteWalking.Options(mapID, ghost)
+		profile = options.profile
+	end
 	local function Finished(points, reason, result)
 		if walk ~= route then return end
 		route.job, route.pending, route.previous = nil, false, nil
@@ -825,6 +829,8 @@ local function AskWalk(engine, follow, compat, danger, cont, wx, wy, mapID, styl
 		route.xs, route.ys, route.zs, route.left, route.state = xs, ys, zs, left, state
 		route.partial = result and result.reached
 	end
+	local measured = rec.source == "route" and ns.QuestRoute and ns.QuestRoute:MeasuredPath(rec, wx, wy)
+	if measured then Finished(measured); return end
 	local ok, job = pcall(engine.Find, cont, { x = wx, y = wy, z = PlayerHeight(compat, cont) },
 		{ x = rec.x, y = rec.y, z = rec.z }, Finished, options)
 	if route.pending then
@@ -843,7 +849,12 @@ local function UpdateWalk(cont, wx, wy, mapID, rec)
 	local style = Navigation:GetRouteStyle()
 	local ghost = UnitIsGhost and UnitIsGhost("player")
 	ghost = ns.Readable(ghost) and ghost == true
-	if walk and (walk.waypoint ~= rec or walk.style ~= style or walk.ghost ~= ghost) then
+	local policy
+	if rec.source == "route" then
+		policy = (ns:GetSetting("questRouteRoads") and 1 or 0) + (ns:GetSetting("questRouteDry") and 2 or 0)
+			+ (ns:GetSetting("questRouteAvoidTowns") and 4 or 0)
+	end
+	if walk and (walk.waypoint ~= rec or walk.style ~= style or walk.ghost ~= ghost or walk.policy ~= policy) then
 		ClearWalk()
 	end
 	local yards, stray, retryAfter
@@ -889,6 +900,7 @@ local function UpdateWalk(cont, wx, wy, mapID, rec)
 	local needsWalk = not walk or (not walk.pending and stray and stray > REROUTE_YARDS and GetTime() - walk.asked >= retryAfter)
 	if needsWalk and not InCombatLockdown() and engine.Available(cont) then
 		AskWalk(engine, follow, compat, danger, cont, wx, wy, mapID, style, ghost, rec)
+		walk.policy = policy
 		-- A synchronous failure or replacement can already have retired the old path.
 		if walk.previous ~= active then active, yards = nil, nil end
 	end
@@ -943,7 +955,8 @@ end
 
 local function InQuestArea(rec, cont, wx, wy)
 	local area = rec.area
-	if not (ns:GetSetting("questAreas") and type(area) == "table" and area.c == cont and wx) then
+	local showArea = ns:GetSetting(rec.source == "route" and "questRouteOutline" or "questAreas")
+	if not (showArea and type(area) == "table" and area.c == cont and wx) then
 		if type(area) == "table" then area.inside = nil end
 		return false
 	end
@@ -954,7 +967,8 @@ end
 -- The area to outline, while you're in it: continent, xs, ys.
 function Navigation:GetArea()
 	local area = current and current.area
-	if type(area) == "table" and area.inside and ns:GetSetting("questAreas") and arrow and arrow:IsShown() then
+	if type(area) == "table" and area.inside and ns:GetSetting(current.source == "route" and "questRouteOutline" or "questAreas")
+		and arrow and arrow:IsShown() then
 		return area.c, area.xs, area.ys
 	end
 end
@@ -967,7 +981,7 @@ function Navigation:UpdateArrow()
 	trailCont, trailWalk = nil, nil
 	local cont, wx, wy, mapID = ns.GetPlayerWorld()
 	local stop, instruction, caption, usingTransport
-	if ns.Travel then stop, instruction, caption, usingTransport = ns.Travel:Aim(current, cont, wx, wy, mapID) end
+	if ns.Travel and current.source ~= "route" then stop, instruction, caption, usingTransport = ns.Travel:Aim(current, cont, wx, wy, mapID) end
 	local leg = stop or current
 	local away = cont and cont ~= leg.c
 	local step = instruction or caption
@@ -991,7 +1005,9 @@ function Navigation:UpdateArrow()
 
 	local walkDistance, status
 	local guideArrow = ns:GetSetting("followWalkingRoute")
-	if cont and cont == leg.c and not instruction then
+	local routeDirect = current.source == "route" and not ns:GetSetting("questRouteWalk")
+	if current.source == "route" then guideArrow = not routeDirect end
+	if cont and cont == leg.c and not instruction and not routeDirect then
 		trailWalk, walkDistance, status = UpdateWalk(cont, wx, wy, mapID, leg)
 		if not status then trailCont, trailX, trailY = cont, leg.x, leg.y end
 	else

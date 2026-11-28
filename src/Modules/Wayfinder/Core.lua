@@ -63,16 +63,13 @@ local issecretvalue = issecretvalue
 local canaccessvalue = canaccessvalue
 
 function ns.Readable(value)
-	if value == nil then
-		return false
-	end
 	if issecretvalue and issecretvalue(value) then
 		return false
 	end
 	if canaccessvalue and not canaccessvalue(value) then
 		return false
 	end
-	return true
+	return value ~= nil
 end
 
 ---------------------------------------------------------------------------
@@ -181,6 +178,12 @@ ns.defaults = {
 	antTrails = true,            -- dots marching along the arrow's way (AntTrails.lua)
 	antTrailsWhere = "both",     -- "both", "map" or "minimap"
 	antTrailColor = "cyan",
+	questRoute = false,
+	questRouteTurnins = true, questRoutePickups = true, questRouteAvoidTowns = true,
+	questRouteWalk = true, questRouteRoads = false, questRouteDry = true,
+	questRouteArrow = true, questRouteMove = true, questRouteOutline = true,
+	questRouteDashed = true, questRouteShowSkipped = true, questRouteOpacity = 0.8, questRouteMarkerSize = 22,
+	questRouteWorth = 800, questRouteLevelWindow = "range", questRouteAbove = 3, questRouteBelow = 6,
 	indoorView = true,           -- the rooms around you in a corner of the map, indoors (Interiors.lua)
 	travelFlights = true,
 	travelHearth = true,
@@ -220,6 +223,7 @@ local function InitializeDatabase()
 	db.imported = db.imported or {}
 	db.waypoints = db.waypoints or {}
 	db.questAvailability = db.questAvailability or {}
+	db.questRoutes = db.questRoutes or {}
 	db.observations = db.observations or {}
 	-- The last map position and zoom are session state, not settings. Older
 	-- builds saved them per character; drop anything left behind.
@@ -341,7 +345,7 @@ end
 -- lets the newer copy's entries win one by one, "replace" keeps the newer whole.
 local PER_CHARACTER = {
 	explored = "rows", imported = "overlay", questAvailability = "overlay", knownFlights = "overlay",
-	waypoints = "replace", targetFinder = "replace", hearthBinds = "replace",
+	waypoints = "replace", targetFinder = "replace", hearthBinds = "replace", questRoutes = "replace",
 }
 
 local function Or(a, b)

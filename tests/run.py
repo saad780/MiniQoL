@@ -106,6 +106,10 @@ arrow_snap = LuaRuntime(unpack_returned_tuples=True)
 arrow_snap.execute((root / "tests/arrow_snap.lua").read_text(), str(package).replace("\\", "/"))
 
 from walking_routes import check_walking_routes
+for name in ("planner", "data", "walking", "controller", "view"):
+    LuaRuntime(unpack_returned_tuples=True).execute(
+        (root / f"tests/quest_route_{name}.lua").read_text(encoding="utf-8"), package.resolve().as_posix())
+
 check_walking_routes(package)
 
 LuaRuntime(unpack_returned_tuples=True).execute(

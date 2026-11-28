@@ -20,6 +20,20 @@ Quests with missing locations or unmet requirements appear under **To check**.
 **Shared sources** lists incidental work, such as cloth that also drops in
 other zones. Coverage follows your installed quest data.
 
+Choose **Route this zone** in Location Prep to put numbered stops on the world
+map, minimap and Shift+M zone map when you arrive. **Live route** lists the
+same stops. For the zone you're already in, use `/mqol route`. The route
+starts at your character, groups work in creature camps, and schedules
+each turn-in after the remaining objectives. An available pickup can join
+the route when the detour fits your settings and you have a free quest slot.
+
+Click a stop to follow its quest with MiniQoL's arrow. Click a shared marker
+again to cycle quests. **Ctrl-click** skips or restores a stop for this
+character. **Shift-click** makes it next, following any prerequisites first.
+`/mqol route why` explains omissions, `/mqol route reset` restores skips,
+and `/mqol route off` stops routing. **Maps & travel → Zone quest route**
+controls the pickup level window, walking preferences and map appearance.
+
 The continuous map keeps where you panned and zoomed for as long as it is open,
 and for 45 seconds after you close it. Opened later than that, or opened and
 closed without being moved, it shows the whole zone you are in (or your city),

@@ -493,6 +493,31 @@ do
     local itinerary = ns.rows["prep.views"].buttons[2]
     itinerary.scripts.OnClick(itinerary)
     assert(ns.rows["prep.step.1"].title:GetText():find("Turn in"))
+    local active, selectedMap, followed, arg
+    local task = {key="142:work:2", label="Collect eggs", quest="Incoming quest", kind="objective", progress="2/6"}
+    Wayfinder.QuestRoute = {
+        Enabled=function() return active end, Destination=function() return selectedMap end,
+        Start=function(_, id) active, selectedMap = true, id end,
+        Stop=function() active=false end, Status=function() return "1 route stop" end,
+        GetView=function() return {mapID=selectedMap, stops={{task=task, point={x=0,y=0}}}} end,
+        Click=function(_, key, action) assert(action=="follow"); followed=key end,
+        Command=function(_, value) arg=value end,
+    }
+    Wayfinder.GetMapRect=function() return nil end
+    ns:Refresh()
+    local start = ns.rows["prep.zone"].route
+    start.scripts.OnClick(start)
+    assert(active and selectedMap==2 and start:GetText()=="Stop zone route")
+    local live = ns.rows["prep.views"].buttons[5]
+    live.scripts.OnClick(live)
+    local stop = ns.rows["prep.step.1"]
+    assert(stop.title:GetText()=="1. Collect eggs" and stop.detail:GetText():find("2/6"))
+    stop.pin.scripts.OnClick(stop.pin)
+    assert(followed==task.key)
+    SlashCmdList.MINIQOL("route why")
+    assert(arg=="why")
+    start.scripts.OnClick(start)
+    assert(not active)
     local edit = ns.rows["prep.zone"].edit
     edit:SetText("no such zone")
     edit.scripts.OnEnterPressed(edit)

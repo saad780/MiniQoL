@@ -48,6 +48,8 @@ R:Install({ order = { "Wayfinder" }, modules = {
 } })
 assert(loadfile(root .. "/Modules/Wayfinder/Geometry.lua"))()
 local ns = R.namespaces.Wayfinder
+local secret = {}
+ns.Readable = function(v) return v ~= nil and v ~= secret end
 
 -- Exercise the exact coordinate path used by Exploration:Sample, with native
 -- return values that fail unless the caller exposes Vector2DMixin directly.
@@ -63,6 +65,8 @@ end
 C_Map.GetPlayerMapPosition = function() return nil end
 noPosition()
 C_Map.GetPlayerMapPosition = function() return CreateVector2D(0, 0) end
+noPosition()
+C_Map.GetPlayerMapPosition = function() return CreateVector2D(secret, 0.5) end
 noPosition()
 C_Map.GetBestMapForUnit = function() return nil end
 noPosition()

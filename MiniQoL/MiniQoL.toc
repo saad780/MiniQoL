@@ -78,6 +78,11 @@ Modules\Wayfinder\Navigation.lua
 Modules\Wayfinder\TomTom.lua
 Modules\Wayfinder\Polestar.lua
 Modules\Wayfinder\QuestWaypoints.lua
+Modules\Wayfinder\QuestRoute.lua
+Modules\Wayfinder\QuestRouteData.lua
+Modules\Wayfinder\QuestRouteWalking.lua
+Modules\Wayfinder\QuestRouteController.lua
+Modules\Wayfinder\QuestRouteView.lua
 Modules\Wayfinder\GroupWaypoints.lua
 Modules\Wayfinder\TargetFinder.lua
 Modules\Wayfinder\TargetFinderQuests.lua
