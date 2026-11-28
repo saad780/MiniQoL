@@ -10,3 +10,4 @@ addon-backups/
 Account/
 .env
 .env.*
+tools/.cache/

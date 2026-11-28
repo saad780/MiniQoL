@@ -22,6 +22,7 @@ Data\MapOverlays.lua
 Data\Seed.lua
 Data\Transports.lua
 Data\Independent.lua
+Data\Interiors.lua
 
 Database.lua
 Observations.lua
@@ -61,4 +62,5 @@ TargetFinderUI.lua
 TargetFinderRows.lua
 MinimapServices.lua
 AntTrails.lua
+Interiors.lua
 Options.lua

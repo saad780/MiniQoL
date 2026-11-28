@@ -181,6 +181,7 @@ ns.defaults = {
 	antTrails = true,            -- dots marching along the arrow's way (AntTrails.lua)
 	antTrailsWhere = "both",     -- "both", "map" or "minimap"
 	antTrailColor = "cyan",
+	indoorView = true,           -- the rooms around you in a corner of the map, indoors (Interiors.lua)
 	travelFlights = true,
 	travelHearth = true,
 	travelTransports = true,
@@ -537,6 +538,8 @@ local function HandleSlash(input)
 		else
 			ns.Print(("%d independent observations collected. /wf survey transport records a dock or portal."):format(CountTable(ns.db.observations)))
 		end
+	elseif command == "indoors" then
+		ns.Interiors:Command(rest:lower())
 	elseif command == "convergence" then
 		ns.Convergences:MarkHere()
 	elseif command == "share" then
@@ -581,6 +584,7 @@ local function HandleSlash(input)
 		print("   /wf add <shared waypoint>  - add a pasted waypoint")
 		print("   /wf clear [all]  - remove the arrow's waypoint, or all of them")
 		print("   /wf arrow  - show or hide the waypoint arrow")
+		print("   /wf indoors [rotate]  - what the indoor view knows here; rotate: draw rooms the other way")
 		print("   /wf import  - re-read explored areas from the world map")
 		print("   /wf reset pois|exploration|all")
 	end
