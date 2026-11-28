@@ -41,6 +41,17 @@ and to any flight master, dock or portal on the way. Outside walking map
 coverage, the dots lead straight to the next stop or waypoint. **Ant trails on**
 chooses which maps show the dots, and **Ant trail color** sets their color.
 
+Inside a building, cave or tunnel the world map only shows the roof or the hill
+above you. **Indoor view** (under **Maps & travel → Detail view**, on by default)
+draws the rooms around you in the map's bottom right corner instead, from the
+game's own room maps (the ones the minimap shows indoors), north up, with you in
+the middle. The game doesn't tell addons how high you are, so the floor shown is
+worked out: the ground floor when you come in, then the stairs and doorways you
+take. If it's wrong, pick a floor with the buttons on its left (G, B, 2 ...); your
+pick holds until you walk on a few yards or take a staircase. Scroll over it to
+zoom, and its x hides it until you next go indoors. `/wf indoors` says what it
+knows about where you stand.
+
 Middle-click a destination to get travel instructions for any flight, boat,
 zeppelin, tram or portal that gets you there sooner. At the stop, the guide
 names the ride or flight to take. After arrival it continues toward your original

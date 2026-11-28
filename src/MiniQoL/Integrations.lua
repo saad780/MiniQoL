@@ -81,6 +81,8 @@ wayfinder("shareExploration", "Detail view", "Share exploration between characte
 wayfinder("showLiveQuests", "Detail view", "Show quest markers",
     "Mark available quests and completed quests ready to turn in, using the game's map locations.")
 wayfinderSlider("detailIconScale", "Detail view", "Detail view icon size", nil, 0.6, 2, 0.1, Percent)
+wayfinder("indoorView", "Detail view", "Indoor view",
+    "Inside a building, cave or tunnel, show the rooms around you in the map's bottom right corner, drawn from the game's own room maps. The floor shown is worked out from the stairs and doorways you take; pick another with the buttons on its left. Scroll over it to zoom.")
 wayfinderSlider("revealRadius", "Detail view", "Reveal radius",
     "How far around you counts as explored. Minimap uses whatever your minimap currently shows.",
     0, 300, 10, Yards)
