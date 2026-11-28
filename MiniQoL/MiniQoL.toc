@@ -106,6 +106,9 @@ Explorer\Core.lua
 Explorer\Search.lua
 Explorer\Upgrades.lua
 Explorer\Page.lua
+Explorer\PrepData.lua
+Explorer\PrepRoute.lua
+Explorer\PrepPage.lua
 Characters.lua
 AltGear.lua
 Mail.lua

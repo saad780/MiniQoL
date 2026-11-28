@@ -163,7 +163,7 @@ function ns:CreateSidebar()
             y = y + 21
         end
         local tab = CreateFrame("Button", nil, panel)
-        tab:SetSize(SIDEBAR - 16, 25)
+        tab:SetSize(SIDEBAR - 16, 24)
         tab:SetPoint("TOPLEFT", 8, -y)
         tab.fill = tab:CreateTexture(nil, "BACKGROUND")
         tab.fill:SetAllPoints()
@@ -195,7 +195,7 @@ function ns:CreateSidebar()
             ns:Render()
         end)
         self.tabs[page.id] = tab
-        y = y + 26
+        y = y + 24
     end
 end
 
@@ -606,7 +606,7 @@ function ns:Render()
     end
 
     local explorer = not searching and self.Explorer
-    local customPage = explorer and (page.id == "nearby" or page.id == "worldsearch")
+    local customPage = explorer and (page.id == "nearby" or page.id == "worldsearch" or page.id == "prep")
     local y = 0
     if page.id == "home" and not searching then
         y = self:Section("modules", "Modules", y)
@@ -631,6 +631,7 @@ function ns:Render()
         y = self:FeatureBlock(features, y, true)
     elseif customPage then
         if page.id == "nearby" then y = explorer:RenderNearby(y)
+        elseif page.id == "prep" then y = explorer.Prep:Render(y)
         else y = explorer:RenderSearch(y) end
     elseif searching then
         if #features > 0 then

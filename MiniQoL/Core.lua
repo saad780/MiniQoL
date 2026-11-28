@@ -12,6 +12,8 @@ ns.pages = {
       description = "Gear upgrades from vendors, quests, drops and dungeons in your area." },
     { id = "worldsearch", label = "World search", group = "Explore",
       description = "Find NPCs, creatures, quests, items, gathering spots and places." },
+    { id = "prep", label = "Location Prep", group = "Explore",
+      description = "Plan pickups before traveling and follow quest chains through your destination." },
     { id = "maps", label = "Maps & travel", group = "Modules", module = "Wayfinder",
       description = "Exploration, service icons, navigation and travel." },
     { id = "bags", label = "Gear advice", group = "Modules", module = "Gearwise",
@@ -224,6 +226,8 @@ SlashCmdList.MINIQOL = function(input)
         else
             ns:Print("Enable Wayfinder to use Target Finder.")
         end
+    elseif command == "prep" then
+        ns.Explorer.Prep:Open(rest)
     elseif command == "find" then
         ns.Explorer:OpenSearch(rest)
     elseif command == "nearby" then

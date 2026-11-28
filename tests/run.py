@@ -79,6 +79,8 @@ polestar = LuaRuntime(unpack_returned_tuples=True)
 polestar.execute((root / "tests/polestar.lua").read_text(), str(package).replace("\\", "/"))
 
 quest_waypoints = LuaRuntime(unpack_returned_tuples=True)
+LuaRuntime(unpack_returned_tuples=True).execute(
+    (root / "tests/location_prep.lua").read_text(encoding="utf-8"), package.resolve().as_posix())
 quest_waypoints.execute((root / "tests/quest_waypoints.lua").read_text(), str(package).replace("\\", "/"))
 
 LuaRuntime(unpack_returned_tuples=True).execute(

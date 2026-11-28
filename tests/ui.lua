@@ -105,7 +105,7 @@ assert(loadfile(root .. "/Core.lua"))("MiniQoL", ns)
 assert(loadfile(root .. "/Menus.lua"))("MiniQoL", ns)
 assert(loadfile(root .. "/Theme.lua"))("MiniQoL", ns)
 ns:Initialize()
-for _, file in ipairs({ "Core", "Search", "Upgrades", "Page" }) do
+for _, file in ipairs({ "Core", "Search", "Upgrades", "Page", "PrepData", "PrepRoute", "PrepPage" }) do
     assert(loadfile(root .. "/Explorer/" .. file .. ".lua"))("MiniQoL", ns)
 end
 assert(loadfile(root .. "/Integrations.lua"))("MiniQoL", ns)
@@ -457,3 +457,44 @@ assert(ns.rows["explorer.gear.sets.1"].gain:GetText() == "Set option")
 local procRow = ns.rows["explorer.gear.procs.1"]
 procRow.scripts.OnEnter(procRow)
 assert(procRow.gain:GetText() == "1.50/min" and tip:find("Example estimate"))
+
+-- Exercise the actual slash handler, destination field, async rendering and waypoint.
+do
+    local prep = explorer.Prep
+    SlashCmdList.MINIQOL("prep destination")
+    assert(ns.rows["note.prep.provider"].label:GetText():find("Enable Questie"))
+    Enum = Enum or {}
+    Enum.UIMapType = { Zone = 3 }
+    C_Map.GetMapChildrenInfo = function() return { {mapID=2, name="Destination"} } end
+    local db, zones = {}, {GetAreaIdByUiMapId=function(_, id) return id end,
+        GetAreaIdByName=function() end}
+    prep.Provider = function() return db, {ZoneDB=zones} end
+    local scanCount = 0
+    prep.ScanZone = function(area, tick)
+        assert(area == 2)
+        scanCount = scanCount + 1
+        for i=1,90 do tick() end
+        return {}
+    end
+    debugprofilestop = function() return 0 end
+    prep.Character = function() return {} end
+    prep.Route = function()
+        local place = {area=1, mapID=1, name="Giver", x=0.3, y=0.4}
+        return { {kind=1, quest="Incoming quest", label="Pick up", place=place, phase="Before traveling"},
+            {kind=3, quest="Incoming quest", label="Turn in", place=place, phase="In the zone"} }, {}, {}
+    end
+    SlashCmdList.MINIQOL("prep deSti")
+    assert(ns.db.page == "prep" and ns.rows["note.prep.progress"]:IsShown())
+    drain()
+    assert(scanCount == 1 and ns.rows["prep.step.1"].title:GetText():find("Pick up"))
+    local waypoint = ns.rows["prep.step.1"].pin
+    waypoint.scripts.OnClick(waypoint)
+    assert(pin[1] == 1 and pin[2] == 0.3 and pin[4]:find("Incoming quest"))
+    local itinerary = ns.rows["prep.views"].buttons[2]
+    itinerary.scripts.OnClick(itinerary)
+    assert(ns.rows["prep.step.1"].title:GetText():find("Turn in"))
+    local edit = ns.rows["prep.zone"].edit
+    edit:SetText("no such zone")
+    edit.scripts.OnEnterPressed(edit)
+    assert(ns.rows["note.prep.message"].label:GetText():find("No matching zone"))
+end
